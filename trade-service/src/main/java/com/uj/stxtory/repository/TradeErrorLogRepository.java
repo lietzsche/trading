@@ -13,8 +13,8 @@ public interface TradeErrorLogRepository extends JpaRepository<TradeErrorLog, Lo
   @Query(
       """
       select e from TradeErrorLog e
-      where (:source is null or e.source = :source)
-        and (:keyword is null
+      where (:source = '' or e.source = :source)
+        and (:keyword = ''
           or lower(e.operation) like lower(concat('%', :keyword, '%'))
           or lower(e.errorType) like lower(concat('%', :keyword, '%'))
           or lower(e.message) like lower(concat('%', :keyword, '%')))

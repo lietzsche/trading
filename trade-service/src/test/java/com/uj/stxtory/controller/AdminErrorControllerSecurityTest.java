@@ -1,7 +1,7 @@
 package com.uj.stxtory.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -51,12 +51,24 @@ class AdminErrorControllerSecurityTest {
 
   @Test
   void adminCanViewErrors() throws Exception {
-    when(tradeErrorLogRepository.search(isNull(), isNull(), any(Pageable.class)))
+    when(tradeErrorLogRepository.search(eq(""), eq(""), any(Pageable.class)))
         .thenReturn(Page.empty());
     when(tradeErrorLogRepository.findDistinctOperations()).thenReturn(List.of());
 
     mockMvc
         .perform(get("/admin/errors").with(user("admin").roles("ADMIN")))
+        .andExpect(status().isOk())
+        .andExpect(view().name("admin/errors"));
+  }
+
+  @Test
+  void masterCanViewErrorsWithoutSearchFilters() throws Exception {
+    when(tradeErrorLogRepository.search(eq(""), eq(""), any(Pageable.class)))
+        .thenReturn(Page.empty());
+    when(tradeErrorLogRepository.findDistinctOperations()).thenReturn(List.of());
+
+    mockMvc
+        .perform(get("/admin/errors").with(user("master").roles("MASTER")))
         .andExpect(status().isOk())
         .andExpect(view().name("admin/errors"));
   }

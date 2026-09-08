@@ -142,16 +142,16 @@ public class AdminController {
       @RequestParam(required = false) String keyword,
       Model model) {
     int safePage = Math.max(page, 0);
-    String normalizedSource = normalize(source);
-    String normalizedKeyword = normalize(keyword);
+    String normalizedSource = Optional.ofNullable(normalize(source)).orElse("");
+    String normalizedKeyword = Optional.ofNullable(normalize(keyword)).orElse("");
     model.addAttribute(
         "errors",
         tradeErrorLogRepository.search(
             normalizedSource,
             normalizedKeyword,
             PageRequest.of(safePage, 50, Sort.by(Sort.Direction.DESC, "id"))));
-    model.addAttribute("source", normalizedSource == null ? "" : normalizedSource);
-    model.addAttribute("keyword", normalizedKeyword == null ? "" : normalizedKeyword);
+    model.addAttribute("source", normalizedSource);
+    model.addAttribute("keyword", normalizedKeyword);
     model.addAttribute("operations", tradeErrorLogRepository.findDistinctOperations());
     return "admin/errors";
   }
