@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +49,7 @@ public class UPbitNotifyService implements DealNotifyService {
   }
 
   private List<UPbit> callSaved() { // 목표가와 현재가가 비율 상으로 가장 가까운 순
-    return uPbitRepository.findAllByDeletedAtIsNullOrderByPricingReferenceDateDesc().stream()
+    return uniqueActiveItems().stream()
         .filter(u -> u.getExpectedSellingPrice() != u.getMinimumSellingPrice())
         .sorted(
             Comparator.comparing(UPbit::getRenewalCnt)
@@ -59,9 +61,49 @@ public class UPbitNotifyService implements DealNotifyService {
         .toList();
   }
 
+  private List<UPbit> uniqueActiveItems() {
+    Map<String, UPbit> uniqueByCode = new LinkedHashMap<>();
+    uPbitRepository
+        .findAllByDeletedAtIsNullOrderByPricingReferenceDateDesc()
+        .forEach(
+            item ->
+                uniqueByCode.merge(
+                    item.getCode(),
+                    item,
+                    (existing, candidate) ->
+                        existing.getId() == null
+                                || (candidate.getId() != null
+                                    && candidate.getId() < existing.getId())
+                            ? candidate
+                            : existing));
+    return new ArrayList<>(uniqueByCode.values());
+  }
+
+  @EventListener(ApplicationReadyEvent.class)
+  public synchronized void cleanupDuplicateRecommendations() {
+    List<UPbit> active = uPbitRepository.findAllByDeletedAtIsNullOrderByPricingReferenceDateDesc();
+    Map<String, UPbit> survivorByCode = new HashMap<>();
+    active.forEach(
+        item ->
+            survivorByCode.merge(
+                item.getCode(),
+                item,
+                (existing, candidate) ->
+                    existing.getId() <= candidate.getId() ? existing : candidate));
+    List<UPbit> duplicates =
+        active.stream()
+            .filter(item -> !item.getId().equals(survivorByCode.get(item.getCode()).getId()))
+            .peek(item -> item.setDeletedAt(LocalDateTime.now()))
+            .toList();
+    if (!duplicates.isEmpty()) {
+      log.warn("중복 Upbit 추천 종목을 정리합니다. count: {}", duplicates.size());
+      uPbitRepository.saveAll(duplicates);
+    }
+  }
+
   @Async
   @Override
-  public void save() {
+  public synchronized void save() {
     try {
       saveInternal();
     } catch (Exception e) {
@@ -72,7 +114,25 @@ public class UPbitNotifyService implements DealNotifyService {
   }
 
   private void saveInternal() {
-    List<UPbit> saved = callSaved();
+    List<UPbit> active = uPbitRepository.findAllByDeletedAtIsNullOrderByPricingReferenceDateDesc();
+    Map<String, UPbit> savedByCode = new LinkedHashMap<>();
+    active.forEach(
+        item ->
+            savedByCode.merge(
+                item.getCode(),
+                item,
+                (existing, candidate) ->
+                    existing.getId() <= candidate.getId() ? existing : candidate));
+    List<UPbit> duplicates =
+        active.stream()
+            .filter(item -> !item.getId().equals(savedByCode.get(item.getCode()).getId()))
+            .peek(item -> item.setDeletedAt(LocalDateTime.now()))
+            .toList();
+    if (!duplicates.isEmpty()) {
+      log.warn("중복 Upbit 추천 종목을 정리합니다. count: {}", duplicates.size());
+      uPbitRepository.saveAll(duplicates);
+    }
+    List<UPbit> saved = new ArrayList<>(savedByCode.values());
 
     DealSettingsInfo settings = dealSettingsService.getByName("upbit");
     DealModel model = new UPbitModel(settings.getHighestPriceReferenceDays());
@@ -83,7 +143,10 @@ public class UPbitNotifyService implements DealNotifyService {
 
     List<UPbit> save =
         saveItems.stream()
-            .filter(item -> saved.stream().noneMatch(s -> s.getCode().equals(item.getCode())))
+            .collect(Collectors.toMap(DealItem::getCode, item -> item, (first, ignored) -> first))
+            .values()
+            .stream()
+            .filter(item -> !savedByCode.containsKey(item.getCode()))
             .map(
                 item ->
                     (UPbit)
