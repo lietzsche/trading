@@ -9,6 +9,7 @@ import com.uj.stxtory.domain.entity.UPbit;
 import com.uj.stxtory.repository.UPbitRepository;
 import com.uj.stxtory.service.DealSettingsService;
 import com.uj.stxtory.service.TradeErrorLogService;
+import com.uj.stxtory.service.calculation.CalculationClient;
 import com.uj.stxtory.service.deal.calculate.CalculateUpbitService;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,7 +25,8 @@ class UPbitNotifyServiceTest {
             repository,
             mock(DealSettingsService.class),
             mock(CalculateUpbitService.class),
-            mock(TradeErrorLogService.class));
+            mock(TradeErrorLogService.class),
+            mock(CalculationClient.class));
 
     UPbit first = recommendation(1L, "KRW-PIEVERSE", "파이버스");
     UPbit duplicate = recommendation(2L, "KRW-PIEVERSE", "파이버스");
@@ -45,7 +47,8 @@ class UPbitNotifyServiceTest {
             repository,
             mock(DealSettingsService.class),
             mock(CalculateUpbitService.class),
-            mock(TradeErrorLogService.class));
+            mock(TradeErrorLogService.class),
+            mock(CalculationClient.class));
     UPbit survivor = recommendation(1L, "KRW-PIEVERSE", "파이버스");
     UPbit duplicate = recommendation(2L, "KRW-PIEVERSE", "파이버스");
     when(repository.findAllByDeletedAtIsNullOrderByPricingReferenceDateDesc())

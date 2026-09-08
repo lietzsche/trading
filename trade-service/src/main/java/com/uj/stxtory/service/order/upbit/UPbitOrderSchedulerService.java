@@ -7,12 +7,9 @@ import com.uj.stxtory.domain.entity.TbUPbitKey;
 import com.uj.stxtory.repository.UPbitOrderHistoryRepository;
 import com.uj.stxtory.service.TradeErrorLogService;
 import com.uj.stxtory.service.account.upbit.UPbitAccountService;
+import com.uj.stxtory.service.calculation.CalculationClient;
 import com.uj.stxtory.service.deal.notify.UPbitNotifyService;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,16 +23,19 @@ public class UPbitOrderSchedulerService {
   private final UPbitNotifyService uPbitNotifyService;
   private final UPbitOrderHistoryRepository uPbitOrderHistoryRepository;
   private final TradeErrorLogService errorLogService;
+  private final CalculationClient calculationClient;
 
   public UPbitOrderSchedulerService(
       UPbitAccountService accountService,
       UPbitNotifyService uPbitNotifyService,
       UPbitOrderHistoryRepository uPbitOrderHistoryRepository,
-      TradeErrorLogService errorLogService) {
+      TradeErrorLogService errorLogService,
+      CalculationClient calculationClient) {
     this.accountService = accountService;
     this.uPbitNotifyService = uPbitNotifyService;
     this.uPbitOrderHistoryRepository = uPbitOrderHistoryRepository;
     this.errorLogService = errorLogService;
+    this.calculationClient = calculationClient;
   }
 
   // 매매 스케쥴러
@@ -50,48 +50,40 @@ public class UPbitOrderSchedulerService {
   }
 
   private void upbitAutoOrderInternal() {
-    Map<Long, List<UPbitAccount>> accountsByKeyId = new HashMap<>();
-
-    // 타입값 확인
-    Map<Object, List<TbUPbitKey>> accountGroup =
-        accountService.getAutoAccount().stream()
-            .collect(
-                Collectors.groupingBy(
-                    key -> {
-                      Optional<List<UPbitAccount>> account =
-                          Optional.ofNullable(accountService.getAccount(key.getUserLoginId()));
-                      account.ifPresent(value -> accountsByKeyId.put(key.getId(), value));
-                      if (account.filter(a -> a.size() > 1).isPresent()) return "IN";
-                      if (account.filter(a -> a.size() == 1).isPresent()) return "OUT";
-                      return "NOT ACCOUNT";
-                    }));
-
-    Optional.ofNullable(accountGroup.get("NOT ACCOUNT"))
-        .orElse(new ArrayList<>())
-        .forEach(a -> log.info("Upbit 계좌를 조회할 수 없습니다. loginId: {}", a.getUserLoginId()));
-
-    // 이미 가지고 있으니, 매도할지 판단 후 실행
-    Optional.ofNullable(accountGroup.get("IN"))
-        .map(
-            in -> {
-              in.forEach(key -> checkAndSale(key, accountsByKeyId.get(key.getId())));
-              return true;
-            });
-
-    // 가지고 있는 게 없으니, 매수할지 판단 후 실행
-    Optional.ofNullable(accountGroup.get("OUT"))
-        .map(
-            out -> {
-              out.forEach(key -> checkAndBuy(key, accountsByKeyId.get(key.getId())));
-              return true;
+    List<String> markets =
+        uPbitNotifyService.getSaved().stream().map(UPbitInfo::getCode).distinct().toList();
+    accountService
+        .getAutoAccount()
+        .forEach(
+            key -> {
+              List<UPbitAccount> accounts = accountService.getAccount(key.getUserLoginId());
+              if (accounts == null || accounts.isEmpty()) {
+                log.info("Upbit 계좌를 조회할 수 없습니다. loginId: {}", key.getUserLoginId());
+                return;
+              }
+              List<CalculationClient.TradeAction> actions =
+                  calculationClient.decideAutoTrade(
+                      markets, accounts.stream().map(UPbitAccount::getCurrency).toList());
+              checkAndBuy(
+                  key,
+                  accounts,
+                  actions.stream()
+                      .filter(action -> "BUY".equals(action.side()))
+                      .map(CalculationClient.TradeAction::market)
+                      .toList());
+              checkAndSale(
+                  key,
+                  accounts,
+                  actions.stream()
+                      .filter(action -> "SELL".equals(action.side()))
+                      .map(CalculationClient.TradeAction::market)
+                      .toList());
             });
   }
 
   // 매수부터 확인
-  private void checkAndBuy(TbUPbitKey key, List<UPbitAccount> initialAccount) {
-    List<String> markets =
-        uPbitNotifyService.getSaved().stream().map(UPbitInfo::getCode).collect(Collectors.toList());
-    if (markets.size() < 3) return;
+  private void checkAndBuy(
+      TbUPbitKey key, List<UPbitAccount> initialAccount, List<String> markets) {
     List<UPbitAccount> account = initialAccount;
     for (int i = 0; i < markets.size(); i++) {
       String m = markets.get(i);
@@ -119,9 +111,8 @@ public class UPbitOrderSchedulerService {
     }
   }
 
-  private void checkAndSale(TbUPbitKey key, List<UPbitAccount> originalAccount) {
-    List<String> markets =
-        uPbitNotifyService.getSaved().stream().map(UPbitInfo::getCode).collect(Collectors.toList());
+  private void checkAndSale(
+      TbUPbitKey key, List<UPbitAccount> originalAccount, List<String> markets) {
     if (originalAccount == null || originalAccount.isEmpty()) return;
     List<UPbitAccount> account =
         originalAccount.stream()
@@ -133,8 +124,7 @@ public class UPbitOrderSchedulerService {
               accountService.getOrdersChance(
                   key.getAccessKey(), key.getSecretKey(), "KRW-" + a.getCurrency());
           String balance = ordersChance.getAskAccount().getBalance();
-          // 현재 추천 종목에 포함되지 않거나 추천 종목이 3개 미만이면 곧장 매도
-          if (!markets.contains("KRW-" + a.getCurrency()) || markets.size() < 3) {
+          if (markets.contains("KRW-" + a.getCurrency())) {
             accountService
                 .order(
                     "KRW-" + a.getCurrency(),

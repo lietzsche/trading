@@ -32,7 +32,11 @@ management:
     web:
       exposure:
         include:
-        - '*'
+        - health
+        - info
+        - metrics
+        - httpexchanges
+        - logfile
   endpoint:
     health:
       show-details: never
@@ -41,10 +45,8 @@ management:
     logfile:
       access: read-only
 
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+calculation-service:
+  url: ${CALCULATION_SERVICE_URL:http://localhost:8000}
 
 logging:
   file:

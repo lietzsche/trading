@@ -1,8 +1,6 @@
-# 주식 계산 및 메일링 프로젝트
+# Trading Spring service
 
-- docker-compose 로 postgresql사용
-- thymeleaf 사용
-- spring security
-
-### url
-http://lietzsche.iptime.org/
+- PostgreSQL 영속 저장
+- Thymeleaf 사용자·관리자 화면
+- Spring Security 인증 및 권한
+- FastAPI calculation-service 호출

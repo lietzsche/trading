@@ -16,6 +16,7 @@ import com.uj.stxtory.repository.StockHistoryRepository;
 import com.uj.stxtory.repository.StockRepository;
 import com.uj.stxtory.service.DealSettingsService;
 import com.uj.stxtory.service.TradeErrorLogService;
+import com.uj.stxtory.service.calculation.CalculationClient;
 import com.uj.stxtory.service.deal.DealNotifyService;
 import com.uj.stxtory.service.deal.calculate.CalculateStockService;
 import java.time.LocalDateTime;
@@ -40,6 +41,7 @@ public class StockNotifyService implements DealNotifyService {
   private final CalculateStockService calculateStockService;
   private final DividendStockRepository dividendStockRepository;
   private final TradeErrorLogService errorLogService;
+  private final CalculationClient calculationClient;
 
   public StockNotifyService(
       StockRepository stockRepository,
@@ -47,13 +49,15 @@ public class StockNotifyService implements DealNotifyService {
       CalculateStockService calculStockService,
       StockHistoryRepository stockHistoryRepository,
       DividendStockRepository dividendStockRepository,
-      TradeErrorLogService errorLogService) {
+      TradeErrorLogService errorLogService,
+      CalculationClient calculationClient) {
     this.stockRepository = stockRepository;
     this.dealSettingsService = dealSettingsService;
     this.calculateStockService = calculStockService;
     this.stockHistoryRepository = stockHistoryRepository;
     this.dividendStockRepository = dividendStockRepository;
     this.errorLogService = errorLogService;
+    this.calculationClient = calculationClient;
   }
 
   public List<StockInfo> getSaved() {
@@ -106,13 +110,22 @@ public class StockNotifyService implements DealNotifyService {
 
     DealSettingsInfo settings = dealSettingsService.getByName(SETTING_NAME);
     StockModel stockModel = new StockModel(settings.getHighestPriceReferenceDays());
-
+    Map<String, List<DealPrice>> pricesMap = getPricesMap(stockModel, settings);
+    List<DealItem> candidates =
+        stockModel.getAll().stream().filter(item -> pricesMap.containsKey(item.getCode())).toList();
+    List<String> selectedCodes =
+        calculationClient.select(
+            candidates,
+            pricesMap,
+            settings.getExpectedLowPercentage(),
+            settings.getExpectedHighPercentage(),
+            settings.isVolumeCheck(),
+            true);
     List<DealItem> saveItems =
-        stockModel.calculateByThreeDaysByPageForSaveByDatabase(
-            (double) settings.getExpectedLowPercentage(),
-            (double) settings.getExpectedHighPercentage(),
-            getPricesMap(stockModel, settings),
-            settings.isVolumeCheck());
+        candidates.stream()
+            .filter(item -> selectedCodes.contains(item.getCode()))
+            .peek(item -> item.setPrices(pricesMap.get(item.getCode())))
+            .toList();
 
     List<Stock> save =
         saveItems.stream()
@@ -141,18 +154,55 @@ public class StockNotifyService implements DealNotifyService {
     DealModel model = new StockModel(settings.getHighestPriceReferenceDays());
 
     if (saved.isEmpty()) return model;
-    model.calculateForTodayUpdateByDatabase(
-        items,
-        getPricesMap(items, model, settings),
-        1 + ((double) settings.getExpectedHighPercentage() / 100),
-        1 + ((double) settings.getExpectedLowPercentage() / 100));
-    List<DealItem> updateItems = model.getNowItems();
-    List<DealItem> deleteItems = model.getDeleteItems();
+    Map<String, List<DealPrice>> pricesMap = getPricesMap(items, model, settings);
+    List<CalculationClient.PositionResult> results =
+        calculationClient.update(
+            items,
+            pricesMap,
+            1 + ((double) settings.getExpectedHighPercentage() / 100),
+            1 + ((double) settings.getExpectedLowPercentage() / 100));
+    applyResults(items, results);
+    List<DealItem> updateItems =
+        items.stream()
+            .filter(
+                item ->
+                    results.stream()
+                        .anyMatch(
+                            r -> r.code().equals(item.getCode()) && "KEEP".equals(r.action())))
+            .toList();
+    List<DealItem> deleteItems =
+        items.stream()
+            .filter(
+                item ->
+                    results.stream()
+                        .anyMatch(
+                            r -> r.code().equals(item.getCode()) && "DELETE".equals(r.action())))
+            .toList();
+    model.getNowItems().addAll(updateItems);
+    model.getDeleteItems().addAll(deleteItems);
 
     update(saved, updateItems);
     delete(saved, deleteItems);
 
     return model;
+  }
+
+  private void applyResults(List<DealItem> items, List<CalculationClient.PositionResult> results) {
+    items.forEach(
+        item ->
+            results.stream()
+                .filter(result -> result.code().equals(item.getCode()))
+                .findFirst()
+                .ifPresent(
+                    result -> {
+                      item.setExpectedSellingPrice(result.expectedSellingPrice());
+                      item.setMinimumSellingPrice(result.minimumSellingPrice());
+                      item.setTempPrice(result.tempPrice());
+                      item.setSettingPrice(result.settingPrice());
+                      item.setRenewalCnt(result.renewalCount());
+                      if (result.pricingReferenceDate() != null)
+                        item.setPricingReferenceDate(result.pricingReferenceDate());
+                    }));
   }
 
   private Map<String, List<DealPrice>> getPricesMap(

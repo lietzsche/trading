@@ -17,6 +17,10 @@ public interface DealItem {
 
   double getMinimumSellingPrice();
 
+  void setExpectedSellingPrice(double price);
+
+  void setMinimumSellingPrice(double price);
+
   void setTempPrice(double price);
 
   void setSettingPrice(double price);
@@ -26,6 +30,10 @@ public interface DealItem {
   double getSettingPrice();
 
   int getRenewalCnt();
+
+  void setRenewalCnt(int renewalCnt);
+
+  void setPricingReferenceDate(LocalDateTime pricingReferenceDate);
 
   Object toEntity(double highPer, double lowPer);
 

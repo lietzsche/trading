@@ -11,31 +11,48 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     networks:
       - nat
-  
-  registry-server:
-    image: bion0625/registry-server:v1
-    build: 
-      context: ./registry-server
-    environment:
-      TZ: Asia/Seoul
-    ports:
-      - "8761:8761"
-    networks:
-      - nat
-  
-  admin-server:
-    image: bion0625/admin-server:v1
+
+  calculation-service:
+    image: trading/calculation-service:latest
     build:
-      context: ./admin-server
+      context: ./calculation-service
+      target: production
     environment:
       TZ: Asia/Seoul
-    ports:
-      - "9090:9090"
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     networks:
       - nat
-  
+
+  db-migrate:
+    image: postgres:15
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-bion_user}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      PGDATABASE: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./db/migrations:/migrations:ro
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql"]
+    depends_on:
+      trade-service:
+        condition: service_healthy
+    networks:
+      - nat
+    restart: "no"
+
   trade-service:
     image: bion0625/trade-service:v1
     build:
@@ -46,21 +63,21 @@ services:
       - DB_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-postgres}
       - DB_USERNAME=${POSTGRES_USER:-bion_user}
       - DB_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - CALCULATION_SERVICE_URL=http://calculation-service:8000
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
     networks:
       - nat
     depends_on:
-      - postgres
-  
-  edge-server:
-    image: bion0625/edge-server:v1
-    build:
-      context: ./edge-server
-    ports:
-      - "8085:8085"
-    networks:
-      - nat
+      postgres:
+        condition: service_healthy
+      calculation-service:
+        condition: service_healthy
 
 volumes:
   postgres_data:

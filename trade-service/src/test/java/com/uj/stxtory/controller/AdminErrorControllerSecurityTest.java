@@ -14,10 +14,13 @@ import com.uj.stxtory.service.AuthenticationProviderService;
 import com.uj.stxtory.service.DealSettingsService;
 import com.uj.stxtory.service.UserService;
 import com.uj.stxtory.service.account.upbit.UPbitAccountService;
+import com.uj.stxtory.service.calculation.CalculationClient;
 import com.uj.stxtory.service.deal.notify.StockNotifyService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
@@ -36,6 +39,8 @@ class AdminErrorControllerSecurityTest {
   @MockitoBean private DealSettingsService dealSettingsService;
   @MockitoBean private StockNotifyService stockNotifyService;
   @MockitoBean private TradeErrorLogRepository tradeErrorLogRepository;
+  @MockitoBean private HealthEndpoint healthEndpoint;
+  @MockitoBean private CalculationClient calculationClient;
 
   @Test
   void anonymousUserIsRedirectedToLogin() throws Exception {
@@ -71,5 +76,16 @@ class AdminErrorControllerSecurityTest {
         .perform(get("/admin/errors").with(user("master").roles("MASTER")))
         .andExpect(status().isOk())
         .andExpect(view().name("admin/errors"));
+  }
+
+  @Test
+  void masterCanViewIntegratedSystemDashboard() throws Exception {
+    when(healthEndpoint.health()).thenReturn(Health.up().build());
+    when(calculationClient.isHealthy()).thenReturn(true);
+
+    mockMvc
+        .perform(get("/admin/system").with(user("master").roles("MASTER")))
+        .andExpect(status().isOk())
+        .andExpect(view().name("admin/system"));
   }
 }

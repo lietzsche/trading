@@ -31,6 +31,7 @@ stop_tunnel() {
 }
 
 stop_tunnel trade-service
+# 이전 구성에서 실행된 admin-server 터널도 함께 정리한다.
 stop_tunnel admin-server
 
 echo "Docker Compose 리소스를 종료·정리합니다..."

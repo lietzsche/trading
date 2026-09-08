@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SYSTEM</title>
+    <link rel="stylesheet" th:href="@{/css/main.css}" />
+</head>
+<body>
+<div class="header">
+    <div class="menu-container">
+        <a href="/" class="menu">MAIN</a>
+        <a href="/admin/system" class="here">SYSTEM</a>
+        <a href="/admin/errors" class="menu">ERRORS</a>
+        <a href="/admin/setting" class="menu">SETTING</a>
+        <a href="/admin/users" class="menu">USERS</a>
+        <a href="/admin/autos" class="menu">AUTOS</a>
+    </div>
+    <a href="/logout" class="logout">LOGOUT</a>
+</div>
+<div class="content">
+    <h1>시스템 상태</h1>
+    <div class="stock-cards-container">
+        <div class="stock-card">
+            <h3>trade-service</h3>
+            <p>상태: <strong th:text="${serviceStatus}"></strong></p>
+            <p>가동 시간: <span th:text="${uptime}"></span></p>
+        </div>
+        <div class="stock-card">
+            <h3>calculation-service</h3>
+            <p>상태: <strong th:text="${calculationStatus}"></strong></p>
+            <p>연결: Docker 내부 네트워크 전용</p>
+        </div>
+        <div class="stock-card">
+            <h3>JVM</h3>
+            <p>사용 메모리: <span th:text="${usedMemoryMb}"></span> MB</p>
+            <p>최대 메모리: <span th:text="${maxMemoryMb}"></span> MB</p>
+        </div>
+        <div class="stock-card">
+            <h3>저장된 오류</h3>
+            <p>전체: <span th:text="${errorCount}"></span>건</p>
+            <a class="button-link" href="/admin/errors">오류 확인</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

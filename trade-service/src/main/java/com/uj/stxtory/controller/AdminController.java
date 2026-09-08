@@ -10,12 +10,16 @@ import com.uj.stxtory.repository.TradeErrorLogRepository;
 import com.uj.stxtory.service.DealSettingsService;
 import com.uj.stxtory.service.UserService;
 import com.uj.stxtory.service.account.upbit.UPbitAccountService;
+import com.uj.stxtory.service.calculation.CalculationClient;
 import com.uj.stxtory.service.deal.notify.StockNotifyService;
+import java.lang.management.ManagementFactory;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
@@ -37,18 +41,24 @@ public class AdminController {
   private final DealSettingsService dealSettingsService;
   private final StockNotifyService stockNotifyService;
   private final TradeErrorLogRepository tradeErrorLogRepository;
+  private final HealthEndpoint healthEndpoint;
+  private final CalculationClient calculationClient;
 
   public AdminController(
       UserService userService,
       UPbitAccountService uPbitAccountService,
       DealSettingsService dealSettingsService,
       StockNotifyService stockNotifyService,
-      TradeErrorLogRepository tradeErrorLogRepository) {
+      TradeErrorLogRepository tradeErrorLogRepository,
+      HealthEndpoint healthEndpoint,
+      CalculationClient calculationClient) {
     this.userService = userService;
     this.uPbitAccountService = uPbitAccountService;
     this.dealSettingsService = dealSettingsService;
     this.stockNotifyService = stockNotifyService;
     this.tradeErrorLogRepository = tradeErrorLogRepository;
+    this.healthEndpoint = healthEndpoint;
+    this.calculationClient = calculationClient;
   }
 
   @GetMapping(value = "/admin/setting")
@@ -154,6 +164,30 @@ public class AdminController {
     model.addAttribute("keyword", normalizedKeyword);
     model.addAttribute("operations", tradeErrorLogRepository.findDistinctOperations());
     return "admin/errors";
+  }
+
+  @GetMapping("/admin/system")
+  public String system(Model model) {
+    Runtime runtime = Runtime.getRuntime();
+    model.addAttribute("serviceStatus", healthEndpoint.health().getStatus().getCode());
+    model.addAttribute("calculationStatus", calculationClient.isHealthy() ? "UP" : "DOWN");
+    model.addAttribute("errorCount", tradeErrorLogRepository.count());
+    model.addAttribute(
+        "usedMemoryMb", (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024);
+    model.addAttribute("maxMemoryMb", runtime.maxMemory() / 1024 / 1024);
+    model.addAttribute(
+        "uptime",
+        formatDuration(Duration.ofMillis(ManagementFactory.getRuntimeMXBean().getUptime())));
+    return "admin/system";
+  }
+
+  private String formatDuration(Duration duration) {
+    return "%d일 %02d:%02d:%02d"
+        .formatted(
+            duration.toDays(),
+            duration.toHoursPart(),
+            duration.toMinutesPart(),
+            duration.toSecondsPart());
   }
 
   private String normalize(String value) {

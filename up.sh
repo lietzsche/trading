@@ -21,7 +21,7 @@ is_running() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
-for service in trade-service admin-server; do
+for service in trade-service; do
   if is_running "$STATE_DIR/$service.pid"; then
     echo "오류: $service Quick Tunnel이 이미 실행 중입니다." >&2
     echo "재배포는 ./reup.sh, 전체 재시작은 ./down.sh 후 ./up.sh를 사용하세요." >&2
@@ -33,6 +33,7 @@ rm -f "$URL_FILE" "$STATE_DIR"/*.pid "$STATE_DIR"/*.log
 
 echo "Docker 서비스를 빌드하고 시작합니다..."
 docker compose up -d --build
+docker compose wait db-migrate
 
 start_tunnel() {
   local service="$1" port="$2"
@@ -74,17 +75,15 @@ cleanup_started_tunnels() {
 
 trap cleanup_started_tunnels ERR INT TERM
 TRADE_SERVICE_URL="$(start_tunnel trade-service 8080)"
-ADMIN_SERVER_URL="$(start_tunnel admin-server 9090)"
 trap - ERR INT TERM
 
 cat > "$URL_FILE" <<EOF
 TRADE_SERVICE_URL=$TRADE_SERVICE_URL
-ADMIN_SERVER_URL=$ADMIN_SERVER_URL
 EOF
 
 echo
 echo "배포가 완료되었습니다."
 echo "trade-service: $TRADE_SERVICE_URL"
-echo "admin-server:  $ADMIN_SERVER_URL"
+echo "관리자 화면:   $TRADE_SERVICE_URL/admin/system"
 echo "URL 저장 위치: $URL_FILE"
 echo "다시 확인: sed -n 's/^[^=]*=//p' '$URL_FILE'"
