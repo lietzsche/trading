@@ -35,18 +35,13 @@ public class StockPriceInfo implements DealPrice {
   }
 
   public static List<DealPrice> getPriceInfo(String code, int page) { // 종목 및 페이지로 가격 정보 가져오기
-    Document doc;
-    try {
-      doc =
-          StockInfo.getDocumentByUrl(
-              String.format(
-                  "http://finance.naver.com/item/sise_day.nhn?code=%s&page=%d", code, page));
-    } catch (Exception e) {
-      log.info("getPriceInfo error: " + code + ", " + page);
-      return Collections.emptyList();
-    }
-
-    if (doc == null) return new ArrayList<>();
+    Document doc =
+        StockInfo.getDocumentByUrl(
+            String.format(
+                "https://finance.naver.com/item/sise_day.nhn?code=%s&page=%d", code, page));
+    if (doc == null)
+      throw new IllegalStateException(
+          "주식 가격을 조회하지 못했습니다. code: " + code + ", page: " + page);
 
     Elements infoList = doc.select("tr");
 
@@ -60,8 +55,8 @@ public class StockPriceInfo implements DealPrice {
 
       Elements info = infoList.get(i).select("td");
       if (info.size() < 7) {
-        log.warn("주식 가격 응답 형식이 올바르지 않아 행을 건너뜁니다. code: {}, page: {}", code, page);
-        continue;
+        throw new IllegalStateException(
+            "주식 가격 응답 형식이 올바르지 않습니다. code: " + code + ", page: " + page);
       }
       price.setDate(FormatUtil.stringToDate(info.get(0).text()));
       price.setClose(FormatUtil.stringToLong(info.get(1).text()));

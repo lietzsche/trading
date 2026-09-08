@@ -8,17 +8,20 @@ import com.uj.stxtory.domain.dto.upbit.UPbitModel;
 import com.uj.stxtory.domain.entity.UPbit;
 import com.uj.stxtory.repository.UPbitRepository;
 import com.uj.stxtory.service.DealSettingsService;
+import com.uj.stxtory.service.TradeErrorLogService;
 import com.uj.stxtory.service.deal.DealNotifyService;
 import com.uj.stxtory.service.deal.calculate.CalculateUpbitService;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Transactional
 @Service
+@Slf4j
 public class UPbitNotifyService implements DealNotifyService {
 
   private static final String SETTING_NAME = "upbit";
@@ -26,14 +29,16 @@ public class UPbitNotifyService implements DealNotifyService {
   private final UPbitRepository uPbitRepository;
   private final DealSettingsService dealSettingsService;
   private final CalculateUpbitService calculateUpbitService;
+  private final TradeErrorLogService errorLogService;
 
   public UPbitNotifyService(
       UPbitRepository uPbitRepository,
       DealSettingsService dealSettingsService,
-      CalculateUpbitService calculateUpbitService) {
+      CalculateUpbitService calculateUpbitService, TradeErrorLogService errorLogService) {
     this.uPbitRepository = uPbitRepository;
     this.dealSettingsService = dealSettingsService;
     this.calculateUpbitService = calculateUpbitService;
+    this.errorLogService = errorLogService;
   }
 
   public List<UPbitInfo> getSaved() {
@@ -56,6 +61,16 @@ public class UPbitNotifyService implements DealNotifyService {
   @Async
   @Override
   public void save() {
+    try {
+      saveInternal();
+    } catch (Exception e) {
+      log.error("upbit save async task failed", e);
+      errorLogService.record("UPBIT", "SAVE", e);
+      throw new IllegalStateException("upbit save async task failed", e);
+    }
+  }
+
+  private void saveInternal() {
     List<UPbit> saved = callSaved();
 
     DealSettingsInfo settings = dealSettingsService.getByName("upbit");
@@ -145,6 +160,16 @@ public class UPbitNotifyService implements DealNotifyService {
   @Override
   @Async
   public void saveHistory() {
+    try {
+      saveHistoryInternal();
+    } catch (Exception e) {
+      log.error("upbit saveHistory async task failed", e);
+      errorLogService.record("UPBIT", "SAVE_HISTORY", e);
+      throw new IllegalStateException("upbit saveHistory async task failed", e);
+    }
+  }
+
+  private void saveHistoryInternal() {
     DealSettingsInfo settings = dealSettingsService.getByName(SETTING_NAME);
     UPbitModel model = new UPbitModel(settings.getHighestPriceReferenceDays());
 

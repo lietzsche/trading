@@ -8,6 +8,7 @@ import com.uj.stxtory.domain.dto.upbit.UPbitOrderResponse;
 import com.uj.stxtory.domain.dto.upbit.UpbitOrderChanceResponse;
 import com.uj.stxtory.domain.entity.TbUPbitKey;
 import com.uj.stxtory.repository.TbUPbitKeyRepository;
+import com.uj.stxtory.service.TradeErrorLogService;
 import com.uj.stxtory.service.account.PublicIpClient;
 import feign.FeignException;
 import java.math.BigInteger;
@@ -33,12 +34,17 @@ public class UPbitAccountService {
   private final TbUPbitKeyRepository keyRepository;
   private final PublicIpClient publicIpClient;
   private final UpbitClient upbitClient;
+  private final TradeErrorLogService errorLogService;
 
   public UPbitAccountService(
-      TbUPbitKeyRepository keyRepository, PublicIpClient publicIpClient, UpbitClient upbitClient) {
+      TbUPbitKeyRepository keyRepository,
+      PublicIpClient publicIpClient,
+      UpbitClient upbitClient,
+      TradeErrorLogService errorLogService) {
     this.keyRepository = keyRepository;
     this.publicIpClient = publicIpClient;
     this.upbitClient = upbitClient;
+    this.errorLogService = errorLogService;
   }
 
   @Transactional
@@ -148,6 +154,7 @@ public class UPbitAccountService {
     try {
       accounts = upbitClient.getAccount("Bearer " + authenticationToken);
     } catch (FeignException e) {
+      errorLogService.record("UPBIT", "GET_ACCOUNT_HTTP_" + e.status(), e);
       int status = e.status();
       if (status == 401 || status == 403) {
         log.warn(
@@ -162,6 +169,7 @@ public class UPbitAccountService {
             status);
       }
     } catch (Exception e) {
+      errorLogService.record("UPBIT", "GET_ACCOUNT_CONNECTION", e);
       log.warn(
           "Upbit 계좌 조회 연결 오류입니다. 자동매매는 유지합니다. loginId: {}, error: {}",
           loginId,
@@ -198,6 +206,7 @@ public class UPbitAccountService {
       log.info("Response: " + response);
       return Optional.ofNullable(response);
     } catch (NoSuchAlgorithmException e) {
+      errorLogService.record("UPBIT", "PLACE_ORDER_TOKEN", e);
       log.info("bid".equals(side) ? "매수 실패" : "매도 실패");
       return Optional.empty();
     }
@@ -213,6 +222,7 @@ public class UPbitAccountService {
       String jwtToken = getAuthenticationTokenForOrderChance(market, accessKey, secretKey);
       return upbitClient.getOrdersChance("Bearer " + jwtToken, market);
     } catch (NoSuchAlgorithmException ex) {
+      errorLogService.record("UPBIT", "GET_ORDER_CHANCE_TOKEN", ex);
       throw new RuntimeException("API getOrdersChance Error!\n" + ex.getMessage());
     }
   }

@@ -5,6 +5,7 @@ import com.uj.stxtory.domain.dto.upbit.UPbitInfo;
 import com.uj.stxtory.domain.dto.upbit.UpbitOrderChanceResponse;
 import com.uj.stxtory.domain.entity.TbUPbitKey;
 import com.uj.stxtory.repository.UPbitOrderHistoryRepository;
+import com.uj.stxtory.service.TradeErrorLogService;
 import com.uj.stxtory.service.account.upbit.UPbitAccountService;
 import com.uj.stxtory.service.deal.notify.UPbitNotifyService;
 import java.util.ArrayList;
@@ -24,19 +25,31 @@ public class UPbitOrderSchedulerService {
   private final UPbitAccountService accountService;
   private final UPbitNotifyService uPbitNotifyService;
   private final UPbitOrderHistoryRepository uPbitOrderHistoryRepository;
+  private final TradeErrorLogService errorLogService;
 
   public UPbitOrderSchedulerService(
       UPbitAccountService accountService,
       UPbitNotifyService uPbitNotifyService,
-      UPbitOrderHistoryRepository uPbitOrderHistoryRepository) {
+      UPbitOrderHistoryRepository uPbitOrderHistoryRepository,
+      TradeErrorLogService errorLogService) {
     this.accountService = accountService;
     this.uPbitNotifyService = uPbitNotifyService;
     this.uPbitOrderHistoryRepository = uPbitOrderHistoryRepository;
+    this.errorLogService = errorLogService;
   }
 
   // 매매 스케쥴러
   @Scheduled(fixedDelay = 1000 * 30)
   public void upbitAutoOrder() {
+    try {
+      upbitAutoOrderInternal();
+    } catch (Exception e) {
+      log.error("Upbit 자동 주문 작업이 실패했습니다.", e);
+      errorLogService.record("UPBIT", "AUTO_ORDER", e);
+    }
+  }
+
+  private void upbitAutoOrderInternal() {
     Map<Long, List<UPbitAccount>> accountsByKeyId = new HashMap<>();
 
     // 타입값 확인

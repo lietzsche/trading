@@ -32,6 +32,15 @@ Docker 서비스를 빌드·실행한 뒤 `trade-service`와 `admin-server`용 �
 ./reup.sh
 ```
 
+재배포 시 Hibernate가 `trade_error_log` 테이블과 조회 인덱스를 자동으로 생성·갱신합니다. 주식과 Upbit 작업 오류는 본 작업과 별도 트랜잭션으로 이 테이블에 저장됩니다.
+
+최근 오류 확인:
+
+```bash
+docker exec postgres_db psql -U bion_user -d postgres -c \
+  "SELECT id, source, operation, error_type, message, created_at FROM trade_error_log ORDER BY id DESC LIMIT 100;"
+```
+
 컨테이너, 네트워크, Quick Tunnel과 모든 관련 볼륨을 완전히 삭제하려면:
 
 ```bash

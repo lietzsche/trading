@@ -76,7 +76,7 @@ public class DividendStockInfo {
       }
     } catch (Exception e) {
       log.warn("checkIfDividendStock failed: " + code, e);
-      dividendRate = 0.0;
+      throw new IllegalStateException("배당수익률을 분석하지 못했습니다. code: " + code, e);
     }
     return dividendRate;
   }

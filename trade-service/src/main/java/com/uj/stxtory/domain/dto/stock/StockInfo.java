@@ -112,7 +112,7 @@ public class StockInfo implements DealItem {
       throw new RuntimeException("getCompanyInfo error");
     }
 
-    if (doc == null) return new ArrayList<>();
+    if (doc == null) throw new IllegalStateException("한국거래소 종목 목록을 조회하지 못했습니다.");
 
     Elements infoList = doc.select("tr");
     for (int i = 1; i < infoList.size(); i++) {
@@ -130,17 +130,11 @@ public class StockInfo implements DealItem {
   }
 
   public static Boolean isIdentifier(String code) {
-    Document doc;
-    try {
-      doc =
-          getDocumentByUrl(
-              String.format("https://finance.naver.com/item/main.naver?code=%s", code));
-    } catch (Exception e) {
-      log.info("getStockMarketIdentifier error: " + code);
-      return false;
-    }
-
-    if (doc == null) return false;
+    Document doc =
+        getDocumentByUrl(
+            String.format("https://finance.naver.com/item/main.naver?code=%s", code));
+    if (doc == null)
+      throw new IllegalStateException("주식 시장 구분을 조회하지 못했습니다. code: " + code);
 
     Elements kospiList = doc.select("img.kospi");
 

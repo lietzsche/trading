@@ -15,6 +15,7 @@ import com.uj.stxtory.repository.DividendStockRepository;
 import com.uj.stxtory.repository.StockHistoryRepository;
 import com.uj.stxtory.repository.StockRepository;
 import com.uj.stxtory.service.DealSettingsService;
+import com.uj.stxtory.service.TradeErrorLogService;
 import com.uj.stxtory.service.deal.DealNotifyService;
 import com.uj.stxtory.service.deal.calculate.CalculateStockService;
 import java.time.LocalDateTime;
@@ -38,18 +39,21 @@ public class StockNotifyService implements DealNotifyService {
   private final DealSettingsService dealSettingsService;
   private final CalculateStockService calculateStockService;
   private final DividendStockRepository dividendStockRepository;
+  private final TradeErrorLogService errorLogService;
 
   public StockNotifyService(
       StockRepository stockRepository,
       DealSettingsService dealSettingsService,
       CalculateStockService calculStockService,
       StockHistoryRepository stockHistoryRepository,
-      DividendStockRepository dividendStockRepository) {
+      DividendStockRepository dividendStockRepository,
+      TradeErrorLogService errorLogService) {
     this.stockRepository = stockRepository;
     this.dealSettingsService = dealSettingsService;
     this.calculateStockService = calculStockService;
     this.stockHistoryRepository = stockHistoryRepository;
     this.dividendStockRepository = dividendStockRepository;
+    this.errorLogService = errorLogService;
   }
 
   public List<StockInfo> getSaved() {
@@ -92,6 +96,7 @@ public class StockNotifyService implements DealNotifyService {
       log.info("stock save async task completed");
     } catch (Exception e) {
       log.error("stock save async task failed", e);
+      errorLogService.record("STOCK", "SAVE", e);
       throw new IllegalStateException("stock save async task failed", e);
     }
   }
@@ -172,8 +177,12 @@ public class StockNotifyService implements DealNotifyService {
                               history.getLow(),
                               history.getVolume()))
                   .toList();
+          List<DealPrice> currentPrices = model.getPrice(item, 1);
+          if (currentPrices.isEmpty()) {
+            throw new IllegalStateException("현재 주식 가격이 비어 있습니다. code: " + item.getCode());
+          }
           ArrayList<DealPrice> prices = new ArrayList<>(historyPrices);
-          prices.addAll(model.getPrice(item, 1));
+          prices.addAll(currentPrices);
           pricesMap.put(
               item.getCode(),
               prices.stream()
@@ -212,10 +221,14 @@ public class StockNotifyService implements DealNotifyService {
                               history.getLow(),
                               history.getVolume()))
                   .toList();
-          ArrayList<DealPrice> prices = new ArrayList<>(historyPrices);
           StockInfo item = new StockInfo();
           item.setCode(code);
-          prices.addAll(model.getPrice(item, 1));
+          List<DealPrice> currentPrices = model.getPrice(item, 1);
+          if (currentPrices.isEmpty()) {
+            throw new IllegalStateException("현재 주식 가격이 비어 있습니다. code: " + item.getCode());
+          }
+          ArrayList<DealPrice> prices = new ArrayList<>(historyPrices);
+          prices.addAll(currentPrices);
           pricesMap.put(
               item.getCode(),
               prices.stream()
@@ -270,6 +283,7 @@ public class StockNotifyService implements DealNotifyService {
       log.info("stock saveHistory async task completed");
     } catch (Exception e) {
       log.error("stock saveHistory async task failed", e);
+      errorLogService.record("STOCK", "SAVE_HISTORY", e);
       throw new IllegalStateException("stock saveHistory async task failed", e);
     }
   }
@@ -307,6 +321,7 @@ public class StockNotifyService implements DealNotifyService {
       log.info("stock saveDividendStocks async task completed");
     } catch (Exception e) {
       log.error("stock saveDividendStocks async task failed", e);
+      errorLogService.record("STOCK", "SAVE_DIVIDEND_STOCKS", e);
       throw new IllegalStateException("stock saveDividendStocks async task failed", e);
     }
   }
