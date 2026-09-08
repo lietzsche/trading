@@ -1,0 +1,62 @@
+spring:
+  profiles:
+    active:
+    - prd
+  application:
+    name: trade-service
+  jpa:
+    show-sql: true
+    generate-ddl: true
+    database: postgresql
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USERNAME:bion_user}
+    password: ${DB_PASSWORD}
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    encoding: UTF-8
+  messages:
+    encoding: UTF-8
+server:
+  port: 8080
+
+management:
+  info:
+    env:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include:
+        - '*'
+  endpoint:
+    health:
+      show-details: never
+    env:
+      show-values: never
+    logfile:
+      access: read-only
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+
+logging:
+  file:
+    name: ../logfile.log  
+  logback:
+    rollingpolicy:
+      max-history: 1
+      max-file-size: 100MB
+      file-name-pattern: ${LOG_FILE}.%d{yyyy-MM-dd}-%i.log
+  charset:
+    file: UTF-8
+  pattern:
+    dateformat: yyyy-MM-dd HH:mm:ss.SSS,Asia/Seoul
+
+info:
+  contact:
+    email: stxtory@gmail.com
+    phone: 010-2397-7156

@@ -1,0 +1,439 @@
+body {
+    overflow-x: hidden; /* 수평 스크롤 방지 */
+}
+.content {
+    overflow-x: auto;   /* 테이블 가로 스크롤 허용 */
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f0f2f5;
+    color: #333;
+    overflow-x: hidden;
+    /* 수평 스크롤 방지 */
+}
+
+.header {
+    background-color: #2c3e50;
+    color: white;
+    padding: 15px 30px;
+    display: flex;
+    justify-content: space-between; /* 양 끝으로 분리 */
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.user-info span {
+    margin-right: 15px;
+    font-weight: bold;
+}
+
+.logout {
+    background-color: #e74c3c;
+    color: white;
+    margin-left: auto; /* 자동으로 오른쪽 끝으로 이동 */
+    padding: 8px 15px;
+    text-decoration: none;
+    border-radius: 3px;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.here {
+    background-color: #34495e;
+    color: white;
+    margin: 5px;
+    padding: 8px 15px;
+    text-decoration: none;
+    border-radius: 3px;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.menu {
+    background-color: #2980b9;
+    color: white;
+    margin: 5px;
+    padding: 8px 15px;
+    text-decoration: none;
+    border-radius: 3px;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+/* Admin 메뉴만 덮어쓰기 */
+.menu.admin-menu {
+    background-color: #27ae60;       /* 원하는 새 배경색 */
+}
+.menu.admin-menu:hover {
+    background-color: #2ecc71;       /* 호버 시 색상 */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.logout:hover {
+    background-color: #c0392b;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.content {
+    text-align: center;
+    margin: 50px auto;
+    max-width: 800px;
+    background-color: #fff;
+    padding: 40px 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    overflow-x: auto;
+    /* content 영역에서 수평 스크롤 */
+}
+
+.content h1 {
+    font-size: 2.2em;
+    color: #2c3e50;
+    margin-bottom: 20px;
+}
+
+.content p {
+    font-size: 1.1em;
+    color: #7f8c8d;
+    margin-bottom: 15px;
+}
+
+.button {
+    background-color: #2980b9;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 1em;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.3s, box-shadow 0.3s;
+    margin-top: 10px;
+}
+
+.button:hover {
+    background-color: #1abc9c;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.error {
+    color: #cc0000;
+    display: block;
+    margin-top: -8px;
+    font-size: 0.9em;
+}
+
+.no-data {
+    text-align: center;
+    font-size: 1.2em;
+    color: #7f8c8d;
+    margin-top: 20px;
+}
+
+.stock-cards-container {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    /* 스크롤 가능하게 설정 */
+    gap: 20px;
+    padding: 20px 0;
+    margin-bottom: 20px;
+    width: 100%;
+    /* 전체 너비를 사용하도록 설정 */
+}
+
+.stock-card {
+    min-width: 250px;
+    background-color: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+.stock-card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.stock-card h3 {
+    margin-top: 0;
+    font-size: 1.2em;
+    color: #2c3e50;
+}
+
+.stock-card p {
+    font-size: 0.9em;
+    color: #7f8c8d;
+}
+
+/* 반응형 스타일 추가 */
+@media (max-width: 768px) {
+
+    .content {
+        margin: 20px 10px;
+        padding: 20px 10px;
+    }
+
+    .stock-cards-container {
+        gap: 10px;
+    }
+
+    .stock-card {
+        min-width: 200px;
+        /* 카드 크기를 모바일에 맞게 조정 */
+        padding: 10px;
+    }
+}
+
+/* 빨간색 강조 스타일 */
+.highlight-red {
+    color: #e74c3c;
+    /* 강조 색상 (빨강) */
+    font-weight: bold;
+    /* 굵게 표시 */
+    background-color: #ffe6e6;
+    /* 배경색 추가 */
+    padding: 2px 4px;
+    /* 텍스트와 배경 사이 여백 */
+    border-radius: 4px;
+    /* 둥근 모서리 */
+}
+
+/* 파란색 강조 스타일 */
+.highlight-blue {
+    color: #3498db;
+    /* 파란색 */
+    font-weight: bold;
+    /* 굵게 표시 */
+    background-color: #eaf6ff;
+    /* 연한 파란색 배경 */
+    padding: 2px 4px;
+    /* 텍스트와 배경 사이 여백 */
+    border-radius: 4px;
+    /* 둥근 모서리 */
+}
+
+/* 초록색 강조 (설정 시가) */
+.highlight-green {
+    color: #27ae60;
+    /* 초록색 텍스트 */
+    font-weight: bold;
+    background-color: #eafaf1;
+    /* 연한 초록색 배경 */
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 0.85em;
+    }
+
+    .button {
+        width: 100%;
+        padding: 10px;
+        font-size: 0.9em;
+    }
+
+    .stock-cards-container {
+        gap: 10px;
+    }
+
+    .stock-card {
+        min-width: 160px;
+        /* 매우 작은 화면에서 카드 크기 추가 조정 */
+    }
+}
+
+.delete-button {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.delete-button:hover {
+    background-color: #c0392b;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.delete-button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.input-field {
+    padding: 10px;
+    font-size: 1em;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    width: calc(100% - 22px); /* Adjust for padding and border */
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.input-field:focus {
+    border-color: #2980b9;
+    box-shadow: 0 0 5px rgba(41, 128, 185, 0.5);
+    outline: none;
+}
+
+.target-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #ecf0f1;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px 15px;
+    margin: 5px 0;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.target-item:hover {
+    background-color: #bdc3c7;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.hidden {
+    display: none;
+}
+
+/* 모바일 화면에서 header 스타일 */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column; /* 상단 요소를 세로로 배치 */
+        align-items: flex-start; /* 왼쪽 정렬 */
+        padding: 10px 15px; /* 여백 조정 */
+    }
+
+    .menu-container {
+        display: flex;
+        flex-wrap: wrap; /* 메뉴가 화면에 맞게 줄바꿈되도록 설정 */
+        gap: 10px; /* 메뉴 간 간격 추가 */
+        width: 100%; /* 전체 너비 사용 */
+        justify-content: flex-start; /* 메뉴를 왼쪽 정렬로 변경 */
+    }
+
+    .menu, .here, .logout {
+        width: auto; /* 버튼 너비를 콘텐츠 크기에 맞춤 */
+        padding: 8px 10px; /* 버튼 패딩 조정 */
+        text-align: center; /* 텍스트 중앙 정렬 */
+    }
+
+    .logout {
+        margin-left: auto; /* 로그아웃 버튼을 오른쪽으로 정렬 */
+        margin-top: 10px; /* 위쪽 간격 추가 */
+    }
+}
+
+/* 기본 버튼 스타일 */
+.button-link {
+    display: inline-block;
+    background-color: #2980b9; /* 기존 버튼과 동일한 색상 */
+    color: white;
+    padding: 10px 15px;
+    margin: 5px;
+    text-decoration: none;
+    border-radius: 5px;
+    font-size: 1em;
+    text-align: center;
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+/* 마우스 오버 시 */
+.button-link:hover {
+    background-color: #1abc9c;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* 버튼 비활성화 스타일 */
+.button-link.disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* ─── 테이블 전체 기본 스타일 ─── */
+.content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+.content th,
+.content td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e2e8f0; /* 연한 그레이 선 */
+    vertical-align: middle;
+}
+
+/* ─── 헤더 셀 배경/정렬 ─── */
+.content th {
+    background-color: #f7fafc;
+    text-align: left;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+/* ─── 체크박스 전용 열 ─── */
+.content th.checkbox-column,
+.content td.checkbox-column {
+    text-align: center;       /* 가운데 정렬 */
+    width: 120px;             /* 충분한 너비 지정 */
+}
+
+/* ─── 체크박스 자체 스타일 ─── */
+.input-checkbox {
+    /* 조금 키워서 클릭 영역 확보 */
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: pointer;
+}
+
+/* ─── 에러 메시지 스타일 (이미 있으실 수도) ─── */
+.error {
+    color: #e53e3e;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+}
+.error.hidden {
+    display: none;
+}
+
+/* ─── 버튼(확인) 비활성화 처리 ─── */
+#submit-btn:disabled {
+    background-color: #a0aec0;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* 줄바꿈 방지 */
+.content th {
+    white-space: nowrap;
+}
+
+/* main.css 맨 아래, 모바일 전용 */
+@media (max-width: 768px) {
+    .content table {
+        width: auto;            /* 100% → auto */
+        table-layout: auto;     /* 열 너비를 내용물에 맞춰 재계산 */
+    }
+    .content {
+        overflow-x: auto;       /* 가로 스크롤은 이미 켜져 있으니 그대로 */
+    }
+    /* 1) 첫 번째 컬럼(이름)의 input 크기 재정의 */
+    .content table td:nth-child(1) input.input-field {
+        width: 120px;      /* 원하는 절대 너비(px)로 설정 */
+        min-width: 100px;  /* 최소 너비 보장 (선택) */
+    }
+}

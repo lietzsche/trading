@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+	<title>UPBIT</title>
+	<link rel="stylesheet" th:href="@{/css/main.css}" />
+</head>
+
+<body>
+	<div class="header">
+		<div class="menu-container">
+			<a href="/" class="menu">MAIN</a>
+<!--			<a href="/select/stock" class="menu">STOCK</a>-->
+<!--			<a href="/select/upbit" class="here">UPBIT</a>-->
+			<a href="/my" class="menu">MY-PAGE</a>
+			<a href="/admin/setting" class="menu admin-menu">ADMIN</a>
+		</div>
+		<a href="/logout" class="logout">LOGOUT</a>
+	</div>
+
+	<div class="content">
+		<h1>UPBIT</h1>
+		<p class="highlight-red" th:if="${items != null && items.size() > 3}" th:text="${items.size()}"></p>
+		<p class="highlight-green" th:if="${items != null && items.size() == 3}" th:text="${items.size()}"></p>
+		<p class="highlight-blue" th:if="${items != null && items.size() > 0 && items.size() < 3}" th:text="${items.size()}"></p>
+
+		<div class="stock-cards-container">
+			<div class="stock-card" th:each="item : ${items}">
+				<h3 th:text="${item.name}"></h3>
+				<p>Code: <span th:text="${item.code}"></span></p>
+				<p>갱신가: <span class="highlight-red" th:text="${#numbers.formatDecimal(item.expectedSellingPrice, 1, 2)}"></span></p>
+				<p>실시가: <span class="highlight-green" th:text="${#numbers.formatDecimal(item.tempPrice, 1, 2)}"></span></p>
+				<p>설정가: <span th:text="${#numbers.formatDecimal(item.settingPrice, 1, 2)}"></span></p>
+				<p>손절가: <span class="highlight-blue" th:text="${#numbers.formatDecimal(item.minimumSellingPrice, 1, 2)}"></span></p>
+				<p>타겟 %: <span
+						th:text="${T(java.lang.Math).floor(100 - (item.expectedSellingPrice - item.tempPrice) * 100.0 / (item.expectedSellingPrice - item.minimumSellingPrice))}"></span>
+				</p>
+				<p>갱신 레벨: <span th:text="${item.renewalCnt}"></span></p>
+				<p>갱신 날짜: <span th:text="${#temporals.format(item.pricingReferenceDate, 'yyyy-MM-dd HH:mm')}"></span>
+				<p>실시간: <span class="highlight-green" th:text="${#temporals.format(item.updatedAt, 'yyyy-MM-dd HH:mm')}"></span>
+				</p>
+			</div>
+		</div>
+
+		<div th:if="${items == null || items.size() == 0}" class="no-data">
+			<p>현재 표시할 데이터가 없습니다.</p>
+		</div>
+	</div>
+</body>
+
+</html>

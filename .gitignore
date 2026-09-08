@@ -1,0 +1,11 @@
+/.metadata/
+*.log.*
+*.log
+/data/
+/target/
+/.idea/
+/.settings/
+.classpath
+.factorypath
+.quick-tunnels/
+.env

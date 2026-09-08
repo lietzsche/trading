@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bion_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nat
+  
+  registry-server:
+    image: bion0625/registry-server:v1
+    build: 
+      context: ./registry-server
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      - "8761:8761"
+    networks:
+      - nat
+  
+  admin-server:
+    image: bion0625/admin-server:v1
+    build:
+      context: ./admin-server
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      - "9090:9090"
+    networks:
+      - nat
+  
+  trade-service:
+    image: bion0625/trade-service:v1
+    build:
+      context: ./trade-service
+    environment:
+      - ACTIVE=prd
+      - TZ=Asia/Seoul
+      - DB_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-postgres}
+      - DB_USERNAME=${POSTGRES_USER:-bion_user}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    ports:
+      - "8080:8080"
+    networks:
+      - nat
+    depends_on:
+      - postgres
+  
+  edge-server:
+    image: bion0625/edge-server:v1
+    build:
+      context: ./edge-server
+    ports:
+      - "8085:8085"
+    networks:
+      - nat
+
+volumes:
+  postgres_data:
+    name: 001_postgres_data
+
+networks:
+  nat:
+    driver: bridge

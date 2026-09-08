@@ -1,0 +1,6 @@
+/data/
+/target/
+/.idea/
+/.settings/
+.classpath
+.factorypath

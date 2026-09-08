@@ -1,0 +1,9 @@
+spring:
+  jpa:
+    show-sql: true
+    generate-ddl: true
+    database: postgresql
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USERNAME:bion_user}
+    password: ${DB_PASSWORD}
