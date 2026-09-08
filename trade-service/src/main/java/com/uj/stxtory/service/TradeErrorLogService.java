@@ -21,11 +21,7 @@ public class TradeErrorLogService {
     try {
       repository.saveAndFlush(new TradeErrorLog(source, operation, error));
     } catch (Exception saveError) {
-      log.error(
-          "거래 오류를 DB에 저장하지 못했습니다. source: {}, operation: {}",
-          source,
-          operation,
-          saveError);
+      log.error("거래 오류를 DB에 저장하지 못했습니다. source: {}, operation: {}", source, operation, saveError);
     }
   }
 }

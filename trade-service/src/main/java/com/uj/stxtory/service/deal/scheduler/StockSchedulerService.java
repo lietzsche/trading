@@ -55,7 +55,8 @@ public class StockSchedulerService implements DealSchedulerService {
         () -> {
           log.info("stock update & mail send start");
           ApiUtil.runWithException(
-              () -> mailService.noticeDelete(stockNotifyService.update().getDeleteItems(), "STOCK"));
+              () ->
+                  mailService.noticeDelete(stockNotifyService.update().getDeleteItems(), "STOCK"));
           log.info("stock update & mail send complete");
         });
   }
@@ -68,7 +69,9 @@ public class StockSchedulerService implements DealSchedulerService {
         "SCHEDULE_MAIL",
         () -> {
           ApiUtil.runWithException(
-              () -> mailService.noticeSelect(new ArrayList<>(stockNotifyService.getSaved()), "STOCK"));
+              () ->
+                  mailService.noticeSelect(
+                      new ArrayList<>(stockNotifyService.getSaved()), "STOCK"));
           log.info("STOCK mail send complete");
         });
   }

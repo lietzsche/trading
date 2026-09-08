@@ -12,8 +12,8 @@ import java.util.stream.Collectors;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
 import org.jsoup.Connection;
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -124,17 +124,13 @@ public class StockInfo implements DealItem {
       stocks.add(stock);
     }
 
-    return stocks.stream()
-        .filter(s -> isIdentifier(s.getCode()))
-        .collect(Collectors.toList());
+    return stocks.stream().filter(s -> isIdentifier(s.getCode())).collect(Collectors.toList());
   }
 
   public static Boolean isIdentifier(String code) {
     Document doc =
-        getDocumentByUrl(
-            String.format("https://finance.naver.com/item/main.naver?code=%s", code));
-    if (doc == null)
-      throw new IllegalStateException("주식 시장 구분을 조회하지 못했습니다. code: " + code);
+        getDocumentByUrl(String.format("https://finance.naver.com/item/main.naver?code=%s", code));
+    if (doc == null) throw new IllegalStateException("주식 시장 구분을 조회하지 못했습니다. code: " + code);
 
     Elements kospiList = doc.select("img.kospi");
 

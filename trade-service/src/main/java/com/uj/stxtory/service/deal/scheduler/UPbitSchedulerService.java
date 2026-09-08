@@ -55,7 +55,8 @@ public class UPbitSchedulerService implements DealSchedulerService {
         () -> {
           log.info("UPbit update & mail send start");
           ApiUtil.runWithException(
-              () -> mailService.noticeDelete(uPbitNotifyService.update().getDeleteItems(), "UPbit"));
+              () ->
+                  mailService.noticeDelete(uPbitNotifyService.update().getDeleteItems(), "UPbit"));
           log.info("UPbit update & mail send complete");
         });
   }
@@ -68,7 +69,9 @@ public class UPbitSchedulerService implements DealSchedulerService {
         "SCHEDULE_MAIL",
         () -> {
           ApiUtil.runWithException(
-              () -> mailService.noticeSelect(new ArrayList<>(uPbitNotifyService.getSaved()), "UPbit"));
+              () ->
+                  mailService.noticeSelect(
+                      new ArrayList<>(uPbitNotifyService.getSaved()), "UPbit"));
           log.info("UPbit mail send complete");
         });
   }

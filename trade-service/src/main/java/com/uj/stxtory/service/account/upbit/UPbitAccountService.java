@@ -157,16 +157,10 @@ public class UPbitAccountService {
       errorLogService.record("UPBIT", "GET_ACCOUNT_HTTP_" + e.status(), e);
       int status = e.status();
       if (status == 401 || status == 403) {
-        log.warn(
-            "Upbit 인증/권한 오류로 자동매매를 해제합니다. loginId: {}, status: {}",
-            loginId,
-            status);
+        log.warn("Upbit 인증/권한 오류로 자동매매를 해제합니다. loginId: {}, status: {}", loginId, status);
         keyRepository.findByUserLoginId(loginId).ifPresent(key -> key.setAutoOn(false));
       } else {
-        log.warn(
-            "Upbit 계좌 조회 HTTP 오류입니다. 자동매매는 유지합니다. loginId: {}, status: {}",
-            loginId,
-            status);
+        log.warn("Upbit 계좌 조회 HTTP 오류입니다. 자동매매는 유지합니다. loginId: {}, status: {}", loginId, status);
       }
     } catch (Exception e) {
       errorLogService.record("UPBIT", "GET_ACCOUNT_CONNECTION", e);

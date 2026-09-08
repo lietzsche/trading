@@ -34,7 +34,8 @@ public class UPbitNotifyService implements DealNotifyService {
   public UPbitNotifyService(
       UPbitRepository uPbitRepository,
       DealSettingsService dealSettingsService,
-      CalculateUpbitService calculateUpbitService, TradeErrorLogService errorLogService) {
+      CalculateUpbitService calculateUpbitService,
+      TradeErrorLogService errorLogService) {
     this.uPbitRepository = uPbitRepository;
     this.dealSettingsService = dealSettingsService;
     this.calculateUpbitService = calculateUpbitService;

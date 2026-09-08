@@ -6,6 +6,7 @@ import com.uj.stxtory.domain.dto.UserListDto;
 import com.uj.stxtory.domain.dto.deal.DealSettingsInfo;
 import com.uj.stxtory.domain.dto.deal.DealSettingsWrapper;
 import com.uj.stxtory.domain.entity.TbUPbitKey;
+import com.uj.stxtory.repository.TradeErrorLogRepository;
 import com.uj.stxtory.service.DealSettingsService;
 import com.uj.stxtory.service.UserService;
 import com.uj.stxtory.service.account.upbit.UPbitAccountService;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -23,6 +26,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 @Controller
@@ -32,16 +36,19 @@ public class AdminController {
   private final UPbitAccountService uPbitAccountService;
   private final DealSettingsService dealSettingsService;
   private final StockNotifyService stockNotifyService;
+  private final TradeErrorLogRepository tradeErrorLogRepository;
 
   public AdminController(
       UserService userService,
       UPbitAccountService uPbitAccountService,
       DealSettingsService dealSettingsService,
-      StockNotifyService stockNotifyService) {
+      StockNotifyService stockNotifyService,
+      TradeErrorLogRepository tradeErrorLogRepository) {
     this.userService = userService;
     this.uPbitAccountService = uPbitAccountService;
     this.dealSettingsService = dealSettingsService;
     this.stockNotifyService = stockNotifyService;
+    this.tradeErrorLogRepository = tradeErrorLogRepository;
   }
 
   @GetMapping(value = "/admin/setting")
@@ -126,5 +133,31 @@ public class AdminController {
   public ResponseEntity<String> stockSave() {
     stockNotifyService.save();
     return ResponseEntity.ok("save success");
+  }
+
+  @GetMapping("/admin/errors")
+  public String errors(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(required = false) String source,
+      @RequestParam(required = false) String keyword,
+      Model model) {
+    int safePage = Math.max(page, 0);
+    String normalizedSource = normalize(source);
+    String normalizedKeyword = normalize(keyword);
+    model.addAttribute(
+        "errors",
+        tradeErrorLogRepository.search(
+            normalizedSource,
+            normalizedKeyword,
+            PageRequest.of(safePage, 50, Sort.by(Sort.Direction.DESC, "id"))));
+    model.addAttribute("source", normalizedSource == null ? "" : normalizedSource);
+    model.addAttribute("keyword", normalizedKeyword == null ? "" : normalizedKeyword);
+    model.addAttribute("operations", tradeErrorLogRepository.findDistinctOperations());
+    return "admin/errors";
+  }
+
+  private String normalize(String value) {
+    if (value == null || value.isBlank()) return null;
+    return value.trim();
   }
 }

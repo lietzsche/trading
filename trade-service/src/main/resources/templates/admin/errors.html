@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRADE ERRORS</title>
+    <link rel="stylesheet" th:href="@{/css/user.css}" />
+    <link rel="stylesheet" th:href="@{/css/main.css}" />
+    <style>
+        .error-wrap { overflow-x: auto; }
+        .filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+        .filter select, .filter input { padding: 8px; }
+        .error-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .error-table th, .error-table td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+        .error-table th { white-space: nowrap; }
+        .message { min-width: 320px; max-width: 720px; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .pagination { display: flex; justify-content: center; gap: 16px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <div class="menu-container">
+        <a href="/" class="menu">MAIN</a>
+        <a href="/admin/users" class="menu admin-menu">USERS</a>
+        <a href="/admin/autos" class="menu admin-menu">AUTOS</a>
+        <a href="/admin/setting" class="menu admin-menu">SETTING</a>
+        <a href="/admin/errors" class="here">ERRORS</a>
+    </div>
+    <a href="/logout" class="logout">LOGOUT</a>
+</div>
+
+<div class="content">
+    <h1>TRADE ERROR LOG</h1>
+    <form class="filter" method="get" action="/admin/errors">
+        <select name="source">
+            <option value="" th:selected="${source == ''}">ALL</option>
+            <option value="STOCK" th:selected="${source == 'STOCK'}">STOCK</option>
+            <option value="UPBIT" th:selected="${source == 'UPBIT'}">UPBIT</option>
+        </select>
+        <input name="keyword" th:value="${keyword}" list="operations" placeholder="작업명, 예외, 메시지 검색" />
+        <datalist id="operations">
+            <option th:each="operation : ${operations}" th:value="${operation}"></option>
+        </datalist>
+        <button type="submit" class="button">검색</button>
+    </form>
+
+    <div class="error-wrap">
+        <table class="error-table">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>구분</th>
+                <th>작업</th>
+                <th>예외</th>
+                <th>메시지</th>
+                <th>발생 시각</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="error : ${errors.content}">
+                <td th:text="${error.id}"></td>
+                <td th:text="${error.source}"></td>
+                <td th:text="${error.operation}"></td>
+                <td th:text="${error.errorType}"></td>
+                <td class="message" th:text="${error.message}"></td>
+                <td th:text="${#temporals.format(error.createdAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div th:if="${errors.totalElements == 0}" class="no-data">
+        <p>저장된 오류가 없습니다.</p>
+    </div>
+
+    <div class="pagination" th:if="${errors.totalPages > 1}">
+        <a th:if="${errors.hasPrevious()}"
+           th:href="@{/admin/errors(page=${errors.number - 1},source=${source},keyword=${keyword})}">이전</a>
+        <span th:text="|${errors.number + 1} / ${errors.totalPages}|"></span>
+        <a th:if="${errors.hasNext()}"
+           th:href="@{/admin/errors(page=${errors.number + 1},source=${source},keyword=${keyword})}">다음</a>
+    </div>
+</div>
+</body>
+</html>

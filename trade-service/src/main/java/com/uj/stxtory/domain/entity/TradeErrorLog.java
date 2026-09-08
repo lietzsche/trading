@@ -51,6 +51,11 @@ public class TradeErrorLog {
 
   private static String limit(String value, int maxLength) {
     if (value == null || value.isBlank()) return "UNKNOWN";
-    return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    String sanitized =
+        value
+            .replaceAll("(?i)Bearer\\s+\\S+", "Bearer [REDACTED]")
+            .replaceAll(
+                "(?i)(access_key|secret_key|password|token)\\s*[=:]\\s*[^\\s,}]+", "$1=[REDACTED]");
+    return sanitized.length() <= maxLength ? sanitized : sanitized.substring(0, maxLength);
   }
 }

@@ -3,7 +3,6 @@ package com.uj.stxtory.domain.dto.stock;
 import com.uj.stxtory.domain.dto.deal.DealPrice;
 import com.uj.stxtory.util.FormatUtil;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -40,8 +39,7 @@ public class StockPriceInfo implements DealPrice {
             String.format(
                 "https://finance.naver.com/item/sise_day.nhn?code=%s&page=%d", code, page));
     if (doc == null)
-      throw new IllegalStateException(
-          "주식 가격을 조회하지 못했습니다. code: " + code + ", page: " + page);
+      throw new IllegalStateException("주식 가격을 조회하지 못했습니다. code: " + code + ", page: " + page);
 
     Elements infoList = doc.select("tr");
 

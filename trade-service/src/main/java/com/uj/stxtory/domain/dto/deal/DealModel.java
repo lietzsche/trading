@@ -41,8 +41,7 @@ public abstract class DealModel {
     log.info("\n\n\nsave log start!\n\n\n");
 
     List<DealItem> allItems = getAll();
-    Stream<DealItem> stream =
-        useParallel() ? allItems.parallelStream() : allItems.stream();
+    Stream<DealItem> stream = useParallel() ? allItems.parallelStream() : allItems.stream();
 
     return stream
         .filter(
@@ -100,8 +99,7 @@ public abstract class DealModel {
     log.info("\n\n\nsave log start!\n\n\n");
 
     List<DealItem> allItems = getAll();
-    Stream<DealItem> stream =
-        useParallel() ? allItems.parallelStream() : allItems.stream();
+    Stream<DealItem> stream = useParallel() ? allItems.parallelStream() : allItems.stream();
 
     return stream
         .filter(

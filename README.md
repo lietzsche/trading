@@ -41,6 +41,8 @@ docker exec postgres_db psql -U bion_user -d postgres -c \
   "SELECT id, source, operation, error_type, message, created_at FROM trade_error_log ORDER BY id DESC LIMIT 100;"
 ```
 
+`ADMIN` 또는 `MASTER` 권한 사용자는 서비스의 `/admin/errors` 페이지에서 구분 필터, 키워드 검색과 페이지 이동으로 오류를 확인할 수 있습니다. 일반 사용자는 접근할 수 없습니다.
+
 컨테이너, 네트워크, Quick Tunnel과 모든 관련 볼륨을 완전히 삭제하려면:
 
 ```bash
