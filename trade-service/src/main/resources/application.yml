@@ -20,6 +20,9 @@ spring:
     encoding: UTF-8
 server:
   port: 8080
+  # Cloudflare Quick Tunnel terminates TLS and forwards the original scheme.
+  # Honor that header so redirects and generated asset URLs remain HTTPS.
+  forward-headers-strategy: framework
 
 management:
   info:
