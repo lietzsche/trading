@@ -167,8 +167,9 @@ def me(user: Annotated[dict, Depends(current_user)]):
 @app.get("/api/recommendations/{market}")
 def recommendations(market: Literal["stock", "upbit"], _: Annotated[dict, Depends(current_user)]):
     return db.all(
-        f"""SELECT code, name, minimum_selling_price, expected_selling_price,
-                    temp_price, setting_price, renewal_cnt, pricing_reference_date
+        f"""SELECT code, name, origin_minimum_selling_price, origin_expected_selling_price,
+                    minimum_selling_price, expected_selling_price, temp_price, setting_price,
+                    renewal_cnt, pricing_reference_date, updated_at
              FROM {market} WHERE deleted_at IS NULL ORDER BY id DESC"""
     )
 
