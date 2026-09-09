@@ -20,6 +20,14 @@ def test_upbit_order_token_contains_matching_query_hash():
     assert claims["query_hash_alg"] == "SHA512"
 
 
+def test_upbit_token_hashes_array_parameters_without_url_encoding():
+    params = {"uuids[]": ["first", "second"]}
+    token = TradingEngine.token("access", "secret", params)
+    claims = jwt.decode(token, "secret", algorithms=["HS256"])
+    expected = "uuids[]=first&uuids[]=second"
+    assert claims["query_hash"] == hashlib.sha512(expected.encode()).hexdigest()
+
+
 def test_scheduler_is_off_until_explicitly_enabled():
     engine = TradingEngine(NoopDatabase(), "http://calculation", False)
     engine.start()

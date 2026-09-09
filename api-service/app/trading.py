@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime
 from email.mime.text import MIMEText
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 import httpx
 import jwt
@@ -26,6 +26,7 @@ class TradingEngine:
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
         self._upbit_lock = threading.Lock()
         self._last_upbit_request = 0.0
+        self._upbit_client = httpx.Client(timeout=15, headers={"User-Agent": "Trading/2.0"})
 
     def start(self):
         if not self.enabled:
@@ -53,6 +54,7 @@ class TradingEngine:
     def stop(self):
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+        self._upbit_client.close()
 
     def run(self, source, operation, function):
         try:
@@ -94,13 +96,20 @@ class TradingEngine:
                 delay = 0.13 - (time.monotonic() - self._last_upbit_request)
                 if delay > 0:
                     time.sleep(delay)
-                response = httpx.get(f"https://api.upbit.com{path}", params=params, timeout=15)
-                self._last_upbit_request = time.monotonic()
+                try:
+                    response = self._upbit_client.get(f"https://api.upbit.com{path}", params=params)
+                except httpx.ConnectError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                finally:
+                    self._last_upbit_request = time.monotonic()
             if response.status_code != 429:
                 response.raise_for_status()
                 return response.json()
             retry_after = response.headers.get("Retry-After")
-            time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else 0.5 * (attempt + 1))
+            time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else max(1, attempt + 1))
         response.raise_for_status()
 
     def upbit_prices(self, market, count):
@@ -315,15 +324,57 @@ class TradingEngine:
     def token(access, secret, params=None):
         payload = {"access_key": access, "nonce": str(uuid.uuid4())}
         if params:
-            query = urlencode(params)
+            query = unquote(urlencode(params, doseq=True))
             payload.update({"query_hash": hashlib.sha512(query.encode()).hexdigest(), "query_hash_alg":"SHA512"})
         return jwt.encode(payload, secret, algorithm="HS256")
 
     def private_upbit(self, method, path, access, secret, params=None):
-        headers={"Authorization":f"Bearer {self.token(access,secret,params)}"}
-        response=httpx.request(method,f"https://api.upbit.com{path}",params=params if method=="GET" else None,
-                               json=params if method!="GET" else None,headers=headers,timeout=15)
-        response.raise_for_status(); return response.json()
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(attempts):
+            try:
+                headers={"Authorization":f"Bearer {self.token(access,secret,params)}"}
+                response=self._upbit_client.request(method,f"https://api.upbit.com{path}",
+                    params=params if method=="GET" else None,json=params if method!="GET" else None,headers=headers)
+                if response.status_code == 429 and attempt + 1 < attempts:
+                    time.sleep(max(1, attempt + 1)); continue
+                response.raise_for_status(); return response.json()
+            except httpx.ConnectError:
+                if attempt + 1 == attempts: raise
+                time.sleep(0.5 * (attempt + 1))
+
+    def account_snapshot(self, access, secret):
+        accounts = self.private_upbit("GET", "/v1/accounts", access, secret)
+        tickers = self.upbit_public("/v1/ticker/all", {"quote_currencies": "KRW"})
+        prices = {row["market"].removeprefix("KRW-"): float(row["trade_price"]) for row in tickers}
+        assets, total = [], 0.0
+        for account in accounts:
+            currency = account["currency"]
+            quantity = float(account["balance"]) + float(account["locked"])
+            current_price = 1.0 if currency == "KRW" else prices.get(currency, 0.0)
+            valuation = quantity * current_price
+            average = float(account["avg_buy_price"])
+            purchase = quantity * average if currency != "KRW" else valuation
+            profit_rate = ((valuation - purchase) * 100 / purchase) if purchase > 0 and currency != "KRW" else None
+            total += valuation
+            assets.append({**account, "quantity": quantity, "current_price": current_price,
+                           "valuation": valuation, "purchase_amount": purchase, "profit_rate": profit_rate})
+        return {"total_valuation": total, "assets": sorted(assets, key=lambda row: row["valuation"], reverse=True)}
+
+    def sync_orders(self, login_id, access, secret):
+        uuids = [row["uuid"] for row in self.db.all(
+            "SELECT uuid FROM upbit_order_history WHERE login_id=%s AND uuid IS NOT NULL ORDER BY id DESC LIMIT 100",
+            (login_id,))]
+        if not uuids:
+            return
+        for start in range(0, len(uuids), 100):
+            orders = self.private_upbit("GET", "/v1/orders/uuids", access, secret,
+                                        {"uuids[]": uuids[start:start + 100]})
+            for order in orders:
+                self.db.execute("""UPDATE upbit_order_history SET state=%s,price=%s,volume=%s,
+                    remaining_volume=%s,executed_volume=%s,paid_fee=%s,trades_count=%s,updated_at=%s
+                    WHERE login_id=%s AND uuid=%s""", (order.get("state"), order.get("price"),
+                    order.get("volume"), order.get("remaining_volume"), order.get("executed_volume"),
+                    order.get("paid_fee"), order.get("trades_count"), self.now(), login_id, order.get("uuid")))
 
     def auto_order(self):
         return self.run("UPBIT", "AUTO_ORDER", self._auto_order)

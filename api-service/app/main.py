@@ -165,13 +165,27 @@ def me(user: Annotated[dict, Depends(current_user)]):
 
 
 @app.get("/api/recommendations/{market}")
-def recommendations(market: Literal["stock", "upbit"], _: Annotated[dict, Depends(current_user)]):
-    return db.all(
+def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Depends(current_user)]):
+    rows = db.all(
         f"""SELECT code, name, origin_minimum_selling_price, origin_expected_selling_price,
                     minimum_selling_price, expected_selling_price, temp_price, setting_price,
                     renewal_cnt, pricing_reference_date, updated_at
              FROM {market} WHERE deleted_at IS NULL ORDER BY id DESC"""
     )
+    if market == "upbit":
+        key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+        owned = {}
+        if key:
+            try:
+                accounts = engine.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+                owned = {row["currency"]: float(row["balance"]) + float(row["locked"]) for row in accounts}
+            except (httpx.HTTPError, ValueError) as error:
+                engine.record_error("UPBIT", "RECOMMENDATION_BALANCE", error)
+        for row in rows:
+            currency = row["code"].removeprefix("KRW-")
+            row["owned"] = owned.get(currency, 0) > 0
+            row["owned_quantity"] = owned.get(currency, 0)
+    return rows
 
 
 @app.get("/api/dividends")
@@ -182,6 +196,12 @@ def dividends(_: Annotated[dict, Depends(current_user)]):
 
 @app.get("/api/orders")
 def order_history(user: Annotated[dict, Depends(current_user)]):
+    key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+    if key:
+        try:
+            engine.sync_orders(user["user_login_id"], key["access_key"], key["secret_key"])
+        except httpx.HTTPError as error:
+            engine.record_error("UPBIT", "SYNC_ORDER_HISTORY", error)
     return db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
         FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 200""",
         (user["user_login_id"],))
@@ -256,9 +276,9 @@ def save_upbit_key(payload: UpbitKeyUpdate, user: Annotated[dict, Depends(curren
 @app.get("/api/upbit/accounts")
 def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
     key=db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
-    if not key: return []
+    if not key: return {"total_valuation": 0, "assets": []}
     try:
-        return engine.private_upbit("GET","/v1/accounts",key["access_key"],key["secret_key"])
+        return engine.account_snapshot(key["access_key"],key["secret_key"])
     except httpx.HTTPStatusError as error:
         engine.record_error("UPBIT",f"GET_ACCOUNT_HTTP_{error.response.status_code}",error)
         if error.response.status_code in (401,403):
