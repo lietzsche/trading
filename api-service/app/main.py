@@ -292,10 +292,11 @@ def delete_mail_target(email: str, _: Annotated[dict, Depends(admin_user)]):
 
 
 @app.post("/api/admin/jobs/{job}")
-def run_job(job: Literal["collect-stock","update-stock","collect-upbit","update-upbit","auto-order","stock-history","upbit-history"],
+def run_job(job: Literal["collect-stock","update-stock","collect-upbit","update-upbit","collect-dividends","auto-order","stock-history","upbit-history"],
             _: Annotated[dict, Depends(master_user)]):
     function={"collect-stock":engine.collect_stock,"update-stock":engine.update_stock,
               "collect-upbit":engine.collect_upbit,"update-upbit":engine.update_upbit,
+              "collect-dividends":engine.collect_dividends,
               "auto-order":engine.auto_order,"stock-history":engine.save_stock_history,
               "upbit-history":engine.save_upbit_history}[job]
     function()

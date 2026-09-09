@@ -1,6 +1,7 @@
 import hashlib
 import html
 import logging
+import re
 import smtplib
 import threading
 import time
@@ -38,12 +39,15 @@ class TradingEngine:
             (self.update_stock, "cron", {"day_of_week": "mon-fri", "hour": "8-15", "minute": "*"}),
             (self.save_stock_history, "cron", {"day_of_week": "mon-fri", "hour": 17, "minute": 30}),
             (self.save_upbit_history, "cron", {"hour": 17, "minute": 30}),
+            (self.collect_dividends, "cron", {"hour": 17, "minute": 30}),
             (self.send_hourly_summary, "cron", {"minute": 0}),
         ]
         for index, (function, trigger, options) in enumerate(jobs):
             self.scheduler.add_job(function, trigger, id=f"trading-{index}", max_instances=1,
                                    coalesce=True, misfire_grace_time=30, **options)
         self.scheduler.start()
+        if not self.db.one("SELECT id FROM dividend_stock WHERE deleted_at IS NULL LIMIT 1"):
+            self.scheduler.add_job(self.collect_dividends, "date", id="seed-dividends")
         log.info("Python trading scheduler started with %d jobs", len(jobs))
 
     def stop(self):
@@ -220,6 +224,49 @@ class TradingEngine:
 
     def update_stock(self):
         return self.run("STOCK", "SCHEDULE_UPDATE", lambda: self._update_positions("stock", self.stock_prices))
+
+    @staticmethod
+    def parse_dividend_page(body):
+        rows = []
+        for row in BeautifulSoup(body, "html.parser").select("table.type_1 tr"):
+            link, cells = row.select_one("td.frst a[href*='code=']"), row.select("td")
+            if not link or len(cells) < 5:
+                continue
+            code_match = re.search(r"(?:\?|&)code=(\d{6})(?:&|$)", link.get("href", ""))
+            rate_text = cells[4].get_text(strip=True).replace(",", "")
+            try:
+                rate = float(rate_text)
+            except ValueError:
+                continue
+            if code_match and rate > 0:
+                rows.append({"code": code_match.group(1), "name": link.get_text(strip=True),
+                             "dividend_rate": rate})
+        return rows
+
+    def collect_dividends(self):
+        return self.run("STOCK", "SCHEDULE_SAVE_DIVIDEND_STOCKS", self._collect_dividends)
+
+    def _collect_dividends(self):
+        response = httpx.get("https://finance.naver.com/sise/dividend_list.naver",
+                             headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        response.raise_for_status()
+        response.encoding = "euc-kr"
+        items = self.parse_dividend_page(response.text)
+        if not items:
+            raise RuntimeError("배당주 목록이 비어 있습니다.")
+        now = self.now()
+        for item in items:
+            saved = self.db.one("SELECT id FROM dividend_stock WHERE code=%s AND deleted_at IS NULL",
+                                (item["code"],))
+            if saved:
+                self.db.execute("""UPDATE dividend_stock SET name=%s,dividend_rate=%s,
+                    updated_at=%s WHERE id=%s""", (item["name"], item["dividend_rate"], now, saved["id"]))
+            else:
+                self.db.execute("""INSERT INTO dividend_stock(id,code,name,dividend_rate,ex_div_date,
+                    pay_date,created_at,updated_at,deleted_at)
+                    VALUES(nextval('dividend_stock_seq'),%s,%s,%s,NULL,NULL,%s,NULL,NULL)""",
+                    (item["code"], item["name"], item["dividend_rate"], now))
+        return len(items)
 
     def save_stock_history(self):
         return self.run("STOCK", "SCHEDULE_SAVE_HISTORY",

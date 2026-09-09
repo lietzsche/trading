@@ -40,3 +40,12 @@ def test_stock_universe_uses_named_columns(monkeypatch):
     response = type("Response", (), {"content": body, "raise_for_status": lambda self: None})()
     monkeypatch.setattr("app.trading.httpx.get", lambda *args, **kwargs: response)
     assert TradingEngine.stock_universe() == [{"name": "테스트", "code": "001234"}]
+
+
+def test_dividend_parser_reads_code_name_and_rate():
+    body = """<table class='type_1'><tr><td class='frst'><a
+      href='/item/main.naver?code=005930'>삼성전자</a></td><td>70,000</td><td>25.12</td>
+      <td>1,500</td><td>2.14</td></tr><tr><td>빈 행</td></tr></table>"""
+    assert TradingEngine.parse_dividend_page(body) == [
+        {"code": "005930", "name": "삼성전자", "dividend_rate": 2.14}
+    ]
