@@ -1,6 +1,0 @@
-target
-.git
-*.db
-*.sqlite
-logfile.log*
-

@@ -16,8 +16,8 @@ is_running() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
-if ! is_running "$STATE_DIR/trade-service.pid"; then
-  echo "오류: trade-service Quick Tunnel이 실행 중이 아닙니다." >&2
+if ! is_running "$STATE_DIR/api-service.pid"; then
+  echo "오류: api-service Quick Tunnel이 실행 중이 아닙니다." >&2
   echo "먼저 ./up.sh를 실행하세요." >&2
   exit 1
 fi
@@ -28,6 +28,12 @@ if [[ ! -s "$RUNTIME_ENV" ]]; then
 fi
 
 echo "Quick Tunnel은 유지하고 Docker 서비스를 다시 빌드·배포합니다..."
+# Python 주문 스케줄러와 Java 주문 스케줄러가 겹치지 않도록 이전
+# trade-service 컨테이너를 먼저 정지한 후 새 구성을 시작한다.
+if docker container inspect 001-trade-service-1 >/dev/null 2>&1; then
+  echo "기존 Java trade-service를 먼저 종료합니다..."
+  docker stop 001-trade-service-1 >/dev/null
+fi
 docker compose up -d --build --remove-orphans
 docker compose wait db-migrate
 
@@ -54,22 +60,30 @@ start_tunnel() {
   return 1
 }
 
-TRADE_SERVICE_URL=""
+stop_legacy_trade_tunnel() {
+  local pid_file="$STATE_DIR/trade-service.pid" pid args
+  [[ -f "$pid_file" ]] || return 0
+  read -r pid < "$pid_file"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    if [[ "$args" == *cloudflared* && "$args" == *tunnel* ]]; then
+      echo "기존 Java Quick Tunnel을 종료합니다..."
+      kill "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$pid_file" "$STATE_DIR/trade-service.log"
+}
+
 API_SERVICE_URL=""
 if [[ -f "$URL_FILE" ]]; then
   source "$URL_FILE"
 fi
-if ! is_running "$STATE_DIR/api-service.pid"; then
-  API_SERVICE_URL="$(start_tunnel api-service 8001)"
-fi
-
+stop_legacy_trade_tunnel
 echo
 echo "재배포가 완료되었습니다. 기존 Quick Tunnel URL은 그대로 유지됩니다."
-if [[ -n "${TRADE_SERVICE_URL:-}" ]]; then
-  printf 'TRADE_SERVICE_URL=%s\nAPI_SERVICE_URL=%s\n' "$TRADE_SERVICE_URL" "${API_SERVICE_URL:-}" > "$URL_FILE"
-  echo "trade-service: ${TRADE_SERVICE_URL:-확인 불가}"
-  echo "관리자 화면:   ${TRADE_SERVICE_URL:-확인 불가}/admin/system"
-  echo "신규 React:    ${API_SERVICE_URL:-확인 불가}"
+if [[ -n "${API_SERVICE_URL:-}" ]]; then
+  printf 'API_SERVICE_URL=%s\n' "$API_SERVICE_URL" > "$URL_FILE"
+  echo "Trading React/FastAPI: $API_SERVICE_URL"
 else
   echo "URL 파일을 찾지 못했습니다: $URL_FILE" >&2
 fi

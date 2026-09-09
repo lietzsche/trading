@@ -20,6 +20,16 @@ if [[ ! -s "$RUNTIME_ENV" ]]; then
   printf 'SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" > "$RUNTIME_ENV"
 fi
 
+# 이전 Java 구성의 터널이 남아 있으면 외부 URL을 하나만 유지하기 위해 종료한다.
+if [[ -f "$STATE_DIR/trade-service.pid" ]]; then
+  read -r legacy_pid < "$STATE_DIR/trade-service.pid"
+  if [[ "$legacy_pid" =~ ^[0-9]+$ ]] && kill -0 "$legacy_pid" 2>/dev/null; then
+    legacy_args="$(ps -p "$legacy_pid" -o args= 2>/dev/null || true)"
+    [[ "$legacy_args" == *cloudflared*tunnel* ]] && kill "$legacy_pid" 2>/dev/null || true
+  fi
+  rm -f "$STATE_DIR/trade-service.pid" "$STATE_DIR/trade-service.log"
+fi
+
 is_running() {
   local pid_file="$1" pid
   [[ -f "$pid_file" ]] || return 1
@@ -27,7 +37,7 @@ is_running() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
-for service in trade-service api-service; do
+for service in api-service; do
   if is_running "$STATE_DIR/$service.pid"; then
     echo "오류: $service Quick Tunnel이 이미 실행 중입니다." >&2
     echo "재배포는 ./reup.sh, 전체 재시작은 ./down.sh 후 ./up.sh를 사용하세요." >&2
@@ -84,19 +94,15 @@ cleanup_started_tunnels() {
 }
 
 trap cleanup_started_tunnels ERR INT TERM
-TRADE_SERVICE_URL="$(start_tunnel trade-service 8080)"
 API_SERVICE_URL="$(start_tunnel api-service 8001)"
 trap - ERR INT TERM
 
 cat > "$URL_FILE" <<EOF
-TRADE_SERVICE_URL=$TRADE_SERVICE_URL
 API_SERVICE_URL=$API_SERVICE_URL
 EOF
 
 echo
 echo "배포가 완료되었습니다."
-echo "trade-service: $TRADE_SERVICE_URL"
-echo "관리자 화면:   $TRADE_SERVICE_URL/admin/system"
-echo "신규 React:    $API_SERVICE_URL"
+echo "Trading React/FastAPI: $API_SERVICE_URL"
 echo "URL 저장 위치: $URL_FILE"
 echo "다시 확인: sed -n 's/^[^=]*=//p' '$URL_FILE'"

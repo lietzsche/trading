@@ -42,6 +42,7 @@ def test_login_and_admin_access(monkeypatch):
     result = client.get("/api/admin/system")
     assert result.status_code == 200
     assert result.json()["trading_execution"] == "DISABLED"
+    assert result.json()["scheduler_running"] is False
 
 
 def test_wrong_password_is_rejected():

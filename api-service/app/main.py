@@ -1,6 +1,6 @@
 import os
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
+from app.trading import TradingEngine
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://bion_user@postgres:5432/postgres")
@@ -21,6 +22,7 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
 SESSION_MAX_AGE = 60 * 60 * 12
 STARTED_AT = time.monotonic()
+TRADING_ENABLED = os.environ.get("TRADING_EXECUTION_ENABLED", "false").lower() == "true"
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -67,7 +69,17 @@ class Database:
 
 
 db = Database()
-app = FastAPI(title="Trading API", version="1.0.0")
+engine = TradingEngine(db, CALCULATION_SERVICE_URL, TRADING_ENABLED)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    engine.start()
+    yield
+    engine.stop()
+
+
+app = FastAPI(title="Trading API", version="2.0.0", lifespan=lifespan)
 
 
 def serializer() -> URLSafeTimedSerializer:
@@ -157,12 +169,138 @@ def recommendations(market: Literal["stock", "upbit"], _: Annotated[dict, Depend
     )
 
 
+@app.get("/api/dividends")
+def dividends(_: Annotated[dict, Depends(current_user)]):
+    return db.all("""SELECT code,name,dividend_rate,ex_div_date,pay_date FROM dividend_stock
+        WHERE deleted_at IS NULL ORDER BY dividend_rate DESC""")
+
+
+@app.get("/api/orders")
+def order_history(user: Annotated[dict, Depends(current_user)]):
+    return db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
+        FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 200""",
+        (user["user_login_id"],))
+
+
 @app.get("/api/admin/system")
 def system(_: Annotated[dict, Depends(admin_user)]):
     state = health()
     error_count = db.one("SELECT count(*) AS count FROM trade_error_log")["count"]
     return {**state, "api_uptime_seconds": int(time.monotonic() - STARTED_AT), "error_count": error_count,
-            "trading_execution": "DISABLED", "spring_trade_service": "ACTIVE"}
+            "trading_execution": "ACTIVE" if TRADING_ENABLED else "DISABLED",
+            "scheduler_running": engine.scheduler.running}
+
+
+class JoinRequest(BaseModel):
+    login_id: str = Field(min_length=4, max_length=50)
+    password: str = Field(min_length=8, max_length=200)
+    name: str = Field(min_length=1, max_length=100)
+    email: str | None = Field(None, max_length=255)
+    phone: str | None = Field(None, max_length=25)
+
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    email: str | None = Field(None, max_length=255)
+    phone: str | None = Field(None, max_length=25)
+    password: str | None = Field(None, min_length=8, max_length=200)
+
+
+class UpbitKeyUpdate(BaseModel):
+    access_key: str = Field(min_length=1, max_length=255)
+    secret_key: str = Field(min_length=1, max_length=255)
+
+
+class MailTarget(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+@app.post("/api/auth/join", status_code=201)
+def join(payload: JoinRequest):
+    if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (payload.login_id,)):
+        raise HTTPException(409, "이미 사용 중인 아이디입니다.")
+    password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
+    now = engine.now()
+    db.execute("""INSERT INTO tb_user(id,user_login_id,user_password,user_name,user_role,user_email,user_phone,
+        created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'USER',%s,%s,%s,NULL,NULL)""",
+        (payload.login_id, password, payload.name, payload.email, payload.phone, now))
+    return {"ok": True}
+
+
+@app.put("/api/profile")
+def update_profile(payload: ProfileUpdate, user: Annotated[dict, Depends(current_user)]):
+    encoded = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode() if payload.password else None
+    db.execute("""UPDATE tb_user SET user_name=%s,user_email=%s,user_phone=%s,
+        user_password=COALESCE(%s,user_password),updated_at=%s WHERE id=%s""",
+        (payload.name,payload.email,payload.phone,encoded,engine.now(),user["id"]))
+    return {"ok": True}
+
+
+@app.put("/api/upbit/key")
+def save_upbit_key(payload: UpbitKeyUpdate, user: Annotated[dict, Depends(current_user)]):
+    existing=db.one("SELECT id FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
+    if existing:
+        db.execute("UPDATE tb_upbit_key SET access_key=%s,secret_key=%s WHERE id=%s",
+                   (payload.access_key,payload.secret_key,existing["id"]))
+    else:
+        db.execute("INSERT INTO tb_upbit_key(id,user_login_id,access_key,secret_key,auto_on) VALUES(nextval('tb_upbit_key_seq'),%s,%s,%s,false)",
+                   (user["user_login_id"],payload.access_key,payload.secret_key))
+    return {"ok": True}
+
+
+@app.get("/api/upbit/accounts")
+def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
+    key=db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
+    if not key: return []
+    try:
+        return engine.private_upbit("GET","/v1/accounts",key["access_key"],key["secret_key"])
+    except httpx.HTTPStatusError as error:
+        engine.record_error("UPBIT",f"GET_ACCOUNT_HTTP_{error.response.status_code}",error)
+        if error.response.status_code in (401,403):
+            db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s",(key["id"],))
+        raise HTTPException(502,"Upbit 계좌 조회에 실패했습니다.")
+
+
+@app.put("/api/upbit/auto")
+def own_auto(payload: AutoUpdate, user: Annotated[dict, Depends(current_user)]):
+    if not db.one("SELECT id FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],)):
+        raise HTTPException(404,"등록된 Upbit 키가 없습니다.")
+    db.execute("UPDATE tb_upbit_key SET auto_on=%s WHERE user_login_id=%s",(payload.auto_on,user["user_login_id"]))
+    return {"ok": True}
+
+
+@app.get("/api/admin/mail-targets")
+def mail_targets(_: Annotated[dict, Depends(admin_user)]):
+    return db.all("SELECT email FROM target_mail WHERE deleted_at IS NULL ORDER BY email")
+
+
+@app.post("/api/admin/mail-targets", status_code=201)
+def add_mail_target(payload: MailTarget, _: Annotated[dict, Depends(admin_user)]):
+    existing=db.one("SELECT email FROM target_mail WHERE email=%s",(payload.email,))
+    if existing: db.execute("UPDATE target_mail SET deleted_at=NULL,updated_at=%s WHERE email=%s",(engine.now(),payload.email))
+    else: db.execute("INSERT INTO target_mail(email,created_at,updated_at,deleted_at) VALUES(%s,%s,NULL,NULL)",(payload.email,engine.now()))
+    return {"ok":True}
+
+
+@app.delete("/api/admin/mail-targets/{email}", status_code=204)
+def delete_mail_target(email: str, _: Annotated[dict, Depends(admin_user)]):
+    db.execute("UPDATE target_mail SET deleted_at=%s WHERE email=%s",(engine.now(),email))
+
+
+@app.post("/api/admin/jobs/{job}")
+def run_job(job: Literal["collect-stock","update-stock","collect-upbit","update-upbit","auto-order","stock-history","upbit-history"],
+            _: Annotated[dict, Depends(master_user)]):
+    function={"collect-stock":engine.collect_stock,"update-stock":engine.update_stock,
+              "collect-upbit":engine.collect_upbit,"update-upbit":engine.update_upbit,
+              "auto-order":engine.auto_order,"stock-history":engine.save_stock_history,
+              "upbit-history":engine.save_upbit_history}[job]
+    function()
+    return {"ok":True}
+
+
+@app.delete("/api/admin/recommendations/{market}", status_code=204)
+def reset_recommendations(market: Literal["stock","upbit"], _: Annotated[dict, Depends(admin_user)]):
+    db.execute(f"UPDATE {market} SET deleted_at=%s WHERE deleted_at IS NULL",(engine.now(),))
 
 
 @app.get("/api/admin/errors")

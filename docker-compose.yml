@@ -47,6 +47,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-bion_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-postgres}
       CALCULATION_SERVICE_URL: http://calculation-service:8000
       SESSION_COOKIE_SECURE: "true"
+      TRADING_EXECUTION_ENABLED: "true"
       TZ: Asia/Seoul
     ports:
       - "8001:8001"
@@ -74,37 +75,11 @@ services:
       - ./db/migrations:/migrations:ro
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql"]
     depends_on:
-      trade-service:
+      api-service:
         condition: service_healthy
     networks:
       - nat
     restart: "no"
-
-  trade-service:
-    image: bion0625/trade-service:v1
-    build:
-      context: ./trade-service
-    environment:
-      - ACTIVE=prd
-      - TZ=Asia/Seoul
-      - DB_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-postgres}
-      - DB_USERNAME=${POSTGRES_USER:-bion_user}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-      - CALCULATION_SERVICE_URL=http://calculation-service:8000
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
-      interval: 5s
-      timeout: 5s
-      retries: 24
-    networks:
-      - nat
-    depends_on:
-      postgres:
-        condition: service_healthy
-      calculation-service:
-        condition: service_healthy
 
 volumes:
   postgres_data:
