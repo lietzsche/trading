@@ -42,7 +42,7 @@ class AutoUpdate(BaseModel):
 
 class SettingUpdate(BaseModel):
     expected_high_percentage: int = Field(ge=0, le=1000)
-    expected_low_percentage: int = Field(ge=0, le=1000)
+    expected_low_percentage: int = Field(ge=-100, le=1000)
     highest_price_reference_days: int = Field(ge=1, le=10000)
     volume_check: bool
 
@@ -66,6 +66,10 @@ class Database:
     def execute(self, query: str, params=()):
         with self.connection() as connection, connection.cursor() as cursor:
             cursor.execute(query, params)
+
+    def executemany(self, query: str, params):
+        with self.connection() as connection, connection.cursor() as cursor:
+            cursor.executemany(query, params)
 
 
 db = Database()
@@ -387,7 +391,7 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
         (payload.expected_high_percentage, payload.expected_low_percentage,
          payload.highest_price_reference_days, payload.volume_check, name),
     )
-    return {"ok": True, "note": "Spring 스케줄러가 다음 계산부터 새 설정을 사용합니다."}
+    return {"ok": True, "note": "Python 스케줄러가 다음 계산부터 새 설정을 사용합니다."}
 
 
 if STATIC_DIR.exists():

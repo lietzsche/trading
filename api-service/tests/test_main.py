@@ -26,6 +26,9 @@ class FakeDatabase:
     def execute(self, query, params=()):
         return None
 
+    def executemany(self, query, params):
+        return None
+
 
 main.db = FakeDatabase()
 client = TestClient(main.app)

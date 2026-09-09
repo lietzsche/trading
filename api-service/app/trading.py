@@ -2,6 +2,8 @@ import hashlib
 import html
 import logging
 import smtplib
+import threading
+import time
 import uuid
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -21,6 +23,8 @@ class TradingEngine:
     def __init__(self, db, calculation_url: str, enabled: bool):
         self.db, self.calculation_url, self.enabled = db, calculation_url.rstrip("/"), enabled
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+        self._upbit_lock = threading.Lock()
+        self._last_upbit_request = 0.0
 
     def start(self):
         if not self.enabled:
@@ -80,11 +84,20 @@ class TradingEngine:
         response.raise_for_status()
         return response.json()
 
-    @staticmethod
-    def upbit_public(path, params=None):
-        response = httpx.get(f"https://api.upbit.com{path}", params=params, timeout=15)
+    def upbit_public(self, path, params=None):
+        for attempt in range(5):
+            with self._upbit_lock:
+                delay = 0.13 - (time.monotonic() - self._last_upbit_request)
+                if delay > 0:
+                    time.sleep(delay)
+                response = httpx.get(f"https://api.upbit.com{path}", params=params, timeout=15)
+                self._last_upbit_request = time.monotonic()
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response.json()
+            retry_after = response.headers.get("Retry-After")
+            time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else 0.5 * (attempt + 1))
         response.raise_for_status()
-        return response.json()
 
     def upbit_prices(self, market, count):
         rows = self.upbit_public("/v1/candles/days", {"market": market, "count": min(count, 200)})
@@ -155,6 +168,11 @@ class TradingEngine:
     def _collect_stock(self):
         setting = self.setting("stock")
         labels = self.db.all("SELECT DISTINCT code,name FROM stock_history_label WHERE deleted_at IS NULL")
+        if not labels:
+            labels = self.stock_universe()
+            self.db.executemany("""INSERT INTO stock_history_label(id,code,name,created_at,updated_at,deleted_at)
+                VALUES(nextval('stock_history_label_seq'),%s,%s,%s,NULL,NULL)""",
+                [(label["code"], label["name"], self.now()) for label in labels])
         instruments = []
         for label in labels:
             try:
@@ -176,6 +194,29 @@ class TradingEngine:
               setting_price,pricing_reference_date,renewal_cnt,created_at,deleted_at,updated_at)
               VALUES(nextval('stock_seq'),%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,NULL,NULL)""",
               (code,item["name"],low,high,low,high,close,close,self.now(),self.now()))
+
+    @staticmethod
+    def stock_universe():
+        response = httpx.get("http://kind.krx.co.kr/corpgeneral/corpList.do",
+            params={"method":"download","searchType":"13"}, headers={"User-Agent":"Mozilla/5.0"},
+            timeout=30, follow_redirects=True)
+        response.raise_for_status()
+        rows = BeautifulSoup(response.content, "html.parser").select("tr")
+        if not rows:
+            raise RuntimeError("한국거래소 종목 목록이 비어 있습니다.")
+        headers = [cell.get_text(strip=True) for cell in rows[0].select("th,td")]
+        try:
+            name_index, market_index, code_index = headers.index("회사명"), headers.index("시장구분"), headers.index("종목코드")
+        except ValueError as error:
+            raise RuntimeError("한국거래소 종목 목록 형식이 변경되었습니다.") from error
+        result = []
+        for row in rows[1:]:
+            cells = [cell.get_text(strip=True) for cell in row.select("td")]
+            if len(cells) > max(name_index, market_index, code_index) and cells[market_index] in {"코스피","코스닥"}:
+                result.append({"name":cells[name_index], "code":cells[code_index].zfill(6)})
+        if not result:
+            raise RuntimeError("코스피/코스닥 종목을 찾지 못했습니다.")
+        return result
 
     def update_stock(self):
         return self.run("STOCK", "SCHEDULE_UPDATE", lambda: self._update_positions("stock", self.stock_prices))

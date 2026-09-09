@@ -32,3 +32,11 @@ def test_stock_parser_skips_invalid_rows(monkeypatch):
     response = type("Response", (), {"text": body, "raise_for_status": lambda self: None})()
     monkeypatch.setattr("app.trading.httpx.get", lambda *args, **kwargs: response)
     assert TradingEngine.stock_prices("000000", 1)[0]["close"] == 10000
+
+
+def test_stock_universe_uses_named_columns(monkeypatch):
+    body = """<table><tr><th>회사명</th><th>시장구분</th><th>종목코드</th></tr>
+    <tr><td>테스트</td><td>코스피</td><td>1234</td></tr></table>""".encode()
+    response = type("Response", (), {"content": body, "raise_for_status": lambda self: None})()
+    monkeypatch.setattr("app.trading.httpx.get", lambda *args, **kwargs: response)
+    assert TradingEngine.stock_universe() == [{"name": "테스트", "code": "001234"}]
