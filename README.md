@@ -28,6 +28,8 @@ React/FastAPI용 Cloudflare Quick Tunnel 하나를 시작하고 URL을 `.quick-t
 
 배포 URL은 `API_SERVICE_URL`로 표시됩니다. `ADMIN` 또는 `MASTER`만 관리자 API를 사용할 수 있고, 사용자 비밀번호와 세션 쿠키는 BCrypt 및 서명된 HttpOnly/Secure 쿠키로 보호됩니다.
 
+Android Chrome에서 배포 URL을 연 뒤 메뉴의 **앱 설치** 또는 화면의 **앱으로 설치**를 누르면 홈 화면 앱처럼 사용할 수 있습니다. PWA 셸과 정적 자산만 오프라인 캐시하며 거래 API와 계좌 데이터는 항상 네트워크에서 새로 조회합니다.
+
 ## 테스트
 
 ```bash
