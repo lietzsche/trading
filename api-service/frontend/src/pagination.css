@@ -1,0 +1,20 @@
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 22px 0 4px;
+}
+
+.pager button {
+  min-width: 76px;
+}
+
+.pager span {
+  color: #8397ab;
+  font-size: 13px;
+}
+
+.pager span b {
+  color: #63dfbd;
+}
