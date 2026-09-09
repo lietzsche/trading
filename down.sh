@@ -31,7 +31,8 @@ stop_tunnel() {
 }
 
 stop_tunnel trade-service
-# 이전 구성에서 실행된 admin-server 터널도 함께 정리한다.
+stop_tunnel api-service
+# 이전 구성의 상태 파일이 남아 있는 경우도 정리한다.
 stop_tunnel admin-server
 
 echo "Docker Compose 리소스를 종료·정리합니다..."
@@ -45,5 +46,6 @@ if docker volume inspect 001_postgres_data >/dev/null 2>&1; then
 fi
 
 rm -rf -- "$STATE_DIR"
+rm -f -- "$ROOT_DIR/.runtime.env"
 
 echo "정리가 완료되었습니다. 컨테이너, 네트워크, Quick Tunnel, 관련 볼륨을 모두 삭제했습니다."
