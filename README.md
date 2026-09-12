@@ -28,6 +28,8 @@ React/FastAPI용 Cloudflare Quick Tunnel 하나를 시작하고 URL을 `.quick-t
 
 배포 URL은 `API_SERVICE_URL`로 표시됩니다. `ADMIN` 또는 `MASTER`만 관리자 API를 사용할 수 있고, 사용자 비밀번호와 세션 쿠키는 BCrypt 및 서명된 HttpOnly/Secure 쿠키로 보호됩니다.
 
+DB 마이그레이션이 성공한 뒤 API와 주문 스케줄러가 시작되며, 재배포는 서비스 정상 상태까지 확인합니다. DB 또는 계산 서비스 장애 시 `/api/health`는 HTTP 503을 반환합니다.
+
 Android Chrome에서 배포 URL을 연 뒤 메뉴의 **앱 설치** 또는 화면의 **앱으로 설치**를 누르면 홈 화면 앱처럼 사용할 수 있습니다. PWA 셸과 정적 자산만 오프라인 캐시하며 거래 API와 계좌 데이터는 항상 네트워크에서 새로 조회합니다.
 
 ## 테스트
@@ -39,7 +41,19 @@ docker run --rm trading/calculation-service:test
 docker build --target test -t trading/api-service:test api-service
 docker run --rm trading/api-service:test
 
+cd api-service/frontend
+npm ci
+npm test
+npm run build
+
 ```
+
+GitHub push/PR에서도 같은 Python·프런트엔드 테스트를 실행합니다. CI에서는 자동매매가 비활성화되며 운영 DB·API 키를 사용하지 않습니다.
+
+## 점검 결과와 다음 개발
+
+[운영 코드 점검 기록](docs/review-2026-09-12.md)에 이번 개선 사항과 남은 개발 우선순위를 정리했습니다.
+특히 주문 응답 불명확 시 복구, DB 백업·초기 DDL, 전체 주문 이력 페이징이 다음 우선 과제입니다.
 
 ## 전체 정리
 

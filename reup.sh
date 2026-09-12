@@ -34,8 +34,7 @@ if docker container inspect 001-trade-service-1 >/dev/null 2>&1; then
   echo "기존 Java trade-service를 먼저 종료합니다..."
   docker stop 001-trade-service-1 >/dev/null
 fi
-docker compose up -d --build --remove-orphans
-docker compose wait db-migrate
+docker compose up -d --build --remove-orphans --wait --wait-timeout 180
 
 start_tunnel() {
   local service="$1" port="$2"

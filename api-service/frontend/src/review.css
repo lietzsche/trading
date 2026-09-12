@@ -1,0 +1,8 @@
+.error-filters{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.error-filters label{display:grid;gap:7px;min-width:0;color:#9bacc0;font-size:13px}
+.error-filters label:nth-child(2){flex:1;min-width:min(240px,100%)}
+.error-filters input,.error-filters select{font:inherit;min-height:44px;width:100%;padding:10px 12px;border:1px solid #2d455c;border-radius:9px;background:#081421;color:#e9f1fa}
+.error-filters input:focus,.error-filters select:focus{outline:2px solid #43e2b1;outline-offset:2px}
+.badge.failed{background:#55242c;color:#ffd0d5}
+.order-note{margin:0;color:#9bacc0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+@media(max-width:760px){.error-filters{gap:10px}.error-filters label:first-child{flex:1}.error-filters label:nth-child(2){order:3;flex-basis:100%}.order-head{align-items:flex-start}.order-state{max-width:55%;text-align:center;justify-content:center}.asset-head>strong{max-width:58%}}

@@ -24,6 +24,7 @@ class TradingEngine:
     def __init__(self, db, calculation_url: str, enabled: bool):
         self.db, self.calculation_url, self.enabled = db, calculation_url.rstrip("/"), enabled
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+        self._auto_order_lock = threading.Lock()
         self._upbit_lock = threading.Lock()
         self._last_upbit_request = 0.0
         self._upbit_client = httpx.Client(timeout=15, headers={"User-Agent": "Trading/2.0"})
@@ -62,7 +63,7 @@ class TradingEngine:
         except Exception as error:
             log.exception("%s %s failed", source, operation)
             self.record_error(source, operation, error)
-            return None
+            return {"status": "ERROR"}
 
     def record_error(self, source, operation, error):
         message = str(error)[:2000] or type(error).__name__
@@ -306,9 +307,16 @@ class TradingEngine:
         if not positions: return
         payload = []
         for item in positions:
-            payload.append({"code":item["code"],"name":item["name"],"prices":price_loader(item["code"],1),
+            try:
+                prices = price_loader(item["code"], 1)
+            except Exception as error:
+                self.record_error(table.upper(), "UPDATE_PRICE_ITEM", error)
+                continue
+            payload.append({"code":item["code"],"name":item["name"],"prices":prices,
                 "expected_selling_price":item["expected_selling_price"],"minimum_selling_price":item["minimum_selling_price"],
                 "temp_price":item["temp_price"],"setting_price":item["setting_price"],"renewal_count":item["renewal_cnt"]})
+        if not payload:
+            return
         results = self.calc("/v1/recommendations/update", {"positions":payload,
             "high_multiplier":1+setting["expected_high_percentage"]/100,
             "low_multiplier":1+setting["expected_low_percentage"]/100})["positions"]
@@ -346,19 +354,33 @@ class TradingEngine:
         accounts = self.private_upbit("GET", "/v1/accounts", access, secret)
         tickers = self.upbit_public("/v1/ticker/all", {"quote_currencies": "KRW"})
         prices = {row["market"].removeprefix("KRW-"): float(row["trade_price"]) for row in tickers}
-        assets, total = [], 0.0
+        assets, total, unpriced = [], 0.0, []
         for account in accounts:
             currency = account["currency"]
             quantity = float(account["balance"]) + float(account["locked"])
-            current_price = 1.0 if currency == "KRW" else prices.get(currency, 0.0)
-            valuation = quantity * current_price
+            if quantity <= 0:
+                continue
+            current_price = 1.0 if currency == "KRW" else prices.get(currency)
+            if current_price is not None and current_price <= 0:
+                current_price = None
+            valuation = quantity * current_price if current_price is not None else None
             average = float(account["avg_buy_price"])
-            purchase = quantity * average if currency != "KRW" else valuation
-            profit_rate = ((valuation - purchase) * 100 / purchase) if purchase > 0 and currency != "KRW" else None
-            total += valuation
+            purchase = (quantity * average if account.get("unit_currency") == "KRW" else None)
+            if currency == "KRW":
+                purchase = valuation
+            profit_rate = ((valuation - purchase) * 100 / purchase
+                           if valuation is not None and purchase is not None and purchase > 0
+                           and currency != "KRW" else None)
+            if valuation is None:
+                unpriced.append(currency)
+            else:
+                total += valuation
             assets.append({**account, "quantity": quantity, "current_price": current_price,
                            "valuation": valuation, "purchase_amount": purchase, "profit_rate": profit_rate})
-        return {"total_valuation": total, "assets": sorted(assets, key=lambda row: row["valuation"], reverse=True)}
+        return {"total_valuation": total, "valuation_complete": not unpriced,
+                "unpriced_currencies": sorted(unpriced),
+                "assets": sorted(assets, key=lambda row: (row["valuation"] is not None,
+                                                         row["valuation"] or 0), reverse=True)}
 
     def sync_orders(self, login_id, access, secret):
         uuids = [row["uuid"] for row in self.db.all(
@@ -377,34 +399,76 @@ class TradingEngine:
                     order.get("paid_fee"), order.get("trades_count"), self.now(), login_id, order.get("uuid")))
 
     def auto_order(self):
-        return self.run("UPBIT", "AUTO_ORDER", self._auto_order)
+        # APScheduler's max_instances does not cover administrator-triggered runs.
+        if not self._auto_order_lock.acquire(blocking=False):
+            log.info("Skipping automatic orders: another run is already active")
+            return {"status": "SKIPPED", "reason": "already_running"}
+        try:
+            return self.run("UPBIT", "AUTO_ORDER", self._auto_order)
+        finally:
+            self._auto_order_lock.release()
 
     def _auto_order(self):
-        markets=[row["code"] for row in self.db.all("SELECT DISTINCT code FROM upbit WHERE deleted_at IS NULL")]
-        for key in self.db.all("SELECT * FROM tb_upbit_key WHERE auto_on=true"):
-            try: accounts=self.private_upbit("GET","/v1/accounts",key["access_key"],key["secret_key"])
-            except httpx.HTTPStatusError as error:
-                if error.response.status_code in (401,403):
-                    self.db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s",(key["id"],))
-                raise
-            actions=self.calc("/v1/auto-trade/decide",{"recommended_markets":markets,
-                "balances":[{"currency":a["currency"]} for a in accounts],"minimum_recommendations":3})["actions"]
-            for action in actions:
-                market=action["market"]
-                chance=self.private_upbit("GET","/v1/orders/chance",key["access_key"],key["secret_key"],{"market":market})
-                if action["side"]=="BUY":
-                    krw=next((a for a in accounts if a["currency"]=="KRW"),None)
-                    if not krw: continue
-                    amount=(1-float(chance["bid_fee"]))*float(krw["balance"])
-                    if amount <= float(chance["market"]["bid"]["min_total"]): continue
-                    params={"market":market,"side":"bid","price":str(amount),"ord_type":"price"}
-                else:
-                    currency=market.removeprefix("KRW-"); held=next((a for a in accounts if a["currency"]==currency),None)
-                    if not held: continue
-                    params={"market":market,"side":"ask","volume":chance["ask_account"]["balance"],"ord_type":"market"}
-                order=self.private_upbit("POST","/v1/orders",key["access_key"],key["secret_key"],params)
-                self.save_order(key["user_login_id"],order)
-                accounts=self.private_upbit("GET","/v1/accounts",key["access_key"],key["secret_key"])
+        markets = [row["code"] for row in self.db.all("SELECT DISTINCT code FROM upbit WHERE deleted_at IS NULL")]
+        keys = self.db.all("""SELECT k.* FROM tb_upbit_key k
+            JOIN tb_user u ON u.user_login_id=k.user_login_id
+            WHERE k.auto_on=true AND u.deleted_at IS NULL""")
+        completed, failed = 0, 0
+        for key in keys:
+            try:
+                self._auto_order_for_key(key, markets)
+                completed += 1
+            except Exception as error:
+                # A failed credential/provider request must not starve other users.
+                failed += 1
+                log.exception("Automatic orders failed for key id %s", key["id"])
+                self.record_error("UPBIT", f"AUTO_ORDER_ACCOUNT_{key['id']}", error)
+        return {"status": "PARTIAL" if failed else "OK", "completed_accounts": completed,
+                "failed_accounts": failed}
+
+    def _auto_order_for_key(self, key, markets):
+        try:
+            accounts = self.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code in (401, 403):
+                self.db.execute("""UPDATE tb_upbit_key SET auto_on=false
+                    WHERE id=%s AND access_key=%s AND secret_key=%s""",
+                    (key["id"], key["access_key"], key["secret_key"]))
+            raise
+        actions = self.calc("/v1/auto-trade/decide", {
+            "recommended_markets": markets, "balances": [{"currency": a["currency"]} for a in accounts],
+            "minimum_recommendations": 3,
+        })["actions"]
+        for action in actions:
+            market = action["market"]
+            chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"],
+                                        {"market": market})
+            if action["side"] == "BUY":
+                krw = next((a for a in accounts if a["currency"] == "KRW"), None)
+                if not krw:
+                    continue
+                amount = (1 - float(chance["bid_fee"])) * float(krw["balance"])
+                if amount <= float(chance["market"]["bid"]["min_total"]):
+                    continue
+                params = {"market": market, "side": "bid", "price": str(amount), "ord_type": "price"}
+            else:
+                currency = market.removeprefix("KRW-")
+                held = next((a for a in accounts if a["currency"] == currency), None)
+                if not held or float(chance["ask_account"]["balance"]) <= 0:
+                    continue
+                params = {"market": market, "side": "ask", "volume": chance["ask_account"]["balance"],
+                          "ord_type": "market"}
+            # Account deletion, opt-out, or key replacement during this run stops further orders.
+            active = self.db.one("""SELECT k.id FROM tb_upbit_key k
+                JOIN tb_user u ON u.user_login_id=k.user_login_id
+                WHERE k.id=%s AND k.auto_on=true AND u.deleted_at IS NULL
+                  AND k.access_key=%s AND k.secret_key=%s""",
+                (key["id"], key["access_key"], key["secret_key"]))
+            if not active:
+                break
+            order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+            self.save_order(key["user_login_id"], order)
+            accounts = self.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
 
     def save_order(self, login_id, order):
         columns=["uuid","side","ord_type","price","state","market","created_at","volume","remaining_volume",

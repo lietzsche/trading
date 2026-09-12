@@ -7,7 +7,8 @@ STATE_DIR="$ROOT_DIR/.quick-tunnels"
 cd "$ROOT_DIR"
 
 stop_tunnel() {
-  local service="$1" pid_file="$STATE_DIR/$service.pid" pid args
+  local service="$1" pid_file pid args
+  pid_file="$STATE_DIR/$service.pid"
   [[ -f "$pid_file" ]] || return 0
   read -r pid < "$pid_file"
 

@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-service, calculation-service]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    env:
+      PYTHONPATH: .
+      TRADING_EXECUTION_ENABLED: "false"
+      SESSION_SECRET: ci-test-secret-not-for-production-use-only
+      SESSION_COOKIE_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-service/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api-service/frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: bash -n up.sh reup.sh down.sh
+        working-directory: .
+      - run: bash tests/deployment-smoke.sh
+        working-directory: .

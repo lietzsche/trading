@@ -40,7 +40,7 @@ is_running() {
 for service in api-service; do
   if is_running "$STATE_DIR/$service.pid"; then
     echo "오류: $service Quick Tunnel이 이미 실행 중입니다." >&2
-    echo "재배포는 ./reup.sh, 전체 재시작은 ./down.sh 후 ./up.sh를 사용하세요." >&2
+    echo "재배포는 ./reup.sh를 사용하세요. ./down.sh는 DB 볼륨까지 삭제합니다." >&2
     exit 1
   fi
 done
@@ -48,8 +48,7 @@ done
 rm -f "$URL_FILE" "$STATE_DIR"/*.pid "$STATE_DIR"/*.log
 
 echo "Docker 서비스를 빌드하고 시작합니다..."
-docker compose up -d --build
-docker compose wait db-migrate
+docker compose up -d --build --wait --wait-timeout 180
 
 start_tunnel() {
   local service="$1" port="$2"

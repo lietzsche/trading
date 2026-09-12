@@ -8,10 +8,10 @@ import bcrypt
 import httpx
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from app.trading import TradingEngine
 
@@ -41,16 +41,22 @@ class AutoUpdate(BaseModel):
 
 
 class SettingUpdate(BaseModel):
-    expected_high_percentage: int = Field(ge=0, le=1000)
-    expected_low_percentage: int = Field(ge=-100, le=1000)
-    highest_price_reference_days: int = Field(ge=1, le=10000)
+    expected_high_percentage: int = Field(ge=1, le=1000)
+    expected_low_percentage: int = Field(ge=-99, le=1000)
+    highest_price_reference_days: int = Field(ge=3, le=200)
     volume_check: bool
+
+    @model_validator(mode="after")
+    def validate_price_range(self):
+        if self.expected_low_percentage >= self.expected_high_percentage:
+            raise ValueError("하한 비율은 목표 상승률보다 작아야 합니다.")
+        return self
 
 
 class Database:
     @contextmanager
     def connection(self):
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as connection:
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=3) as connection:
             yield connection
 
     def one(self, query: str, params=()):
@@ -86,6 +92,14 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Trading API", version="2.0.0", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def prevent_private_response_caching(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/api" or request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def serializer() -> URLSafeTimedSerializer:
     if len(SESSION_SECRET) < 32:
         raise RuntimeError("SESSION_SECRET must contain at least 32 characters")
@@ -100,7 +114,7 @@ def current_user(session: Annotated[str | None, Cookie()] = None) -> dict:
     except (BadSignature, SignatureExpired):
         raise HTTPException(401, "세션이 만료되었습니다.")
     user = db.one(
-        """SELECT id, user_login_id, user_name, user_role, user_email
+        """SELECT id, user_login_id, user_name, user_role, user_email, user_phone
            FROM tb_user WHERE user_login_id=%s AND deleted_at IS NULL""",
         (login_id,),
     )
@@ -121,8 +135,7 @@ def master_user(user: Annotated[dict, Depends(current_user)]) -> dict:
     return user
 
 
-@app.get("/api/health")
-def health():
+def dependency_health():
     database = "DOWN"
     calculation = "DOWN"
     try:
@@ -137,6 +150,12 @@ def health():
     return {"status": status, "database": database, "calculation": calculation}
 
 
+@app.get("/api/health")
+def health():
+    state = dependency_health()
+    return JSONResponse(state, status_code=200 if state["status"] == "UP" else 503)
+
+
 @app.post("/api/auth/login")
 def login(payload: LoginRequest, response: Response):
     user = db.one(
@@ -144,7 +163,10 @@ def login(payload: LoginRequest, response: Response):
            FROM tb_user WHERE user_login_id=%s AND deleted_at IS NULL""",
         (payload.login_id,),
     )
-    valid = user and bcrypt.checkpw(payload.password.encode(), user["user_password"].encode())
+    try:
+        valid = user and bcrypt.checkpw(payload.password.encode(), user["user_password"].encode())
+    except (ValueError, TypeError):
+        valid = False
     if not valid:
         raise HTTPException(401, "아이디 또는 비밀번호가 올바르지 않습니다.")
     response.set_cookie(
@@ -179,16 +201,18 @@ def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Dep
     if market == "upbit":
         key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
         owned = {}
+        ownership_available = True
         if key:
             try:
                 accounts = engine.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
                 owned = {row["currency"]: float(row["balance"]) + float(row["locked"]) for row in accounts}
             except (httpx.HTTPError, ValueError) as error:
+                ownership_available = False
                 engine.record_error("UPBIT", "RECOMMENDATION_BALANCE", error)
         for row in rows:
             currency = row["code"].removeprefix("KRW-")
-            row["owned"] = owned.get(currency, 0) > 0
-            row["owned_quantity"] = owned.get(currency, 0)
+            row["owned"] = owned.get(currency, 0) > 0 if ownership_available else None
+            row["owned_quantity"] = owned.get(currency, 0) if ownership_available else None
     return rows
 
 
@@ -213,14 +237,23 @@ def order_history(user: Annotated[dict, Depends(current_user)]):
 
 @app.get("/api/admin/system")
 def system(_: Annotated[dict, Depends(admin_user)]):
-    state = health()
+    state = dependency_health()
     error_count = db.one("SELECT count(*) AS count FROM trade_error_log")["count"]
     return {**state, "api_uptime_seconds": int(time.monotonic() - STARTED_AT), "error_count": error_count,
             "trading_execution": "ACTIVE" if TRADING_ENABLED else "DISABLED",
             "scheduler_running": engine.scheduler.running}
 
 
-class JoinRequest(BaseModel):
+class PasswordPayload(BaseModel):
+    @field_validator("password", check_fields=False)
+    @classmethod
+    def validate_password_bytes(cls, value):
+        if value is not None and len(value.encode("utf-8")) > 72:
+            raise ValueError("비밀번호는 UTF-8 기준 72바이트 이하여야 합니다.")
+        return value
+
+
+class JoinRequest(PasswordPayload):
     login_id: str = Field(min_length=4, max_length=50)
     password: str = Field(min_length=8, max_length=200)
     name: str = Field(min_length=1, max_length=100)
@@ -228,7 +261,7 @@ class JoinRequest(BaseModel):
     phone: str | None = Field(None, max_length=25)
 
 
-class ProfileUpdate(BaseModel):
+class ProfileUpdate(PasswordPayload):
     name: str = Field(min_length=1, max_length=100)
     email: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=25)
@@ -259,9 +292,10 @@ def join(payload: JoinRequest):
 @app.put("/api/profile")
 def update_profile(payload: ProfileUpdate, user: Annotated[dict, Depends(current_user)]):
     encoded = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode() if payload.password else None
+    phone = payload.phone if "phone" in payload.model_fields_set else user.get("user_phone")
     db.execute("""UPDATE tb_user SET user_name=%s,user_email=%s,user_phone=%s,
         user_password=COALESCE(%s,user_password),updated_at=%s WHERE id=%s""",
-        (payload.name,payload.email,payload.phone,encoded,engine.now(),user["id"]))
+        (payload.name,payload.email,phone,encoded,engine.now(),user["id"]))
     return {"ok": True}
 
 
@@ -280,13 +314,15 @@ def save_upbit_key(payload: UpbitKeyUpdate, user: Annotated[dict, Depends(curren
 @app.get("/api/upbit/accounts")
 def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
     key=db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
-    if not key: return {"total_valuation": 0, "assets": []}
+    if not key: return {"total_valuation": 0, "valuation_complete": True, "unpriced_currencies": [], "assets": []}
     try:
         return engine.account_snapshot(key["access_key"],key["secret_key"])
-    except httpx.HTTPStatusError as error:
-        engine.record_error("UPBIT",f"GET_ACCOUNT_HTTP_{error.response.status_code}",error)
-        if error.response.status_code in (401,403):
-            db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s",(key["id"],))
+    except httpx.HTTPError as error:
+        status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+        engine.record_error("UPBIT", "GET_ACCOUNT" if status is None else f"GET_ACCOUNT_HTTP_{status}", error)
+        if status in (401,403) and error.request.url.path == "/v1/accounts":
+            db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s AND access_key=%s AND secret_key=%s",
+                       (key["id"], key["access_key"], key["secret_key"]))
         raise HTTPException(502,"Upbit 계좌 조회에 실패했습니다.")
 
 
@@ -324,8 +360,13 @@ def run_job(job: Literal["collect-stock","update-stock","collect-upbit","update-
               "collect-dividends":engine.collect_dividends,
               "auto-order":engine.auto_order,"stock-history":engine.save_stock_history,
               "upbit-history":engine.save_upbit_history}[job]
-    function()
-    return {"ok":True}
+    result = function()
+    status = result.get("status") if isinstance(result, dict) else None
+    if status == "SKIPPED":
+        raise HTTPException(409, "이미 실행 중인 작업입니다. 완료 후 다시 확인해 주세요.")
+    if status in {"PARTIAL", "ERROR"}:
+        raise HTTPException(502, "작업 중 오류가 발생했습니다. 일부 작업은 완료되었을 수 있으니 오류·주문 내역을 먼저 확인해 주세요.")
+    return {"ok": True, "result": result}
 
 
 @app.delete("/api/admin/recommendations/{market}", status_code=204)
@@ -371,9 +412,12 @@ def update_user(user_id: int, payload: UserUpdate, actor: Annotated[dict, Depend
     if target["user_login_id"] == actor["user_login_id"] and (payload.deleted or payload.user_role != "MASTER"):
         raise HTTPException(400, "현재 MASTER 계정은 비활성화하거나 강등할 수 없습니다.")
     db.execute(
-        """UPDATE tb_user SET user_role=%s,
+        """WITH updated_user AS (UPDATE tb_user SET user_role=%s,
              deleted_at=CASE WHEN %s THEN COALESCE(deleted_at, to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS.US')) ELSE NULL END,
-             updated_at=to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS.US') WHERE id=%s""",
+             updated_at=to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS.US') WHERE id=%s
+             RETURNING user_login_id, deleted_at)
+           UPDATE tb_upbit_key SET auto_on=false FROM updated_user
+           WHERE tb_upbit_key.user_login_id=updated_user.user_login_id AND updated_user.deleted_at IS NOT NULL""",
         (payload.user_role, payload.deleted, user_id),
     )
     return {"ok": True}
@@ -391,7 +435,8 @@ def autos(_: Annotated[dict, Depends(admin_user)]):
 
 @app.put("/api/admin/autos/{login_id}")
 def update_auto(login_id: str, payload: AutoUpdate, _: Annotated[dict, Depends(admin_user)]):
-    result = db.one("SELECT id FROM tb_upbit_key WHERE user_login_id=%s", (login_id,))
+    result = db.one("""SELECT k.id FROM tb_upbit_key k JOIN tb_user u ON u.user_login_id=k.user_login_id
+        WHERE k.user_login_id=%s AND u.deleted_at IS NULL""", (login_id,))
     if not result:
         raise HTTPException(404, "등록된 Upbit 키가 없습니다.")
     db.execute("UPDATE tb_upbit_key SET auto_on=%s WHERE user_login_id=%s", (payload.auto_on, login_id))
@@ -409,6 +454,8 @@ def settings(_: Annotated[dict, Depends(admin_user)]):
 
 @app.put("/api/admin/settings/{name}")
 def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: Annotated[dict, Depends(admin_user)]):
+    if not db.one("SELECT id FROM deal_settings WHERE name=%s AND deleted_at IS NULL", (name,)):
+        raise HTTPException(404, "계산 설정을 찾을 수 없습니다.")
     db.execute(
         """UPDATE deal_settings SET expected_high_percentage=%s, expected_low_percentage=%s,
              highest_price_reference_days=%s, is_volume_check=%s,
@@ -420,6 +467,12 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
     return {"ok": True, "note": "Python 스케줄러가 다음 계산부터 새 설정을 사용합니다."}
 
 
+@app.get("/api/{path:path}", include_in_schema=False)
+@app.get("/api", include_in_schema=False)
+def missing_api(path: str = ""):
+    raise HTTPException(404, "API 경로를 찾을 수 없습니다.")
+
+
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
@@ -427,5 +480,7 @@ if STATIC_DIR.exists():
     def spa(path: str):
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+            return FileResponse(candidate, headers={"Cache-Control": "no-cache"})
+        if Path(path).suffix:
+            raise HTTPException(404, "파일을 찾을 수 없습니다.")
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})

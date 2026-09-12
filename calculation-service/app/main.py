@@ -1,18 +1,23 @@
 from datetime import datetime
-from typing import Literal
+from math import isfinite
+from typing import Annotated, Literal
 
 import pandas as pd
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, FiniteFloat, model_validator
+
+
+NonNegativeFloat = Annotated[FiniteFloat, Field(ge=0)]
+MAX_PRICE_RENEWALS = 10_000
 
 
 class Price(BaseModel):
-    close: float
-    high: float
-    low: float
-    open: float = 0
-    diff: float = 0
-    volume: float
+    close: NonNegativeFloat
+    high: NonNegativeFloat
+    low: NonNegativeFloat
+    open: NonNegativeFloat = 0
+    diff: FiniteFloat = 0
+    volume: NonNegativeFloat
 
 
 class Instrument(BaseModel):
@@ -23,10 +28,16 @@ class Instrument(BaseModel):
 
 class SelectionRequest(BaseModel):
     instruments: list[Instrument]
-    low_percentage: float
-    high_percentage: float
+    low_percentage: FiniteFloat = Field(gt=-100)
+    high_percentage: FiniteFloat = Field(gt=0)
     volume_check: bool = False
     amplitude_check: bool = True
+
+    @model_validator(mode="after")
+    def validate_percentage_range(self):
+        if self.low_percentage >= self.high_percentage:
+            raise ValueError("low_percentage must be lower than high_percentage")
+        return self
 
 
 class SelectionResponse(BaseModel):
@@ -34,17 +45,23 @@ class SelectionResponse(BaseModel):
 
 
 class Position(Instrument):
-    expected_selling_price: float
-    minimum_selling_price: float
-    temp_price: float
-    setting_price: float
-    renewal_count: int = 0
+    expected_selling_price: NonNegativeFloat
+    minimum_selling_price: NonNegativeFloat
+    temp_price: NonNegativeFloat
+    setting_price: NonNegativeFloat
+    renewal_count: int = Field(default=0, ge=0)
 
 
 class UpdateRequest(BaseModel):
     positions: list[Position]
-    high_multiplier: float = Field(gt=0)
-    low_multiplier: float = Field(gt=0)
+    high_multiplier: FiniteFloat = Field(gt=1)
+    low_multiplier: FiniteFloat = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_multiplier_range(self):
+        if self.low_multiplier >= self.high_multiplier:
+            raise ValueError("low_multiplier must be lower than high_multiplier")
+        return self
 
 
 class PositionResult(BaseModel):
@@ -69,7 +86,7 @@ class AccountBalance(BaseModel):
 class AutoTradeRequest(BaseModel):
     recommended_markets: list[str]
     balances: list[AccountBalance]
-    minimum_recommendations: int = 3
+    minimum_recommendations: int = Field(default=3, ge=1)
 
 
 class TradeAction(BaseModel):
@@ -109,6 +126,8 @@ def _is_recommended(instrument: Instrument, request: SelectionRequest) -> bool:
     if len(frame) < last + 3:
         return False
     recent = frame.iloc[last : last + 3]
+    if recent.close.iloc[0] == 0:
+        return False
     if request.volume_check and frame.iloc[0].volume == recent.volume.max():
         return False
     if not (recent.high.iloc[0] > recent.high.iloc[1] > recent.high.iloc[2]):
@@ -142,16 +161,27 @@ def _update_position(position: Position, request: UpdateRequest) -> PositionResu
     if last >= len(position.prices):
         return _position_result(position, "KEEP")
     close = position.prices[last].close
+    # A missing/zero quote must not delete a recommendation and trigger a sale.
+    if close == 0:
+        return _position_result(position, "KEEP")
     expected = position.expected_selling_price
     minimum = position.minimum_selling_price
     setting = position.setting_price
     renewal = position.renewal_count
     changed_at = None
-    while close != 0 and expected != 0 and close >= expected:
-        minimum = expected * request.low_multiplier
-        expected *= request.high_multiplier
+    steps = 0
+    while expected != 0 and close >= expected:
+        if steps >= MAX_PRICE_RENEWALS:
+            raise HTTPException(status_code=422, detail="Target price recalculation exceeds the safe iteration limit")
+        next_minimum = expected * request.low_multiplier
+        next_expected = expected * request.high_multiplier
+        if not isfinite(next_minimum) or not isfinite(next_expected) or next_expected <= expected:
+            raise HTTPException(status_code=422, detail="Target price recalculation exceeds the safe numeric range")
+        minimum = next_minimum
+        expected = next_expected
         setting = close
         renewal += 1
+        steps += 1
         changed_at = datetime.now()
     action: Literal["KEEP", "DELETE"] = "DELETE" if close <= minimum else "KEEP"
     return PositionResult(
@@ -181,7 +211,9 @@ def _position_result(position: Position, action: Literal["KEEP", "DELETE"]) -> P
 @app.post("/v1/auto-trade/decide", response_model=AutoTradeResponse)
 def decide_auto_trade(request: AutoTradeRequest) -> AutoTradeResponse:
     recommendations = list(dict.fromkeys(request.recommended_markets))
-    held_markets = [f"KRW-{item.currency}" for item in request.balances if item.currency != "KRW"]
+    held_markets = list(dict.fromkeys(
+        f"KRW-{item.currency}" for item in request.balances if item.currency != "KRW"
+    ))
     if held_markets:
         actions = [
             TradeAction(side="SELL", market=market)
