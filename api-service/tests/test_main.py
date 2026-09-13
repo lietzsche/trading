@@ -87,6 +87,20 @@ def test_admin_cannot_run_order_job_or_change_user():
     assert client.put("/api/admin/users/2", json={"user_role": "MASTER"}).status_code == 403
 
 
+def test_market_sell_is_master_only_and_requires_explicit_confirmation(monkeypatch):
+    payload = {"market": "KRW-BTC", "expected_available_quantity": "0.25", "confirm": True, "stop_auto": True}
+    authenticated("USER")
+    assert client.post("/api/upbit/orders/market-sell", json=payload).status_code == 403
+    authenticated("ADMIN")
+    assert client.post("/api/upbit/orders/market-sell", json=payload).status_code == 403
+    authenticated("MASTER")
+    monkeypatch.setattr(main.db, "one", lambda *args: {"id": 1, "user_login_id": "master", "access_key": "a", "secret_key": "s"})
+    monkeypatch.setattr(main.engine, "manual_market_sell", lambda *args: {"ok": True, "uuid": "test"})
+    assert client.post("/api/upbit/orders/market-sell", json=payload).status_code == 201
+    assert client.post("/api/upbit/orders/market-sell", json={**payload, "confirm": False}).status_code == 422
+    assert client.post("/api/upbit/orders/market-sell", json={**payload, "stop_auto": False}).status_code == 422
+
+
 def test_regular_user_cannot_start_ai_follow_up():
     authenticated("USER")
     assert client.post("/api/admin/ai/analyses/1/messages", json={"question": "뉴스를 확인해 줘"}).status_code == 403

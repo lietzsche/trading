@@ -1,0 +1,9 @@
+.market-sell-button{width:100%}
+.market-sell-confirm{max-width:620px;border-color:#8d3a45;background:#29171de8}
+.market-sell-confirm dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}
+.market-sell-confirm dl div{padding:13px;background:#101d2d;border-radius:10px}
+.market-sell-confirm dt{font-size:11px;color:#8fa4b9}
+.market-sell-confirm dd{margin:6px 0 0;font-weight:700;overflow-wrap:anywhere}
+.market-sell-confirm .error{margin:0}
+.market-sell-confirm .error p{margin:7px 0 0;font-size:12px;line-height:1.6}
+@media(max-width:760px){.market-sell-confirm dl{grid-template-columns:minmax(0,1fr)}}

@@ -6,6 +6,7 @@ import smtplib
 import threading
 import time
 import uuid
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from email.mime.text import MIMEText
 from urllib.parse import unquote, urlencode
@@ -381,6 +382,57 @@ class TradingEngine:
                 "unpriced_currencies": sorted(unpriced),
                 "assets": sorted(assets, key=lambda row: (row["valuation"] is not None,
                                                          row["valuation"] or 0), reverse=True)}
+
+    def manual_market_sell(self, key, market, expected_available):
+        """Sell the entire currently available balance once; never retry POST."""
+        if not self._auto_order_lock.acquire(blocking=False):
+            raise ValueError("다른 주문을 처리 중입니다. 잠시 후 계좌를 새로고침하고 다시 시도해 주세요.")
+        try:
+            if not isinstance(market, str) or not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", market):
+                raise ValueError("유효한 Upbit 원화 마켓이 아닙니다.")
+            chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"], {"market": market})
+            try:
+                available = Decimal(str(chance["ask_account"]["balance"]))
+                expected = Decimal(str(expected_available))
+                minimum = Decimal(str(chance["market"]["ask"]["min_total"]))
+            except (KeyError, TypeError, InvalidOperation):
+                raise ValueError("최신 매도 가능 수량을 확인할 수 없습니다.") from None
+            if available <= 0:
+                raise ValueError("시장가로 매도할 수 있는 잔고가 없습니다.")
+            if available != expected:
+                raise ValueError("매도 가능 수량이 화면을 연 뒤 변경되었습니다. 계좌를 새로고침한 후 다시 확인해 주세요.")
+            ask_types = chance.get("market", {}).get("ask_types")
+            if isinstance(ask_types, list) and "market" not in ask_types:
+                raise ValueError("이 마켓은 시장가 매도를 지원하지 않습니다.")
+            ticker = self.upbit_public("/v1/ticker", {"markets": market})
+            try:
+                current_price = Decimal(str(ticker[0]["trade_price"]))
+            except (KeyError, IndexError, TypeError, InvalidOperation):
+                raise ValueError("최소 주문금액 확인을 위한 현재가를 조회하지 못했습니다.") from None
+            if available * current_price < minimum:
+                raise ValueError("예상 주문금액이 Upbit 최소 매도금액보다 작습니다.")
+            active = self.db.one("""SELECT k.id FROM tb_upbit_key k JOIN tb_user u ON u.user_login_id=k.user_login_id
+                WHERE k.id=%s AND u.deleted_at IS NULL AND k.access_key=%s AND k.secret_key=%s""",
+                (key["id"], key["access_key"], key["secret_key"]))
+            if not active:
+                raise ValueError("등록된 Upbit 키가 변경되었습니다. 계좌를 새로고침해 주세요.")
+            # A manual exit must not be immediately undone by the 30-second
+            # automatic-order schedule. The confirmation UI discloses this.
+            self.db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s AND access_key=%s AND secret_key=%s",
+                            (key["id"], key["access_key"], key["secret_key"]))
+            params = {"market": market, "side": "ask", "volume": format(available, "f"), "ord_type": "market",
+                      "identifier": f"manual-sell-{key['id']}-{uuid.uuid4()}"}
+            order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+            history_saved = True
+            try:
+                self.save_order(key["user_login_id"], order)
+            except Exception:
+                history_saved = False
+                log.exception("Upbit accepted manual sell but local order history save failed for key id %s", key["id"])
+            return {"ok": True, "uuid": order.get("uuid"), "market": market,
+                    "volume": params["volume"], "state": order.get("state"), "history_saved": history_saved}
+        finally:
+            self._auto_order_lock.release()
 
     def sync_orders(self, login_id, access, secret):
         uuids = [row["uuid"] for row in self.db.all(

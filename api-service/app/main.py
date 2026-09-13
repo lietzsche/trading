@@ -1,5 +1,6 @@
 import os
 import time
+from decimal import Decimal
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Annotated, Literal
@@ -12,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from app.trading import TradingEngine
 from app.ai import AIService, create_router
@@ -286,6 +287,14 @@ class UpbitKeyUpdate(BaseModel):
     secret_key: str = Field(min_length=1, max_length=255)
 
 
+class MarketSellRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    market: str = Field(pattern=r"^KRW-[A-Z0-9]{1,20}$")
+    expected_available_quantity: Decimal = Field(gt=0, max_digits=40, decimal_places=20)
+    confirm: Literal[True]
+    stop_auto: Literal[True]
+
+
 class MailTarget(BaseModel):
     email: str = Field(min_length=3, max_length=255)
 
@@ -337,6 +346,21 @@ def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
             db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s AND access_key=%s AND secret_key=%s",
                        (key["id"], key["access_key"], key["secret_key"]))
         raise HTTPException(502,"Upbit 계좌 조회에 실패했습니다.")
+
+
+@app.post("/api/upbit/orders/market-sell", status_code=201)
+def market_sell(payload: MarketSellRequest, user: Annotated[dict, Depends(master_user)]):
+    key = db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+    if not key:
+        raise HTTPException(404, "등록된 Upbit 키가 없습니다.")
+    try:
+        return engine.manual_market_sell(key, payload.market, payload.expected_available_quantity)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+    except httpx.HTTPError as error:
+        status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+        engine.record_error("UPBIT", "MANUAL_MARKET_SELL" if status is None else f"MANUAL_MARKET_SELL_HTTP_{status}", error)
+        raise HTTPException(502, "시장가 매도 응답을 확인하지 못했습니다. 재주문하지 말고 주문 내역을 먼저 확인해 주세요.") from None
 
 
 @app.put("/api/upbit/auto")

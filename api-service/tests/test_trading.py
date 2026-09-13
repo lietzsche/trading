@@ -235,6 +235,44 @@ def test_sell_skips_zero_available_balance(trading_engine, monkeypatch):
     assert calls == ["GET", "GET"]
 
 
+def test_manual_market_sell_rechecks_balance_stops_auto_and_never_sends_price(trading_engine, monkeypatch):
+    calls, saved = [], []
+    key = trading_engine.db.keys[0]
+    def private(method, path, access, secret, params=None):
+        calls.append((method, path, params))
+        if path == "/v1/orders/chance":
+            return {"ask_account": {"balance": "0.25"},
+                    "market": {"ask": {"min_total": "5000"}, "ask_types": ["limit", "market"]}}
+        assert method == "POST" and path == "/v1/orders"
+        return {"uuid": "sell-uuid", "state": "wait"}
+    monkeypatch.setattr(trading_engine, "private_upbit", private)
+    monkeypatch.setattr(trading_engine, "upbit_public", lambda *_: [{"trade_price": "100000"}])
+    monkeypatch.setattr(trading_engine, "save_order", lambda *args: saved.append(args))
+    result = trading_engine.manual_market_sell(key, "KRW-BTC", "0.25")
+    order = calls[-1][2]
+    assert result["uuid"] == "sell-uuid" and result["history_saved"] is True
+    assert order["side"] == "ask" and order["ord_type"] == "market" and order["volume"] == "0.25"
+    assert "price" not in order and order["identifier"].startswith("manual-sell-1-")
+    assert saved and any("SET auto_on=false" in sql for sql, _ in trading_engine.db.writes)
+    assert not trading_engine._auto_order_lock.locked()
+
+
+@pytest.mark.parametrize("expected,price,message", [
+    ("0.24", "100000", "변경"), ("0.25", "1000", "최소 매도금액"),
+])
+def test_manual_market_sell_rejects_stale_or_too_small_order(trading_engine, monkeypatch, expected, price, message):
+    calls = []
+    def private(method, path, *args, **kwargs):
+        calls.append(method)
+        return {"ask_account": {"balance": "0.25"},
+                "market": {"ask": {"min_total": "5000"}, "ask_types": ["market"]}}
+    monkeypatch.setattr(trading_engine, "private_upbit", private)
+    monkeypatch.setattr(trading_engine, "upbit_public", lambda *_: [{"trade_price": price}])
+    with pytest.raises(ValueError, match=message):
+        trading_engine.manual_market_sell(trading_engine.db.keys[0], "KRW-BTC", expected)
+    assert calls == ["GET"] and not trading_engine._auto_order_lock.locked()
+
+
 def test_account_snapshot_preserves_unknown_prices_and_non_krw_costs(trading_engine, monkeypatch):
     accounts = [
         {"currency": "KRW", "balance": "5000", "locked": "1000", "avg_buy_price": "0", "unit_currency": "KRW"},
