@@ -292,7 +292,7 @@ class MarketSellRequest(BaseModel):
     market: str = Field(pattern=r"^KRW-[A-Z0-9]{1,20}$")
     expected_available_quantity: Decimal = Field(gt=0, max_digits=40, decimal_places=20)
     confirm: Literal[True]
-    stop_auto: Literal[True]
+    keep_auto: Literal[True]
 
 
 class MailTarget(BaseModel):

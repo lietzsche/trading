@@ -416,10 +416,6 @@ class TradingEngine:
                 (key["id"], key["access_key"], key["secret_key"]))
             if not active:
                 raise ValueError("등록된 Upbit 키가 변경되었습니다. 계좌를 새로고침해 주세요.")
-            # A manual exit must not be immediately undone by the 30-second
-            # automatic-order schedule. The confirmation UI discloses this.
-            self.db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s AND access_key=%s AND secret_key=%s",
-                            (key["id"], key["access_key"], key["secret_key"]))
             params = {"market": market, "side": "ask", "volume": format(available, "f"), "ord_type": "market",
                       "identifier": f"manual-sell-{key['id']}-{uuid.uuid4()}"}
             order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
@@ -498,8 +494,20 @@ class TradingEngine:
             "recommended_markets": markets, "balances": [{"currency": a["currency"]} for a in accounts],
             "minimum_recommendations": 3,
         })["actions"]
+        recent_manual_sells = {row["market"] for row in self.db.all("""SELECT DISTINCT market
+            FROM upbit_order_history
+            WHERE login_id=%s AND identifier LIKE 'manual-sell-%%'
+              AND CASE
+                    WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}T'
+                    THEN created_at::timestamptz
+                  END >= CURRENT_TIMESTAMP - INTERVAL '10 minutes'""",
+            (key["user_login_id"],))}
         for action in actions:
             market = action["market"]
+            # Keep automatic trading enabled after a manual exit, but avoid
+            # immediately buying back the same asset. The next ranked BUY can proceed.
+            if action["side"] == "BUY" and market in recent_manual_sells:
+                continue
             chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"],
                                         {"market": market})
             if action["side"] == "BUY":

@@ -23,10 +23,15 @@ class TradingDatabase:
             {"id": 2, "user_login_id": "second", "access_key": "second", "secret_key": "test-secret"},
         ]
         self.active = True
+        self.manual_sell_cooldowns = []
 
     def all(self, sql, params=()):
         self.queries.append((sql, params))
-        return [{"code": "KRW-BTC"}] if "SELECT code FROM upbit" in sql else self.keys
+        if "SELECT code FROM upbit" in sql:
+            return [{"code": "KRW-BTC"}]
+        if "identifier LIKE 'manual-sell-%%'" in sql:
+            return [{"market": market} for market in self.manual_sell_cooldowns]
+        return self.keys
 
     def one(self, sql, params=()):
         self.queries.append((sql, params))
@@ -219,6 +224,35 @@ def test_order_checks_current_permission_and_keeps_existing_buy_amount(trading_e
         assert orders[0] == {"market": "KRW-BTC", "side": "bid", "price": "9995.0", "ord_type": "price"}
 
 
+def test_auto_order_skips_recent_manual_sell_and_buys_next_ranked_market(trading_engine, monkeypatch):
+    calls, saved = [], []
+    trading_engine.db.manual_sell_cooldowns = ["KRW-BTC"]
+
+    def private(method, path, access, secret, params=None):
+        calls.append((method, path, params))
+        if path == "/v1/accounts":
+            return [{"currency": "KRW", "balance": "10000", "locked": "0"}]
+        if path == "/v1/orders/chance":
+            assert params == {"market": "KRW-ETH"}
+            return {"bid_fee": "0.0005", "market": {"bid": {"min_total": "5000"}}}
+        assert method == "POST" and params["market"] == "KRW-ETH"
+        return {"uuid": "next-ranked-order"}
+
+    monkeypatch.setattr(trading_engine, "private_upbit", private)
+    monkeypatch.setattr(trading_engine, "calc", lambda *_: {"actions": [
+        {"market": "KRW-BTC", "side": "BUY"}, {"market": "KRW-ETH", "side": "BUY"},
+    ]})
+    monkeypatch.setattr(trading_engine, "save_order", lambda *args: saved.append(args))
+
+    trading_engine._auto_order_for_key(trading_engine.db.keys[0], ["KRW-BTC", "KRW-ETH", "KRW-XRP"])
+
+    posted = [params for method, path, params in calls if method == "POST" and path == "/v1/orders"]
+    assert len(posted) == 1 and posted[0]["market"] == "KRW-ETH"
+    assert saved
+    cooldown_query = next(sql for sql, _ in trading_engine.db.queries if "manual-sell-%%" in sql)
+    assert "created_at::timestamptz" in cooldown_query and "CASE" in cooldown_query
+
+
 def test_sell_skips_zero_available_balance(trading_engine, monkeypatch):
     calls = []
 
@@ -235,7 +269,7 @@ def test_sell_skips_zero_available_balance(trading_engine, monkeypatch):
     assert calls == ["GET", "GET"]
 
 
-def test_manual_market_sell_rechecks_balance_stops_auto_and_never_sends_price(trading_engine, monkeypatch):
+def test_manual_market_sell_rechecks_balance_keeps_auto_and_never_sends_price(trading_engine, monkeypatch):
     calls, saved = [], []
     key = trading_engine.db.keys[0]
     def private(method, path, access, secret, params=None):
@@ -253,7 +287,7 @@ def test_manual_market_sell_rechecks_balance_stops_auto_and_never_sends_price(tr
     assert result["uuid"] == "sell-uuid" and result["history_saved"] is True
     assert order["side"] == "ask" and order["ord_type"] == "market" and order["volume"] == "0.25"
     assert "price" not in order and order["identifier"].startswith("manual-sell-1-")
-    assert saved and any("SET auto_on=false" in sql for sql, _ in trading_engine.db.writes)
+    assert saved and not any("SET auto_on=false" in sql for sql, _ in trading_engine.db.writes)
     assert not trading_engine._auto_order_lock.locked()
 
 

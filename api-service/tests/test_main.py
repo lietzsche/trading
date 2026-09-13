@@ -88,7 +88,7 @@ def test_admin_cannot_run_order_job_or_change_user():
 
 
 def test_market_sell_is_master_only_and_requires_explicit_confirmation(monkeypatch):
-    payload = {"market": "KRW-BTC", "expected_available_quantity": "0.25", "confirm": True, "stop_auto": True}
+    payload = {"market": "KRW-BTC", "expected_available_quantity": "0.25", "confirm": True, "keep_auto": True}
     authenticated("USER")
     assert client.post("/api/upbit/orders/market-sell", json=payload).status_code == 403
     authenticated("ADMIN")
@@ -98,7 +98,7 @@ def test_market_sell_is_master_only_and_requires_explicit_confirmation(monkeypat
     monkeypatch.setattr(main.engine, "manual_market_sell", lambda *args: {"ok": True, "uuid": "test"})
     assert client.post("/api/upbit/orders/market-sell", json=payload).status_code == 201
     assert client.post("/api/upbit/orders/market-sell", json={**payload, "confirm": False}).status_code == 422
-    assert client.post("/api/upbit/orders/market-sell", json={**payload, "stop_auto": False}).status_code == 422
+    assert client.post("/api/upbit/orders/market-sell", json={**payload, "keep_auto": False}).status_code == 422
 
 
 def test_regular_user_cannot_start_ai_follow_up():
