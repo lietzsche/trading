@@ -22,15 +22,13 @@ log = logging.getLogger(__name__)
 SETTING_COLUMNS = "expected_high_percentage,expected_low_percentage,highest_price_reference_days,is_volume_check AS volume_check"
 SETTING_KEYS = ("expected_high_percentage", "expected_low_percentage", "highest_price_reference_days", "volume_check")
 DEFAULT_MODEL = "deepseek-flash"
-RUN_TOKEN_BUDGET = 30000
+RUN_TOKEN_BUDGET = 200000
 
 
 class ConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: SecretStr | None = None
     model: str = Field(default=DEFAULT_MODEL, pattern=r"^deepseek-[a-z0-9-]{1,40}$")
-    daily_request_limit: int = Field(default=5, ge=1, le=20)
-    daily_token_limit: int = Field(default=50000, ge=5000, le=200000)
 
     @field_validator("api_key")
     @classmethod
@@ -123,37 +121,35 @@ class AIService:
             for row in cursor.fetchall():
                 charged = row["reserved_tokens"] if row["status"] == "RUNNING" else 0
                 self._settle(cursor, row, "FAILED", charged, None,
-                             "서버 재시작으로 중단되었습니다. 실행 중이던 분석의 토큰은 한도에 보수적으로 반영합니다.")
+                             "서버 재시작으로 중단되었습니다. 실행 중이던 분석의 토큰은 사용량에 보수적으로 반영합니다.")
             cursor.execute("SELECT * FROM ai_conversation_messages WHERE status IN ('PENDING','RUNNING') FOR UPDATE")
             for row in cursor.fetchall():
                 charged = row["reserved_tokens"] if row["status"] == "RUNNING" else 0
                 self._settle_conversation(cursor, row, "FAILED", charged, None,
-                                          "서버 재시작으로 후속 답변이 중단되었습니다. 실행 중이던 요청은 한도에 보수적으로 반영합니다.")
+                                          "서버 재시작으로 후속 답변이 중단되었습니다. 실행 중이던 요청은 사용량에 보수적으로 반영합니다.")
 
     def stop(self):
         self.executor.shutdown(wait=False, cancel_futures=True)
 
     def config(self, user_id):
-        config = self.db.one("SELECT model,key_hint,daily_request_limit,daily_token_limit FROM ai_credentials WHERE user_id=%s", (user_id,))
+        config = self.db.one("SELECT model,key_hint FROM ai_credentials WHERE user_id=%s", (user_id,))
         usage = self.db.one("SELECT runs,tokens,reserved_tokens FROM ai_daily_usage WHERE user_id=%s AND usage_date=%s", (user_id, self.today()))
         return {"configured": bool(config), "model": DEFAULT_MODEL, "key_hint": "",
-                "daily_request_limit": 5, "daily_token_limit": 50000,
                 **(config or {}), "usage_today": usage or {"runs": 0, "tokens": 0, "reserved_tokens": 0},
-                "max_tool_calls": 4, "max_output_tokens": 2500, "max_run_tokens": RUN_TOKEN_BUDGET}
+                "provider_limited": True, "max_tool_calls": 4,
+                "max_output_tokens": 2500, "max_run_tokens": RUN_TOKEN_BUDGET}
 
     def save_config(self, user_id, payload):
         if payload.api_key is not None:
             key = payload.api_key.get_secret_value()
             encrypted = key_cipher(self.session_secret, user_id).encrypt(key.encode()).decode()
-            self.db.execute("""INSERT INTO ai_credentials(user_id,encrypted_key,key_hint,model,daily_request_limit,daily_token_limit)
-                VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(user_id) DO UPDATE SET encrypted_key=EXCLUDED.encrypted_key,
-                key_hint=EXCLUDED.key_hint,model=EXCLUDED.model,daily_request_limit=EXCLUDED.daily_request_limit,
-                daily_token_limit=EXCLUDED.daily_token_limit,updated_at=now()""",
-                (user_id, encrypted, "…" + key[-4:], payload.model, payload.daily_request_limit, payload.daily_token_limit))
+            self.db.execute("""INSERT INTO ai_credentials(user_id,encrypted_key,key_hint,model)
+                VALUES(%s,%s,%s,%s) ON CONFLICT(user_id) DO UPDATE SET encrypted_key=EXCLUDED.encrypted_key,
+                key_hint=EXCLUDED.key_hint,model=EXCLUDED.model,updated_at=now()""",
+                (user_id, encrypted, "…" + key[-4:], payload.model))
         else:
-            result = self.db.one("""UPDATE ai_credentials SET model=%s,daily_request_limit=%s,daily_token_limit=%s,
-                updated_at=now() WHERE user_id=%s RETURNING user_id""",
-                (payload.model, payload.daily_request_limit, payload.daily_token_limit, user_id))
+            result = self.db.one("""UPDATE ai_credentials SET model=%s,updated_at=now()
+                WHERE user_id=%s RETURNING user_id""", (payload.model, user_id))
             if not result:
                 raise HTTPException(400, "먼저 DeepSeek API 키를 등록해 주세요.")
         return self.config(user_id)
@@ -213,9 +209,7 @@ class AIService:
             cursor.execute("INSERT INTO ai_daily_usage(user_id,usage_date) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id, today))
             cursor.execute("SELECT * FROM ai_daily_usage WHERE user_id=%s AND usage_date=%s FOR UPDATE", (user_id, today))
             usage = cursor.fetchone()
-            budget = min(RUN_TOKEN_BUDGET, config["daily_token_limit"] - usage["tokens"] - usage["reserved_tokens"])
-            if usage["runs"] >= config["daily_request_limit"] or budget < 5000:
-                raise HTTPException(429, "오늘의 분석 횟수 또는 토큰 한도에 도달했습니다. 다음 날 다시 시도하거나 한도를 조정해 주세요.")
+            budget = RUN_TOKEN_BUDGET
             cursor.execute("UPDATE ai_daily_usage SET runs=runs+1,reserved_tokens=reserved_tokens+%s WHERE user_id=%s AND usage_date=%s", (budget, user_id, today))
             cursor.execute("""INSERT INTO ai_analyses(user_id,market,status,prompt,include_account,request_payload,
                 settings_snapshot,model,reserved_tokens,usage_date) VALUES(%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,%s) RETURNING id,status""",
@@ -328,6 +322,19 @@ class AIService:
             WHERE analysis_id=%s AND user_id=%s ORDER BY id""", (analysis_id, user_id))
         return row
 
+    def delete_analysis(self, user_id, analysis_id):
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT status,applied_candidate_id FROM ai_analyses WHERE id=%s AND user_id=%s FOR UPDATE",
+                           (analysis_id, user_id))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(404, "대화를 찾을 수 없습니다.")
+            if row["status"] in {"PENDING", "RUNNING"}:
+                raise HTTPException(409, "진행 중인 대화는 삭제할 수 없습니다.")
+            if row["applied_candidate_id"]:
+                raise HTTPException(409, "실제 설정을 적용한 분석은 감사 기록 보존을 위해 삭제할 수 없습니다.")
+            cursor.execute("DELETE FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+
     def enqueue_conversation(self, user_id, analysis_id, payload):
         today = self.today()
         with self.db.connection() as connection, connection.cursor() as cursor:
@@ -357,9 +364,7 @@ class AIService:
             cursor.execute("INSERT INTO ai_daily_usage(user_id,usage_date) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id, today))
             cursor.execute("SELECT * FROM ai_daily_usage WHERE user_id=%s AND usage_date=%s FOR UPDATE", (user_id, today))
             usage = cursor.fetchone()
-            budget = min(RUN_TOKEN_BUDGET, config["daily_token_limit"] - usage["tokens"] - usage["reserved_tokens"])
-            if usage["runs"] >= config["daily_request_limit"] or budget < 5000:
-                raise HTTPException(429, "오늘의 AI 질문 횟수 또는 토큰 한도에 도달했습니다.")
+            budget = RUN_TOKEN_BUDGET
             cursor.execute("UPDATE ai_daily_usage SET runs=runs+1,reserved_tokens=reserved_tokens+%s WHERE user_id=%s AND usage_date=%s",
                            (budget, user_id, today))
             cursor.execute("""INSERT INTO ai_conversation_messages(analysis_id,user_id,status,question,reserved_tokens,usage_date)
@@ -391,9 +396,16 @@ class AIService:
             symbols = list(dict.fromkeys(symbols))[:5]
             if not symbols:
                 symbols = ["KRW-BTC"] if analysis["market"] == "upbit" else ["005930"]
-            prior = self.db.all("""SELECT question,answer FROM ai_conversation_messages
-                WHERE analysis_id=%s AND user_id=%s AND status='COMPLETED' AND id<%s ORDER BY id DESC LIMIT 6""",
+            prior_rows = self.db.all("""SELECT question,answer FROM ai_conversation_messages
+                WHERE analysis_id=%s AND user_id=%s AND status='COMPLETED' AND id<%s ORDER BY id DESC LIMIT 50""",
                                 (analysis["id"], row["user_id"], row["id"]))
+            prior, prior_bytes = [], 0
+            for item in prior_rows:
+                item_bytes = len(json.dumps(item, ensure_ascii=False, default=str).encode("utf-8"))
+                if prior_bytes + item_bytes > 140000:
+                    break
+                prior.append(item)
+                prior_bytes += item_bytes
             prior.reverse()
             original = {"question": analysis["prompt"], "report": (analysis["result"] or {}).get("report"),
                         "candidates": (analysis["result"] or {}).get("candidates", []),
@@ -489,6 +501,10 @@ def create_router(service, admin_dependency, master_dependency):
     @router.get("/analyses/{analysis_id}")
     def analysis(analysis_id: int, user: dict = Depends(admin_dependency)):
         return service.detail(user["id"], analysis_id)
+
+    @router.delete("/analyses/{analysis_id}", status_code=204)
+    def delete_analysis(analysis_id: int, user: dict = Depends(admin_dependency)):
+        service.delete_analysis(user["id"], analysis_id)
 
     @router.post("/analyses", status_code=202)
     def start_analysis(payload: AnalysisRequest, user: dict = Depends(admin_dependency)):

@@ -90,6 +90,7 @@ def test_admin_cannot_run_order_job_or_change_user():
 def test_regular_user_cannot_start_ai_follow_up():
     authenticated("USER")
     assert client.post("/api/admin/ai/analyses/1/messages", json={"question": "뉴스를 확인해 줘"}).status_code == 403
+    assert client.delete("/api/admin/ai/analyses/1").status_code == 403
 
 
 @pytest.mark.parametrize("field, value", [

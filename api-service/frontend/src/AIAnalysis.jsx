@@ -8,7 +8,7 @@ const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
 const timestamp = value => value ? String(value).replace('T', ' ').slice(0, 16) : '—';
 const marketName = value => value === 'upbit' ? 'Upbit' : '주식';
-const defaults = {model: 'deepseek-flash', daily_request_limit: 5, daily_token_limit: 30000};
+const defaults = {model: 'deepseek-flash'};
 
 export function Metrics({title, values}) {
   return <div className="ai-metrics"><h4>{title}</h4><dl>
@@ -51,7 +51,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
   const [market, setMarket] = useState('upbit'), [prompt, setPrompt] = useState('현재 전략과 설정을 점검하고, 과거 데이터로 비교한 설정 후보의 장단점과 위험을 설명해 주세요.');
   const [symbols, setSymbols] = useState(''), [includeAccount, setIncludeAccount] = useState(false), [feeBps, setFeeBps] = useState(5), [slippageBps, setSlippageBps] = useState(10);
   const [recommendations, setRecommendations] = useState([]), [chatQuestion, setChatQuestion] = useState('');
-  const [proposal, setProposal] = useState(null), [confirmed, setConfirmed] = useState(false), [detailVersion, setDetailVersion] = useState(0);
+  const [proposal, setProposal] = useState(null), [confirmed, setConfirmed] = useState(false), [detailVersion, setDetailVersion] = useState(0), [showEvidence, setShowEvidence] = useState(false);
   const mounted = useRef(false), operation = useRef(false), pageRef = useRef(page), previousPage = useRef(page), errorHandler = useRef(setError), selectedIdRef = useRef(selectedId);
   const listRequests = useRef(createRequestGate()), detailRequests = useRef(createRequestGate());
   pageRef.current = page; errorHandler.current = setError; selectedIdRef.current = selectedId;
@@ -73,7 +73,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
       if (!request.isCurrent()) return;
       setConfig(nextConfig); setHistory(nextHistory);
       if (selectedIdRef.current === null && nextHistory.items?.length) setSelectedId(nextHistory.items[0].id);
-      if (resetDraft) setConfigDraft({model: nextConfig.model || defaults.model, daily_request_limit: nextConfig.daily_request_limit, daily_token_limit: nextConfig.daily_token_limit});
+      if (resetDraft) setConfigDraft({model: nextConfig.model || defaults.model});
     } catch (error) {if (request.isCurrent()) showError(error);}
     finally {if (request.isCurrent()) setLoading(false);}
   }, [showError]);
@@ -117,14 +117,14 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
   }
 
   function selectAnalysis(id) {
-    detailRequests.current.cancel(); setSelected(null); setSelectedId(id); setProposal(null); setConfirmed(false); setLocalError('');
+    detailRequests.current.cancel(); setSelected(null); setSelectedId(id); setProposal(null); setConfirmed(false); setShowEvidence(false); setLocalError('');
     if (id === selectedId) setDetailVersion(value => value + 1);
   }
 
   async function saveConfig(event) {
     event.preventDefault();
     await runAction('config', async () => {
-      const body = {...configDraft, daily_request_limit: Number(configDraft.daily_request_limit), daily_token_limit: Number(configDraft.daily_token_limit)};
+      const body = {...configDraft};
       if (apiKey.trim()) body.api_key = apiKey.trim();
       await api(`${API}/config`, {method: 'PUT', body: JSON.stringify(body)});
       if (!mounted.current) return;
@@ -163,6 +163,17 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
     });
   }
 
+  async function deleteConversation() {
+    const deletingId = selectedId;
+    if (deletingId == null || !window.confirm('이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.')) return;
+    await runAction('delete-chat', async () => {
+      await api(`${API}/analyses/${encodeURIComponent(deletingId)}`, {method: 'DELETE'});
+      if (!mounted.current) return;
+      detailRequests.current.cancel(); selectedIdRef.current = null; setSelectedId(null); setSelected(null);
+      setProposal(null); setShowEvidence(false); setNotice('AI 대화를 삭제했습니다.'); await refresh(false);
+    });
+  }
+
   async function inspectCandidate(candidate) {
     const analysisId = selectedId;
     await runAction(`inspect-${candidate.id}`, async () => {
@@ -190,7 +201,6 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
   const pages = Math.max(1, Math.ceil(history.total / (history.page_size || 10)));
   const result = selected?.result || {}, candidates = Array.isArray(result.candidates) ? result.candidates : [];
   const selectedSymbols = (() => {try {return parseAnalysisSymbols(symbols, market);} catch {return [];}})();
-  const atLimit = Boolean(config && (Number(used.runs || 0) >= config.daily_request_limit || Number(used.tokens || 0) >= config.daily_token_limit));
   const master = user.user_role === 'MASTER';
   const stale = Boolean(proposal && !sameSettings(proposal.current, selected?.settings_snapshot));
 
@@ -201,16 +211,16 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
     <div className="info-note"><b>수익 예측이 아닌 과거 데이터 검증입니다.</b><span>종목별 독립·동일 비중으로 계산하는 단순 시뮬레이션이며 실제 자동매매 전체를 재현하지 않습니다. 수수료와 가격 차이를 반영해도 미체결·유동성·미래 시장 변동은 보장할 수 없습니다. 실제 수익을 약속하지 않습니다.</span></div>
 
     <details className="card ai-config" open={!config?.configured || undefined}>
-      <summary><span>DeepSeek 연결 및 사용 한도</span><span className={`status-pill ${config?.configured ? 'on' : 'off'}`}>{config?.configured ? '키 등록됨' : '키 등록 필요'}</span></summary>
+      <summary><span>DeepSeek 연결 설정</span><span className={`status-pill ${config?.configured ? 'on' : 'off'}`}>{config?.configured ? '키 등록됨' : '키 등록 필요'}</span></summary>
       <form className="form" onSubmit={saveConfig}>
         <p className="hint">내 계정의 키와 분석 기록만 사용합니다. 키는 서버에 암호화해 저장하며 다시 표시하지 않습니다. Upbit 비밀키·로그인 비밀번호는 AI에 보내지 않습니다.</p>
         <label>DeepSeek API 키<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} autoComplete="new-password" maxLength={255} placeholder={config?.configured ? '변경할 때만 새 키 입력' : 'DeepSeek API 키 입력'} required={!config?.configured}/>{config?.key_hint && <small>등록된 키: {config.key_hint}</small>}</label>
-        <div className="ai-form-grid"><label>분석 모델<select value={configDraft.model} onChange={event => setConfigDraft({...configDraft, model: event.target.value})}><option value="deepseek-flash">DeepSeek Flash</option>{configDraft.model !== 'deepseek-flash' && <option value={configDraft.model}>{configDraft.model}</option>}</select></label><label>하루 분석 횟수<input type="number" min="1" max="20" step="1" required value={configDraft.daily_request_limit} onChange={event => setConfigDraft({...configDraft, daily_request_limit: event.target.value})}/></label><label>하루 토큰 한도<input type="number" min="5000" max="200000" step="1" required value={configDraft.daily_token_limit} onChange={event => setConfigDraft({...configDraft, daily_token_limit: event.target.value})}/></label></div>
+        <div className="ai-form-grid ai-one"><label>분석 모델<select value={configDraft.model} onChange={event => setConfigDraft({...configDraft, model: event.target.value})}><option value="deepseek-flash">DeepSeek Flash</option>{configDraft.model !== 'deepseek-flash' && <option value={configDraft.model}>{configDraft.model}</option>}</select></label></div>
         <div className="ai-actions"><button className="primary" disabled={Boolean(pending) || loading}>{pending === 'config' ? '저장 중…' : '연결 설정 저장'}</button><button type="button" className="quiet" disabled={!config?.configured || Boolean(pending)} onClick={() => runAction('test', async () => {await api(`${API}/config/test`, {method: 'POST'}); if (mounted.current) setNotice('저장된 API 키로 연결을 확인했습니다. 분석 요청은 실행하지 않았습니다.');})}>{pending === 'test' ? '확인 중…' : '저장된 키 연결 확인'}</button><button type="button" className="danger" disabled={!config?.configured || Boolean(pending)} onClick={() => {if (window.confirm('저장된 DeepSeek API 키를 삭제할까요? 새 분석에는 키를 다시 등록해야 합니다.')) runAction('delete', async () => {await api(`${API}/config`, {method: 'DELETE'}); if (mounted.current) {setApiKey(''); setNotice('DeepSeek API 키를 삭제했습니다.'); await refresh(true);}});}}>키 삭제</button></div>
       </form>
     </details>
 
-    <section className="ai-usage" aria-label="오늘의 AI 사용량"><span>오늘 AI 요청 <b>{count(used.runs)} / {count(config?.daily_request_limit)}회</b></span><span>오늘 토큰 <b>{count(used.tokens)} / {count(config?.daily_token_limit)}</b></span><span>한 답변의 자료 조회 <b>최대 {config?.max_tool_calls || 4}회</b></span><small>첫 분석과 이어지는 메시지가 각각 1회 요청으로 집계됩니다. 실제 비용은 DeepSeek 청구 기준이며 실패·재시도에도 사용량이 발생할 수 있습니다.</small></section>
+    <section className="ai-usage" aria-label="오늘의 AI 사용량"><span>오늘 AI 요청 <b>{count(used.runs)}회</b></span><span>오늘 사용량 <b>{count(used.tokens)} 토큰</b></span><span>한 답변의 자료 조회 <b>최대 {config?.max_tool_calls || 4}회</b></span><small>앱 자체의 일일 대화 제한은 없습니다. DeepSeek 계정의 잔액·속도·사용 한도를 따르며, 각 요청은 안전을 위해 최대 실행 시간과 출력 길이만 제한합니다.</small></section>
 
     {selectedId === null && <section className="card ai-new-chat"><div className="section-head ai-section-head"><h3>새 분석 대화</h3><span className="ai-muted">첫 메시지와 함께 백테스트를 시작합니다</span></div><form className="form" onSubmit={startAnalysis}>
       <div className="ai-form-grid ai-two"><label>시장<select value={market} onChange={event => {setMarket(event.target.value); setSymbols(''); setIncludeAccount(false); setFeeBps(event.target.value === 'upbit' ? 5 : 15);}}><option value="upbit">Upbit · 원화 마켓</option><option value="stock">국내 주식</option></select></label><label>분석 종목 <small>최대 5개 · 비워 두면 서버가 추천 종목에서 선택</small><input value={symbols} maxLength={150} onChange={event => setSymbols(event.target.value)} placeholder={market === 'upbit' ? 'KRW-BTC, KRW-ETH' : '005930, 000660'}/></label></div>
@@ -220,16 +230,15 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
       <p className="hint">1bp = 0.01%입니다. 매수·매도 양쪽에 각각 적용합니다. 수수료 기본값은 분석 가정이므로 본인 거래 조건에 맞게 확인해 주세요.</p>
       {market === 'upbit' && <label className="check ai-consent"><input type="checkbox" checked={includeAccount} onChange={event => setIncludeAccount(event.target.checked)}/><span><b>내 Upbit 계좌 요약을 DeepSeek에 전송하는 데 동의합니다</b><small>선택 사항입니다. 보유 종목·수량·평균 매수가 등의 요약이 외부 AI 서비스로 전달됩니다. API 비밀키는 전달하지 않습니다.</small></span></label>}
       <p className="hint">분석 요청을 보내면 입력한 질문, 현재 전략·설정·추천 종목과 조회한 시장 데이터가 DeepSeek로 전달됩니다. 민감한 내용을 입력하지 마세요.</p>
-      {atLimit && <div className="info-note">오늘의 분석 또는 토큰 한도에 도달했습니다. 한도를 확인하거나 다음 날 다시 요청해 주세요.</div>}
-      <button className="primary" disabled={!config?.configured || Boolean(pending) || running || atLimit || !prompt.trim()}>{pending === 'analysis' ? '대화 만드는 중…' : running ? '진행 중인 분석을 기다려 주세요' : !config?.configured ? '먼저 DeepSeek 키를 등록해 주세요' : '새 분석 대화 시작'}</button>
+      <button className="primary" disabled={!config?.configured || Boolean(pending) || running || !prompt.trim()}>{pending === 'analysis' ? '대화 만드는 중…' : running ? '진행 중인 분석을 기다려 주세요' : !config?.configured ? '먼저 DeepSeek 키를 등록해 주세요' : '새 분석 대화 시작'}</button>
     </form></section>}
 
     <div className="ai-chat-workspace">
     <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span></div> : <div className="ai-history-list">{history.items.map(item => <button key={item.id} className={`ai-history-item ${String(item.id) === String(selectedId) ? 'selected' : ''}`} onClick={() => selectAnalysis(item.id)} aria-pressed={String(item.id) === String(selectedId)}><span><b>{marketName(item.market)} · {item.prompt || '분석 대화'}</b><time>{timestamp(item.created_at)}</time></span><span><b className={`ai-status ${String(item.status).toLowerCase()}`}>{AI_STATUS_LABELS[item.status] || item.status}</b><small>{count(item.usage_tokens)} 토큰</small></span></button>)}</div>}{pages > 1 && <nav className="pager" aria-label="AI 대화 목록 페이지"><button className="quiet" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>이전</button><span>{page + 1} / {pages}</span><button className="quiet" disabled={page + 1 >= pages || loading} onClick={() => setPage(value => value + 1)}>다음</button></nav>}</section></aside>
     <div className="ai-conversation-panel">
 
-    {selectedId !== null && <section className="ai-result" aria-label="선택한 분석 결과">
-      <div className="section-head ai-section-head"><h3>{selected ? `${marketName(selected.market)} 분석 대화` : '대화 불러오는 중'}</h3><button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>새 대화</button></div>
+    {selectedId !== null && <section className={`ai-result ${showEvidence ? 'show-evidence' : ''}`} aria-label="선택한 분석 결과">
+      <div className="section-head ai-section-head"><h3>{selected ? `${marketName(selected.market)} 분석 대화` : '대화 불러오는 중'}</h3><div className="ai-header-actions">{selected?.status === 'COMPLETED' && <button className="quiet compact" onClick={() => setShowEvidence(value => !value)}>{showEvidence ? '근거 접기' : '분석 근거'}</button>}{selected && !running && !chatRunning && !selected.applied_candidate_id && <button className="danger compact" disabled={pending === 'delete-chat'} onClick={deleteConversation}>{pending === 'delete-chat' ? '삭제 중…' : '삭제'}</button>}<button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false);}}>새 대화</button></div></div>
       {detailLoading && <div className="loading-row" role="status"><div className="loader"/>분석 결과를 확인하고 있습니다.</div>}
       {selected && <><p className="ai-muted">{timestamp(selected.created_at)} · {AI_STATUS_LABELS[selected.status] || selected.status} · {count(selected.usage_tokens)} 토큰{selected.include_account ? ' · 계좌 요약 포함' : ' · 계좌 요약 제외'}</p><article className="ai-chat-user ai-first-question"><b>나</b><p>{selected.prompt}</p></article>
         {running && <div className="info-note" role="status"><b>자료 조회 및 분석 중입니다.</b><span>3초마다 상태를 확인합니다. 화면을 닫아도 분석은 계속되며, 기록에서 다시 확인할 수 있습니다.</span></div>}
@@ -250,7 +259,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
           {proposal && <section className="card ai-confirm" aria-label="계산 설정 적용 확인"><h3>실제 계산 설정을 변경할까요?</h3><p>{marketName(selected.market)} · {proposal.candidate.label || '선택한 후보'}</p><div className="ai-comparison"><div className="ai-comparison-heading"><b>항목</b><b>현재 설정</b><b>변경할 설정</b></div>{AI_SETTING_FIELDS.map(([key, label]) => <div key={key}><span>{label}</span><span>{settingText(key, proposal.current[key])}</span><strong>{settingText(key, proposal.candidate.settings?.[key])}</strong></div>)}</div><div className="info-note"><b>다음 계산부터 실제 운영에 영향을 줍니다.</b><span>자동매매가 켜져 있으면 이후 추천·매매 판단에 영향을 줄 수 있습니다. AI가 직접 주문하지는 않으며 자동매매의 켜짐/꺼짐 상태도 바꾸지 않습니다.</span></div>{stale && <div className="error" role="alert">분석 이후 현재 설정이 바뀌었습니다. 새 분석을 실행한 뒤 다시 비교해 주세요.</div>}<label className="check ai-consent"><input type="checkbox" checked={confirmed} disabled={stale || pending === 'apply'} onChange={event => setConfirmed(event.target.checked)}/><span>변경 전후 설정과 실제 자동매매에 미치는 영향을 확인했으며, 이 설정을 적용합니다.</span></label><div className="ai-actions"><button className="primary" disabled={!confirmed || stale || Boolean(pending)} onClick={applyCandidate}>{pending === 'apply' ? '설정 적용 중…' : '확인한 설정 적용'}</button><button className="quiet" disabled={pending === 'apply'} onClick={() => {setProposal(null); setConfirmed(false);}}>취소</button></div></section>}
           <Notes title="검증의 한계" items={result.limitations}/>
           <details className="ai-details"><summary>사용한 자료와 조회 기록</summary><Notes title="데이터 출처" items={result.data_sources}/>{Array.isArray(result.data_sources) && result.data_sources.filter(source => typeof source === 'object' && source !== null).map((source, index) => <p className="ai-source" key={index}>{source.name || source.source || source.provider || source.symbol || source.code || '시장 자료'}{(source.as_of || source.fetched_at || source.end_date) && <span> · {timestamp(source.as_of || source.fetched_at || source.end_date)}</span>}{source.start_date && <span> · 시작 {source.start_date}</span>}{source.bars != null && <span> · {count(source.bars)}개 봉</span>}</p>)}{Array.isArray(result.tool_calls) && result.tool_calls.map((call, index) => <p className="ai-source" key={index}>{typeof call === 'string' ? call : call?.name || call?.tool || '자료 조회'}{call?.status && <span> · {call.status}</span>}</p>)}{!result.data_sources?.length && !result.tool_calls?.length && <p className="hint">제공된 조회 기록이 없습니다.</p>}</details>
-          <section className="ai-chat"><div className="ai-chat-thread">{conversations.map(message => <article key={message.id}><div className="ai-chat-user"><b>나</b><p>{message.question}</p></div><div className="ai-chat-assistant"><b>DeepSeek</b>{isAnalysisRunning(message.status) ? <p className="ai-muted">시세와 뉴스를 확인하며 답변을 작성하고 있습니다…</p> : message.status === 'FAILED' ? <p className="error">{message.error_message || '답변을 완료하지 못했습니다.'}</p> : <><p className="ai-prose">{message.answer}</p>{message.research?.data_sources?.map((source, index) => <div className="ai-news-source" key={index}><b>{source.provider || source.source || source.code || '공개 자료'}</b>{source.query && <span>검색어: {source.query}</span>}{source.articles?.map((article, articleIndex) => <a key={articleIndex} href={article.link} target="_blank" rel="noreferrer">{article.title}<small>{article.source} · {timestamp(article.published_at)}</small></a>)}</div>)}<small className="ai-muted">{count(message.usage_tokens)} 토큰</small></>}</div></article>)}</div><form className="form ai-message-composer" onSubmit={askFollowUp}><label><span className="sr-only">메시지</span><textarea rows="3" minLength="1" maxLength="1500" required value={chatQuestion} onChange={event => setChatQuestion(event.target.value)} placeholder="이 분석에 이어서 질문하세요. 필요한 경우 시세와 RSS 뉴스를 조사합니다."/><small>{chatQuestion.length} / 1,500자 · 후속 메시지도 DeepSeek 사용량에 포함됩니다.</small></label><button className="primary" disabled={!chatQuestion.trim() || chatRunning || Boolean(pending) || atLimit}>{pending === 'chat' ? '보내는 중…' : chatRunning ? '답변 작성 중…' : '메시지 보내기'}</button></form><p className="hint">대화에서 나온 새 설정은 바로 적용되지 않습니다. 설정 변경은 새 정식 분석과 백테스트를 거쳐야 합니다.</p></section>
+          <section className="ai-chat"><div className="ai-chat-thread">{conversations.map(message => <article key={message.id}><div className="ai-chat-user"><b>나</b><p>{message.question}</p></div><div className="ai-chat-assistant"><b>DeepSeek</b>{isAnalysisRunning(message.status) ? <p className="ai-muted">시세와 뉴스를 확인하며 답변을 작성하고 있습니다…</p> : message.status === 'FAILED' ? <p className="error">{message.error_message || '답변을 완료하지 못했습니다.'}</p> : <><p className="ai-prose">{message.answer}</p>{message.research?.data_sources?.map((source, index) => <div className="ai-news-source" key={index}><b>{source.provider || source.source || source.code || '공개 자료'}</b>{source.query && <span>검색어: {source.query}</span>}{source.articles?.map((article, articleIndex) => <a key={articleIndex} href={article.link} target="_blank" rel="noreferrer">{article.title}<small>{article.source} · {timestamp(article.published_at)}</small></a>)}</div>)}<small className="ai-muted">{count(message.usage_tokens)} 토큰</small></>}</div></article>)}</div><form className="form ai-message-composer" onSubmit={askFollowUp}><label><span className="sr-only">메시지</span><textarea rows="3" minLength="1" maxLength="1500" required value={chatQuestion} onChange={event => setChatQuestion(event.target.value)} placeholder="메시지를 입력하세요. 필요한 경우 시세와 RSS 뉴스를 조사합니다."/><small>{chatQuestion.length} / 1,500자 · Enter는 줄바꿈이며 버튼으로 전송합니다.</small></label><button className="primary" disabled={!chatQuestion.trim() || chatRunning || Boolean(pending)}>{pending === 'chat' ? '보내는 중…' : chatRunning ? '답변 작성 중…' : '보내기'}</button></form></section>
         </>}
       </>}
     </section>}

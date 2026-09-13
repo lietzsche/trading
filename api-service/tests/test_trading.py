@@ -26,7 +26,7 @@ class TradingDatabase:
 
     def all(self, sql, params=()):
         self.queries.append((sql, params))
-        return [{"code": "KRW-BTC"}] if "SELECT DISTINCT code" in sql else self.keys
+        return [{"code": "KRW-BTC"}] if "SELECT code FROM upbit" in sql else self.keys
 
     def one(self, sql, params=()):
         self.queries.append((sql, params))
@@ -130,6 +130,15 @@ def test_auto_order_isolates_non_http_errors(trading_engine, monkeypatch):
     result = trading_engine.auto_order()
     assert calls == [1, 2]
     assert result["failed_accounts"] == 1
+
+
+def test_auto_order_buy_priority_matches_recommendation_sort(trading_engine, monkeypatch):
+    monkeypatch.setattr(trading_engine, "_auto_order_for_key", lambda *_: None)
+    trading_engine.auto_order()
+    query = next(sql for sql, _ in trading_engine.db.queries if "SELECT code FROM upbit" in sql)
+    assert "renewal_cnt DESC" in query
+    assert "expected_selling_price-temp_price" in query and "ASC NULLS LAST" in query
+    assert "id DESC" in query
 
 
 def test_auto_order_skips_overlapping_manual_and_scheduler_runs(trading_engine, monkeypatch):

@@ -543,7 +543,7 @@ def continue_analysis(*, api_key, model, market, question, analysis_context, pri
         bounded = {"original_analysis": analysis_context, "previous_messages": prior_messages[-6:],
                    "new_question": question, "market": market, "symbols": symbols,
                    "limits": {"remaining_tool_calls": MAX_TOOLS}}
-        if len(_json(bounded).encode("utf-8")) > 70000:
+        if len(_json(bounded).encode("utf-8")) > 180000:
             raise ValueError("대화 맥락이 너무 큽니다.")
         with httpx.Client(timeout=8, follow_redirects=False,
                           headers={"User-Agent": "Mozilla/5.0 Trading-ReadOnlyResearch/1.0"}) as client:

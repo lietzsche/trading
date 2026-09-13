@@ -409,7 +409,14 @@ class TradingEngine:
             self._auto_order_lock.release()
 
     def _auto_order(self):
-        markets = [row["code"] for row in self.db.all("SELECT DISTINCT code FROM upbit WHERE deleted_at IS NULL")]
+        # BUY consumes the available KRW on the first actionable market, so this
+        # order must exactly match the recommendation screen's priority order.
+        markets = [row["code"] for row in self.db.all("""SELECT code FROM upbit
+            WHERE deleted_at IS NULL
+            ORDER BY renewal_cnt DESC,
+                     (expected_selling_price-temp_price)
+                       / NULLIF(expected_selling_price-minimum_selling_price,0) ASC NULLS LAST,
+                     id DESC""")]
         keys = self.db.all("""SELECT k.* FROM tb_upbit_key k
             JOIN tb_user u ON u.user_login_id=k.user_login_id
             WHERE k.auto_on=true AND u.deleted_at IS NULL""")
