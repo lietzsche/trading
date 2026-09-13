@@ -6,6 +6,7 @@ const fieldLabels = {
   api_key: 'DeepSeek API 키', model: '분석 모델', daily_request_limit: '하루 분석 횟수',
   daily_token_limit: '하루 토큰 한도', prompt: '분석 요청', symbols: '분석 종목',
   fee_bps: '편도 수수료', slippage_bps: '편도 체결 가격 차이',
+  question: '후속 질문',
 };
 
 export class ApiError extends Error {

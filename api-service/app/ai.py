@@ -68,6 +68,19 @@ class ApplyRequest(BaseModel):
     confirm: Literal[True]
 
 
+class ConversationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=1500)
+
+    @field_validator("question")
+    @classmethod
+    def clean_question(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("후속 질문을 입력해 주세요.")
+        return value
+
+
 def settings_dict(row):
     return {key: row[key] for key in SETTING_KEYS}
 
@@ -111,6 +124,11 @@ class AIService:
                 charged = row["reserved_tokens"] if row["status"] == "RUNNING" else 0
                 self._settle(cursor, row, "FAILED", charged, None,
                              "서버 재시작으로 중단되었습니다. 실행 중이던 분석의 토큰은 한도에 보수적으로 반영합니다.")
+            cursor.execute("SELECT * FROM ai_conversation_messages WHERE status IN ('PENDING','RUNNING') FOR UPDATE")
+            for row in cursor.fetchall():
+                charged = row["reserved_tokens"] if row["status"] == "RUNNING" else 0
+                self._settle_conversation(cursor, row, "FAILED", charged, None,
+                                          "서버 재시작으로 후속 답변이 중단되었습니다. 실행 중이던 요청은 한도에 보수적으로 반영합니다.")
 
     def stop(self):
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -177,11 +195,16 @@ class AIService:
             if not config:
                 raise HTTPException(400, "먼저 DeepSeek API 키를 등록해 주세요.")
             cursor.execute("SELECT count(*) AS count FROM ai_analyses WHERE status IN ('PENDING','RUNNING')")
-            if cursor.fetchone()["count"] >= 4:
+            active = cursor.fetchone()["count"]
+            cursor.execute("SELECT count(*) AS count FROM ai_conversation_messages WHERE status IN ('PENDING','RUNNING')")
+            if active + cursor.fetchone()["count"] >= 4:
                 raise HTTPException(429, "분석 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
             cursor.execute("SELECT id FROM ai_analyses WHERE user_id=%s AND status IN ('PENDING','RUNNING')", (user_id,))
             if cursor.fetchone():
                 raise HTTPException(409, "이미 진행 중인 분석이 있습니다.")
+            cursor.execute("SELECT id FROM ai_conversation_messages WHERE user_id=%s AND status IN ('PENDING','RUNNING')", (user_id,))
+            if cursor.fetchone():
+                raise HTTPException(409, "진행 중인 AI 후속 답변을 기다려 주세요.")
             cursor.execute(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name=%s AND deleted_at IS NULL", (payload.market,))
             current = cursor.fetchone()
             if not current:
@@ -290,13 +313,125 @@ class AIService:
             FROM ai_analyses WHERE user_id=%s ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
         return {"items": items, "total": total, "page": page, "page_size": 10}
 
+    def recommendations(self, market):
+        return self.db.all(f"""SELECT code,name,renewal_cnt FROM {market}
+            WHERE deleted_at IS NULL ORDER BY renewal_cnt DESC,id DESC LIMIT 12""")
+
     def detail(self, user_id, analysis_id):
         row = self.db.one("""SELECT id,market,status,prompt,include_account,settings_snapshot,result,error_message,
             model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at
             FROM ai_analyses WHERE id=%s AND user_id=%s""", (analysis_id, user_id))
         if not row:
             raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
+        row["conversations"] = self.db.all("""SELECT id,status,question,answer,research,error_message,usage_tokens,
+            created_at,completed_at FROM ai_conversation_messages
+            WHERE analysis_id=%s AND user_id=%s ORDER BY id""", (analysis_id, user_id))
         return row
+
+    def enqueue_conversation(self, user_id, analysis_id, payload):
+        today = self.today()
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('trading-ai-queue'))")
+            cursor.execute("SELECT * FROM ai_credentials WHERE user_id=%s", (user_id,))
+            config = cursor.fetchone()
+            if not config:
+                raise HTTPException(400, "먼저 DeepSeek API 키를 등록해 주세요.")
+            cursor.execute("SELECT id,status FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+            analysis = cursor.fetchone()
+            if not analysis:
+                raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
+            if analysis["status"] != "COMPLETED":
+                raise HTTPException(409, "완료된 분석에서만 후속 질문을 할 수 있습니다.")
+            cursor.execute("SELECT 1 FROM ai_analyses WHERE user_id=%s AND status IN ('PENDING','RUNNING')", (user_id,))
+            if cursor.fetchone():
+                raise HTTPException(409, "진행 중인 새 분석을 기다려 주세요.")
+            cursor.execute("SELECT count(*) AS count FROM ai_analyses WHERE status IN ('PENDING','RUNNING')")
+            active = cursor.fetchone()["count"]
+            cursor.execute("SELECT count(*) AS count FROM ai_conversation_messages WHERE status IN ('PENDING','RUNNING')")
+            if active + cursor.fetchone()["count"] >= 4:
+                raise HTTPException(429, "AI 요청 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
+            cursor.execute("""SELECT 1 FROM ai_conversation_messages
+                WHERE user_id=%s AND status IN ('PENDING','RUNNING')""", (user_id,))
+            if cursor.fetchone():
+                raise HTTPException(409, "이미 진행 중인 후속 답변이 있습니다.")
+            cursor.execute("INSERT INTO ai_daily_usage(user_id,usage_date) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id, today))
+            cursor.execute("SELECT * FROM ai_daily_usage WHERE user_id=%s AND usage_date=%s FOR UPDATE", (user_id, today))
+            usage = cursor.fetchone()
+            budget = min(RUN_TOKEN_BUDGET, config["daily_token_limit"] - usage["tokens"] - usage["reserved_tokens"])
+            if usage["runs"] >= config["daily_request_limit"] or budget < 5000:
+                raise HTTPException(429, "오늘의 AI 질문 횟수 또는 토큰 한도에 도달했습니다.")
+            cursor.execute("UPDATE ai_daily_usage SET runs=runs+1,reserved_tokens=reserved_tokens+%s WHERE user_id=%s AND usage_date=%s",
+                           (budget, user_id, today))
+            cursor.execute("""INSERT INTO ai_conversation_messages(analysis_id,user_id,status,question,reserved_tokens,usage_date)
+                VALUES(%s,%s,'PENDING',%s,%s,%s) RETURNING id,status""",
+                           (analysis_id, user_id, payload.question, budget, today))
+            result = cursor.fetchone()
+        try:
+            self.executor.submit(self._run_conversation, result["id"])
+        except RuntimeError:
+            self._finish_conversation(result["id"], "FAILED", 0, None, "서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.")
+            raise HTTPException(503, "서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.")
+        return result
+
+    def _run_conversation(self, message_id):
+        row = self.db.one("UPDATE ai_conversation_messages SET status='RUNNING' WHERE id=%s AND status='PENDING' RETURNING *", (message_id,))
+        if not row:
+            return
+        used, request_started = 0, False
+        try:
+            from app.ai_engine import AIAnalysisError, continue_analysis
+            analysis = self.db.one("""SELECT * FROM ai_analyses
+                WHERE id=%s AND user_id=%s AND status='COMPLETED'""", (row["analysis_id"], row["user_id"]))
+            if not analysis:
+                raise HTTPException(409, "기존 분석을 확인할 수 없습니다.")
+            _, key = self.credentials(row["user_id"])
+            request_payload = AnalysisRequest.model_validate(analysis["request_payload"])
+            symbols = request_payload.symbols or [item.get("code") for item in (analysis["result"] or {}).get("data_sources", [])
+                                                   if isinstance(item, dict) and item.get("code")]
+            symbols = list(dict.fromkeys(symbols))[:5]
+            if not symbols:
+                symbols = ["KRW-BTC"] if analysis["market"] == "upbit" else ["005930"]
+            prior = self.db.all("""SELECT question,answer FROM ai_conversation_messages
+                WHERE analysis_id=%s AND user_id=%s AND status='COMPLETED' AND id<%s ORDER BY id DESC LIMIT 6""",
+                                (analysis["id"], row["user_id"], row["id"]))
+            prior.reverse()
+            original = {"question": analysis["prompt"], "report": (analysis["result"] or {}).get("report"),
+                        "candidates": (analysis["result"] or {}).get("candidates", []),
+                        "warnings": (analysis["result"] or {}).get("warnings", []),
+                        "dataset": (analysis["result"] or {}).get("dataset")}
+            request_started = True
+            result = continue_analysis(api_key=key, model=analysis["model"], market=analysis["market"],
+                                       question=row["question"], analysis_context=original,
+                                       prior_messages=prior, symbols=symbols, remaining_tokens=row["reserved_tokens"])
+            used = max(0, int(result.get("usage_tokens", 0)))
+            result = json.loads(json.dumps(result, ensure_ascii=False, default=str).replace(key, "[REDACTED]"))
+            self._finish_conversation(message_id, "COMPLETED", used, result, None)
+        except Exception as error:
+            from app.ai_engine import AIAnalysisError
+            if isinstance(error, AIAnalysisError):
+                used, message = max(0, int(getattr(error, "consumed_tokens", 0))), str(error)[:500]
+            elif isinstance(error, HTTPException):
+                message = str(error.detail)
+            else:
+                used = row["reserved_tokens"] if request_started else 0
+                message = "AI 후속 답변을 완료하지 못했습니다. 기존 분석과 자동매매에는 영향이 없습니다."
+            self._finish_conversation(message_id, "FAILED", used, None, message)
+
+    @staticmethod
+    def _settle_conversation(cursor, row, status, used, result, error_message):
+        cursor.execute("""UPDATE ai_daily_usage SET tokens=tokens+%s,reserved_tokens=GREATEST(0,reserved_tokens-%s)
+            WHERE user_id=%s AND usage_date=%s""", (used, row["reserved_tokens"], row["user_id"], row["usage_date"]))
+        cursor.execute("""UPDATE ai_conversation_messages SET status=%s,usage_tokens=%s,reserved_tokens=0,
+            answer=%s,research=%s,error_message=%s,completed_at=now() WHERE id=%s""",
+                       (status, used, result.get("answer") if result else None, Jsonb(result) if result else None,
+                        error_message, row["id"]))
+
+    def _finish_conversation(self, message_id, status, used, result, error_message):
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM ai_conversation_messages WHERE id=%s FOR UPDATE", (message_id,))
+            row = cursor.fetchone()
+            if row and row["status"] in {"PENDING", "RUNNING"}:
+                self._settle_conversation(cursor, row, status, used, result, error_message)
 
     def apply(self, user_id, analysis_id, payload):
         with self.db.connection() as connection, connection.cursor() as cursor:
@@ -346,6 +481,11 @@ def create_router(service, admin_dependency, master_dependency):
     def analyses(page: int = Query(default=0, ge=0, le=100000), user: dict = Depends(admin_dependency)):
         return service.history(user["id"], page)
 
+    @router.get("/recommendations/{market}")
+    def recommendation_choices(market: Literal["stock", "upbit"],
+                               _: dict = Depends(admin_dependency)):
+        return service.recommendations(market)
+
     @router.get("/analyses/{analysis_id}")
     def analysis(analysis_id: int, user: dict = Depends(admin_dependency)):
         return service.detail(user["id"], analysis_id)
@@ -357,5 +497,10 @@ def create_router(service, admin_dependency, master_dependency):
     @router.post("/analyses/{analysis_id}/apply")
     def apply_analysis(analysis_id: int, payload: ApplyRequest, user: dict = Depends(master_dependency)):
         return service.apply(user["id"], analysis_id, payload)
+
+    @router.post("/analyses/{analysis_id}/messages", status_code=202)
+    def continue_conversation(analysis_id: int, payload: ConversationRequest,
+                              user: dict = Depends(admin_dependency)):
+        return service.enqueue_conversation(user["id"], analysis_id, payload)
 
     return router

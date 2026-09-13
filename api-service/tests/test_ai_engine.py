@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from app.ai_engine import (
-    AIAnalysisError, DEEPSEEK_URL, MAX_OUTPUT_TOKENS, _MarketData,
-    _candidate_settings, _price, _settings, analyze,
+    AIAnalysisError, DEEPSEEK_URL, MAX_OUTPUT_TOKENS, NEWS_RSS_URL, _MarketData, _NewsData,
+    _candidate_settings, _price, _settings, analyze, continue_analysis,
 )
 
 
@@ -33,6 +33,13 @@ def completion(report="완료 일봉을 참고한 설정 검토입니다.", cand
         message = {"role": "assistant", "content": None, "tool_calls": tool_calls}
     return {"choices": [{"message": message, "finish_reason": "tool_calls" if tool_calls else "stop"}],
             "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}}
+
+
+def chat_completion(answer="추가 조사 답변입니다.", tool_calls=None):
+    message = ({"role": "assistant", "content": json.dumps({"answer": answer}, ensure_ascii=False)}
+               if tool_calls is None else {"role": "assistant", "content": None, "tool_calls": tool_calls})
+    return {"choices": [{"message": message, "finish_reason": "tool_calls" if tool_calls else "stop"}],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}}
 
 
 def tool(code="KRW-ETH", name="get_market_history", arguments=None):
@@ -67,6 +74,12 @@ def network(monkeypatch):
             if isinstance(reply, httpx.Response):
                 return reply
             return httpx.Response(200, json=reply)
+        if str(request.url).startswith(NEWS_RSS_URL):
+            assert request.method == "GET" and "authorization" not in request.headers
+            body = """<?xml version='1.0'?><rss><channel><item><title>시장 소식</title>
+                <link>https://news.google.com/rss/articles/test</link><pubDate>Sun, 13 Sep 2026 01:00:00 GMT</pubDate>
+                <source>테스트 언론</source></item></channel></rss>"""
+            return httpx.Response(200, content=body.encode())
         if request.url.host == "calculation":
             assert request.method == "POST" and request.url.path == "/v1/backtests/compare"
             assert "authorization" not in request.headers
@@ -127,7 +140,7 @@ def test_untrusted_tools_cannot_request_orders_urls_other_markets_or_oversized_c
     state, requests, _ = network
     state["responses"] += [completion(tool_calls=[call]), completion()]
     result = run()
-    assert result["tool_calls"] == [{"name": "get_market_history",
+    assert result["tool_calls"] == [{"name": call["function"]["name"],
                                       "code": call["function"]["name"] == "get_market_history" and json.loads(call["function"]["arguments"]).get("code") == "KRW-BTC" and "KRW-BTC" or None,
                                       "status": "UNAVAILABLE"}]
     assert len([request for request in requests if request.url.host == "api.upbit.com"]) == 1
@@ -167,6 +180,41 @@ def test_budget_preflight_prevents_any_paid_call(network):
         run(remaining_tokens=100)
     assert caught.value.consumed_tokens == 0 and not caught.value.request_started
     assert not any(str(request.url) == DEEPSEEK_URL for request in requests)
+
+
+def test_initial_analysis_can_use_bounded_rss_news_tool(network):
+    state, requests, _ = network
+    news_call = tool(name="search_market_news", arguments={"query": "비트코인 시장", "count": 3})
+    state["responses"] += [completion(tool_calls=[news_call]), completion()]
+    result = run()
+    assert result["tool_calls"] == [{"name": "search_market_news", "query": "비트코인 시장", "count": 1, "status": "OK"}]
+    assert any(source.get("provider") == "Google News RSS" for source in result["data_sources"])
+    assert len([request for request in requests if request.url.host == "news.google.com"]) == 1
+
+
+def test_follow_up_keeps_context_and_can_research_news(network):
+    state, requests, _ = network
+    news_call = tool(name="search_market_news", arguments={"query": "삼성전자 실적", "count": 5})
+    state["responses"] += [chat_completion(tool_calls=[news_call]), chat_completion("뉴스 제목만 기준으로 보면 추가 확인이 필요합니다.")]
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="stock",
+        question="최근 뉴스도 확인해 줘", analysis_context={"report": "기존 분석"},
+        prior_messages=[{"question": "위험은?", "answer": "변동성입니다."}], symbols=["005930"], remaining_tokens=500_000)
+    assert "추가 확인" in result["answer"] and result["usage_tokens"] == 240
+    assert result["data_sources"][0]["articles"][0]["source"] == "테스트 언론"
+    provider_payload = next(json.loads(request.content) for request in requests if str(request.url) == DEEPSEEK_URL)
+    assert "기존 분석" in provider_payload["messages"][1]["content"]
+
+
+def test_news_reader_rejects_entities_and_non_google_links(monkeypatch):
+    responses = [b"<!DOCTYPE rss [<!ENTITY x 'bad'>]><rss/>",
+                 b"<rss><channel><item><title>x</title><link>https://evil.example/a</link></item></channel></rss>"]
+    def handler(_):
+        return httpx.Response(200, content=responses.pop(0))
+    monkeypatch.setattr("app.ai_engine.time.sleep", lambda _: None)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ValueError, match="안전"):
+            _NewsData(client, 10**20).search("시장 뉴스")
+        assert _NewsData(client, 10**20).search("시장 뉴스")["articles"] == []
 
 
 def test_unknown_usage_after_provider_timeout_is_conservatively_accounted(network):

@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {api, createRequestGate} from './api';
 import {AI_SETTING_FIELDS, AI_STATUS_LABELS, candidateEligible, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 import './ai.css';
+import './ai-chat.css';
 
 const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
@@ -49,6 +50,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
   const [loading, setLoading] = useState(true), [pending, setPending] = useState(''), [notice, setNotice] = useState(''), [localError, setLocalError] = useState('');
   const [market, setMarket] = useState('upbit'), [prompt, setPrompt] = useState('현재 전략과 설정을 점검하고, 과거 데이터로 비교한 설정 후보의 장단점과 위험을 설명해 주세요.');
   const [symbols, setSymbols] = useState(''), [includeAccount, setIncludeAccount] = useState(false), [feeBps, setFeeBps] = useState(5), [slippageBps, setSlippageBps] = useState(10);
+  const [recommendations, setRecommendations] = useState([]), [chatQuestion, setChatQuestion] = useState('');
   const [proposal, setProposal] = useState(null), [confirmed, setConfirmed] = useState(false), [detailVersion, setDetailVersion] = useState(0);
   const mounted = useRef(false), operation = useRef(false), pageRef = useRef(page), previousPage = useRef(page), errorHandler = useRef(setError), selectedIdRef = useRef(selectedId);
   const listRequests = useRef(createRequestGate()), detailRequests = useRef(createRequestGate());
@@ -82,6 +84,11 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
 
   useEffect(() => {refresh(true);}, [refresh, refreshToken]);
   useEffect(() => {if (previousPage.current !== page) {previousPage.current = page; refresh(false);}}, [refresh, page]);
+  useEffect(() => {
+    const controller = new AbortController();
+    api(`${API}/recommendations/${market}`, {signal: controller.signal}).then(rows => {if (!controller.signal.aborted) setRecommendations(Array.isArray(rows) ? rows : []);}).catch(error => {if (error?.name !== 'AbortError') setRecommendations([]);});
+    return () => controller.abort();
+  }, [market, refreshToken]);
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -93,7 +100,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
         const result = await api(`${API}/analyses/${encodeURIComponent(selectedId)}`, {signal: request.signal});
         if (!request.isCurrent()) return;
         setSelected(result); setDetailLoading(false);
-        if (isAnalysisRunning(result.status)) timer = setTimeout(poll, 3000);
+        if (isAnalysisRunning(result.status) || result.conversations?.some(item => isAnalysisRunning(item.status))) timer = setTimeout(poll, 3000);
         else refresh(false);
       } catch (error) {if (request.isCurrent()) {setDetailLoading(false); showError(error);}}
     }
@@ -134,6 +141,27 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
     });
   }
 
+  function toggleSymbol(code) {
+    try {
+      const current = parseAnalysisSymbols(symbols, market), exists = current.includes(code);
+      const next = exists ? current.filter(item => item !== code) : [...current, code];
+      if (next.length > 5) throw new Error('종목은 최대 5개까지 선택할 수 있습니다.');
+      setSymbols(next.join(', ')); setLocalError('');
+    } catch (error) {showError(error);}
+  }
+
+  async function askFollowUp(event) {
+    event.preventDefault();
+    const question = chatQuestion.trim();
+    if (!question || selectedId == null) return;
+    await runAction('chat', async () => {
+      await api(`${API}/analyses/${encodeURIComponent(selectedId)}/messages`, {method: 'POST', body: JSON.stringify({question})});
+      if (!mounted.current) return;
+      setChatQuestion(''); setNotice('후속 조사를 시작했습니다. 필요한 경우 시세와 RSS 뉴스를 조회합니다.');
+      setDetailVersion(value => value + 1); await refresh(false);
+    });
+  }
+
   async function inspectCandidate(candidate) {
     const analysisId = selectedId;
     await runAction(`inspect-${candidate.id}`, async () => {
@@ -155,9 +183,12 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
     });
   }
 
+  const conversations = Array.isArray(selected?.conversations) ? selected.conversations : [];
+  const chatRunning = conversations.some(item => isAnalysisRunning(item.status));
   const running = isAnalysisRunning(selected?.status), used = config?.usage_today || {};
   const pages = Math.max(1, Math.ceil(history.total / (history.page_size || 10)));
   const result = selected?.result || {}, candidates = Array.isArray(result.candidates) ? result.candidates : [];
+  const selectedSymbols = (() => {try {return parseAnalysisSymbols(symbols, market);} catch {return [];}})();
   const atLimit = Boolean(config && (Number(used.runs || 0) >= config.daily_request_limit || Number(used.tokens || 0) >= config.daily_token_limit));
   const master = user.user_role === 'MASTER';
   const stale = Boolean(proposal && !sameSettings(proposal.current, selected?.settings_snapshot));
@@ -181,7 +212,8 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
     <section className="ai-usage" aria-label="오늘의 AI 사용량"><span>오늘 분석 <b>{count(used.runs)} / {count(config?.daily_request_limit)}회</b></span><span>오늘 토큰 <b>{count(used.tokens)} / {count(config?.daily_token_limit)}</b></span><span>한 분석의 자료 조회 <b>최대 {config?.max_tool_calls || 4}회</b></span><small>실제 비용은 DeepSeek 청구 기준이며 토큰 한도는 금액 한도가 아닙니다. 실패·재시도에도 사용량이 발생할 수 있습니다.</small></section>
 
     <section className="card"><div className="section-head ai-section-head"><h3>새 분석</h3><span className="ai-muted">설정 변경과 주문은 실행하지 않습니다</span></div><form className="form" onSubmit={startAnalysis}>
-      <div className="ai-form-grid ai-two"><label>시장<select value={market} onChange={event => {setMarket(event.target.value); setSymbols(''); setIncludeAccount(false); setFeeBps(event.target.value === 'upbit' ? 5 : 15);}}><option value="upbit">Upbit · 원화 마켓</option><option value="stock">국내 주식</option></select></label><label>분석 종목 <small>선택 입력 · 최대 5개 · 비워 두면 서버가 추천 종목에서 선택</small><input value={symbols} maxLength={150} onChange={event => setSymbols(event.target.value)} placeholder={market === 'upbit' ? 'KRW-BTC, KRW-ETH' : '005930, 000660'}/></label></div>
+      <div className="ai-form-grid ai-two"><label>시장<select value={market} onChange={event => {setMarket(event.target.value); setSymbols(''); setIncludeAccount(false); setFeeBps(event.target.value === 'upbit' ? 5 : 15);}}><option value="upbit">Upbit · 원화 마켓</option><option value="stock">국내 주식</option></select></label><label>분석 종목 <small>최대 5개 · 비워 두면 서버가 추천 종목에서 선택</small><input value={symbols} maxLength={150} onChange={event => setSymbols(event.target.value)} placeholder={market === 'upbit' ? 'KRW-BTC, KRW-ETH' : '005930, 000660'}/></label></div>
+      {!!recommendations.length && <fieldset className="ai-symbol-picker"><legend>현재 추천 {marketName(market)}에서 선택</legend><div>{recommendations.map(item => {const selectedSymbol = selectedSymbols.includes(item.code); return <button type="button" key={item.code} className={selectedSymbol ? 'selected' : ''} aria-pressed={selectedSymbol} onClick={() => toggleSymbol(item.code)}><b>{item.name || item.code}</b><small>{item.code}</small></button>;})}</div><small>추천 목록은 종목 선택을 돕기 위한 것이며 AI 분석이나 수익을 보장하지 않습니다.</small></fieldset>}
       <label>어떤 내용을 비교할까요?<textarea rows="4" value={prompt} onChange={event => setPrompt(event.target.value)} minLength={1} maxLength={1500} required placeholder="예: 현재 설정과 손실 폭을 줄이는 후보를 비교해 주세요."/><small>{prompt.length} / 1,500자 · 이 입력란에 API 키나 개인정보를 넣지 마세요.</small></label>
       <div className="ai-form-grid ai-two"><label>편도 수수료 (bp)<input type="number" min="0" max="100" step="1" required value={feeBps} onChange={event => setFeeBps(event.target.value)}/></label><label>편도 체결 가격 차이 (bp)<input type="number" min="0" max="100" step="1" required value={slippageBps} onChange={event => setSlippageBps(event.target.value)}/></label></div>
       <p className="hint">1bp = 0.01%입니다. 매수·매도 양쪽에 각각 적용합니다. 수수료 기본값은 분석 가정이므로 본인 거래 조건에 맞게 확인해 주세요.</p>
@@ -215,6 +247,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError}) {
           {proposal && <section className="card ai-confirm" aria-label="계산 설정 적용 확인"><h3>실제 계산 설정을 변경할까요?</h3><p>{marketName(selected.market)} · {proposal.candidate.label || '선택한 후보'}</p><div className="ai-comparison"><div className="ai-comparison-heading"><b>항목</b><b>현재 설정</b><b>변경할 설정</b></div>{AI_SETTING_FIELDS.map(([key, label]) => <div key={key}><span>{label}</span><span>{settingText(key, proposal.current[key])}</span><strong>{settingText(key, proposal.candidate.settings?.[key])}</strong></div>)}</div><div className="info-note"><b>다음 계산부터 실제 운영에 영향을 줍니다.</b><span>자동매매가 켜져 있으면 이후 추천·매매 판단에 영향을 줄 수 있습니다. AI가 직접 주문하지는 않으며 자동매매의 켜짐/꺼짐 상태도 바꾸지 않습니다.</span></div>{stale && <div className="error" role="alert">분석 이후 현재 설정이 바뀌었습니다. 새 분석을 실행한 뒤 다시 비교해 주세요.</div>}<label className="check ai-consent"><input type="checkbox" checked={confirmed} disabled={stale || pending === 'apply'} onChange={event => setConfirmed(event.target.checked)}/><span>변경 전후 설정과 실제 자동매매에 미치는 영향을 확인했으며, 이 설정을 적용합니다.</span></label><div className="ai-actions"><button className="primary" disabled={!confirmed || stale || Boolean(pending)} onClick={applyCandidate}>{pending === 'apply' ? '설정 적용 중…' : '확인한 설정 적용'}</button><button className="quiet" disabled={pending === 'apply'} onClick={() => {setProposal(null); setConfirmed(false);}}>취소</button></div></section>}
           <Notes title="검증의 한계" items={result.limitations}/>
           <details className="ai-details"><summary>사용한 자료와 조회 기록</summary><Notes title="데이터 출처" items={result.data_sources}/>{Array.isArray(result.data_sources) && result.data_sources.filter(source => typeof source === 'object' && source !== null).map((source, index) => <p className="ai-source" key={index}>{source.name || source.source || source.provider || source.symbol || source.code || '시장 자료'}{(source.as_of || source.fetched_at || source.end_date) && <span> · {timestamp(source.as_of || source.fetched_at || source.end_date)}</span>}{source.start_date && <span> · 시작 {source.start_date}</span>}{source.bars != null && <span> · {count(source.bars)}개 봉</span>}</p>)}{Array.isArray(result.tool_calls) && result.tool_calls.map((call, index) => <p className="ai-source" key={index}>{typeof call === 'string' ? call : call?.name || call?.tool || '자료 조회'}{call?.status && <span> · {call.status}</span>}</p>)}{!result.data_sources?.length && !result.tool_calls?.length && <p className="hint">제공된 조회 기록이 없습니다.</p>}</details>
+          <section className="card ai-chat"><div className="section-head ai-section-head"><h3>이 분석에 이어서 묻기</h3><span className="ai-muted">시세·RSS 뉴스 조회 가능</span></div><div className="ai-chat-thread">{conversations.map(message => <article key={message.id}><div className="ai-chat-user"><b>나</b><p>{message.question}</p></div><div className="ai-chat-assistant"><b>DeepSeek</b>{isAnalysisRunning(message.status) ? <p className="ai-muted">자료를 조사하고 답변을 작성하고 있습니다…</p> : message.status === 'FAILED' ? <p className="error">{message.error_message || '답변을 완료하지 못했습니다.'}</p> : <><p className="ai-prose">{message.answer}</p>{message.research?.data_sources?.map((source, index) => <div className="ai-news-source" key={index}><b>{source.provider || source.source || source.code || '공개 자료'}</b>{source.query && <span>검색어: {source.query}</span>}{source.articles?.map((article, articleIndex) => <a key={articleIndex} href={article.link} target="_blank" rel="noreferrer">{article.title}<small>{article.source} · {timestamp(article.published_at)}</small></a>)}</div>)}<small className="ai-muted">{count(message.usage_tokens)} 토큰</small></>}</div></article>)}</div>{!conversations.length && <p className="hint">분석 내용을 더 확인하고 싶다면 질문하세요. 후속 질문도 DeepSeek 사용량에 포함됩니다.</p>}<form className="form" onSubmit={askFollowUp}><label>후속 질문<textarea rows="3" minLength="1" maxLength="1500" required value={chatQuestion} onChange={event => setChatQuestion(event.target.value)} placeholder="예: 이 종목과 관련된 최근 뉴스를 찾아 위험 요인을 구분해 줘"/><small>{chatQuestion.length} / 1,500자 · 뉴스 제목은 원문 링크와 게시 시각을 함께 확인하세요.</small></label><button className="primary" disabled={!chatQuestion.trim() || chatRunning || Boolean(pending) || atLimit}>{pending === 'chat' ? '질문 전송 중…' : chatRunning ? '답변 작성 중…' : '후속 조사 요청'}</button></form><p className="hint">대화에서 나온 새 설정은 바로 적용되지 않습니다. 설정 변경은 새 정식 분석과 백테스트를 거쳐야 합니다.</p></section>
         </>}
       </>}
     </section>}
