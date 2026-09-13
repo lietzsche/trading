@@ -309,7 +309,7 @@ class AIService:
 
     def history(self, user_id, page):
         total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s", (user_id,))["count"]
-        items = self.db.all("""SELECT id,market,status,created_at,completed_at,error_message,usage_tokens
+        items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens
             FROM ai_analyses WHERE user_id=%s ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
         return {"items": items, "total": total, "page": page, "page_size": 10}
 
