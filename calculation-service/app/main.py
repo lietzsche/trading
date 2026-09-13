@@ -225,3 +225,8 @@ def decide_auto_trade(request: AutoTradeRequest) -> AutoTradeResponse:
     else:
         actions = []
     return AutoTradeResponse(actions=actions)
+
+
+from .backtest import router as backtest_router
+
+app.include_router(backtest_router)

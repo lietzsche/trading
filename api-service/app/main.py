@@ -9,11 +9,13 @@ import httpx
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from app.trading import TradingEngine
+from app.ai import AIService, create_router
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://bion_user@postgres:5432/postgres")
@@ -84,12 +86,23 @@ engine = TradingEngine(db, CALCULATION_SERVICE_URL, TRADING_ENABLED)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    ai_service.start()
     engine.start()
     yield
+    ai_service.stop()
     engine.stop()
 
 
 app = FastAPI(title="Trading API", version="2.0.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, error):
+    # FastAPI normally echoes the rejected input, which can contain passwords/API keys.
+    details = [{"type": item["type"], "loc": item["loc"], "msg": item["msg"],
+                "ctx": {k: v for k, v in item.get("ctx", {}).items() if isinstance(v, (str, int, float, bool))}}
+               for item in error.errors()]
+    return JSONResponse({"detail": details}, status_code=422)
 
 
 @app.middleware("http")
@@ -465,6 +478,10 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
          payload.highest_price_reference_days, payload.volume_check, name),
     )
     return {"ok": True, "note": "Python 스케줄러가 다음 계산부터 새 설정을 사용합니다."}
+
+
+ai_service = AIService(lambda: db, engine, CALCULATION_SERVICE_URL, SESSION_SECRET, SettingUpdate)
+app.include_router(create_router(ai_service, admin_user, master_user))
 
 
 @app.get("/api/{path:path}", include_in_schema=False)

@@ -69,7 +69,7 @@ def test_wrong_password_is_rejected():
     assert client.post("/api/auth/login", json={"login_id": "master", "password": "wrong"}).status_code == 401
 
 
-@pytest.mark.parametrize("endpoint", ["settings", "system", "errors", "users", "autos", "mail-targets"])
+@pytest.mark.parametrize("endpoint", ["settings", "system", "errors", "users", "autos", "mail-targets", "ai/config", "ai/analyses"])
 def test_regular_user_cannot_read_admin_pages(endpoint):
     authenticated("USER")
     assert client.get(f"/api/admin/{endpoint}").status_code == 403
@@ -218,3 +218,19 @@ def test_manual_job_status_is_not_falsely_reported_successful(monkeypatch, resul
     authenticated()
     monkeypatch.setattr(main.engine, "auto_order", lambda: result)
     assert client.post("/api/admin/jobs/auto-order").status_code == expected
+
+
+def test_validation_error_never_echoes_secret_input():
+    authenticated()
+    secret = "invalid key with spaces and private text"
+    result = client.put("/api/admin/ai/config", json={"api_key": secret})
+    assert result.status_code == 422
+    assert secret not in result.text
+
+
+@pytest.mark.parametrize("role, expected", [("USER", 403), ("ADMIN", 403), ("MASTER", 200)])
+def test_only_master_can_apply_ai_candidate(monkeypatch, role, expected):
+    authenticated(role)
+    monkeypatch.setattr(main.ai_service, "apply", lambda user_id, analysis_id, payload: {"ok": True})
+    result = client.post("/api/admin/ai/analyses/1/apply", json={"candidate_id": "candidate-1", "confirm": True})
+    assert result.status_code == expected

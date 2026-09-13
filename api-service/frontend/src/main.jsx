@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
+import AIAnalysis from './AIAnalysis';
 import './style.css';
 import './pwa.css';
 import './pagination.css';
@@ -16,7 +17,7 @@ const number=(value,digits=2)=>Number(value).toLocaleString('ko-KR',{maximumFrac
 const signed=value=>`${value>0?'+':''}${number(value)}%`;
 function display(key,value){if(value===null||value===undefined||value==='')return '—';if(typeof value==='boolean')return value?'예':'아니오';if(['dividend_rate','profit_rate'].includes(key))return `${number(value)}%`;if(key==='api_uptime_seconds'){const hours=Math.floor(value/3600),minutes=Math.floor(value%3600/60);return `${hours}시간 ${minutes}분`}if(priceKeys.has(key))return number(value,8);if(dateKeys.has(key))return String(value).replace('T',' ').slice(0,16);return stateLabels[value]??String(value)}
 
-const tabs=[['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['account','내 계좌','계좌'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
+const tabs=[['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['account','내 계좌','계좌'],['profile','내 정보','정보'],['ai','AI 분석','AI'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
 
 function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[joining,setJoining]=useState(false),[name,setName]=useState('');async function submit(event){event.preventDefault();setError('');try{if(joining){await api('/auth/join',{method:'POST',body:JSON.stringify({login_id:loginId,password,name})});setJoining(false);setPassword('');return}await api('/auth/login',{method:'POST',body:JSON.stringify({login_id:loginId,password})});onLogin()}catch(e){setError(e.message)}}return <main className="login"><section className="login-shell"><div className="login-intro"><img src="/icons/icon-192.png" alt="Trading"/><small className="eyebrow">PERSONAL TRADING DESK</small><h1>내 투자 흐름을<br/>한눈에 확인하세요.</h1><p>추천 종목, 보유 자산과 자동매매 상태를 안전하게 관리합니다.</p></div><form className="login-form" onSubmit={submit}><div><h2>{joining?'새 계정 만들기':'로그인'}</h2><p>{joining?'필요한 정보만 입력해 시작하세요.':'계속하려면 계정 정보를 입력하세요.'}</p></div>{joining&&<label>이름<input value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></label>}<label>아이디<input autoFocus value={loginId} onChange={e=>setLoginId(e.target.value)} required autoComplete="username"/></label><label>비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={joining?'new-password':'current-password'}/></label>{(error||message)&&<div className="error" role="alert">{error||message}</div>}<button className="primary">{joining?'계정 만들기':'로그인'}</button><button type="button" className="text-button" onClick={()=>{setJoining(!joining);setError('')}}>{joining?'이미 계정이 있나요? 로그인':'처음이신가요? 계정 만들기'}</button></form></section></main>}
 function Empty({text='표시할 데이터가 없습니다.'}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span></div>}
@@ -54,6 +55,7 @@ function Settings({rows,onChange,onSave,pending}) {
 }
 
 function App() {
+ const [aiRefresh,setAiRefresh]=useState(0);
  const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('upbit'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]);
  const requests=useRef(createRequestGate()),authRequests=useRef(createRequestGate()),activeTab=useRef('upbit'),view=useRef(0),actions=useRef(new Set());
  const expireSession=useCallback(()=>{requests.current.cancel();view.current++;setData(null);setUser(null);setAuthMessage('로그인이 만료되었습니다. 다시 로그인해 주세요.')},[]);
@@ -63,6 +65,7 @@ function App() {
  const load=useCallback(async()=>{
   if(activeTab.current!==tab)return;
   const request=requests.current.begin();view.current++;setLoading(true);setData(null);setError('');setNotice('');
+  if(tab==='ai'){setAiRefresh(value=>value+1);setData({});setLoading(false);return;}
   let path=['stock','upbit'].includes(tab)?`/recommendations/${tab}`:`/admin/${tab}`;
   if(['dividends','orders'].includes(tab))path=`/${tab}`;
   if(tab==='account')path='/upbit/accounts';if(tab==='profile')path='/auth/me';if(tab==='mail')path='/admin/mail-targets';
@@ -91,6 +94,7 @@ function App() {
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError}/>}
  {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
+ {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
  {data&&tab==='users'&&<Table rows={data}/>}
