@@ -198,11 +198,29 @@ def test_follow_up_keeps_context_and_can_research_news(network):
     state["responses"] += [chat_completion(tool_calls=[news_call]), chat_completion("뉴스 제목만 기준으로 보면 추가 확인이 필요합니다.")]
     result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="stock",
         question="최근 뉴스도 확인해 줘", analysis_context={"report": "기존 분석"},
-        prior_messages=[{"question": "위험은?", "answer": "변동성입니다."}], symbols=["005930"], remaining_tokens=500_000)
+        prior_messages=[{"question": "위험은?", "answer": "변동성입니다."}], symbols=["005930"],
+        remaining_tokens=500_000, calculation_url="http://calculation")
     assert "추가 확인" in result["answer"] and result["usage_tokens"] == 240
     assert result["data_sources"][0]["articles"][0]["source"] == "테스트 언론"
     provider_payload = next(json.loads(request.content) for request in requests if str(request.url) == DEEPSEEK_URL)
     assert "기존 분석" in provider_payload["messages"][1]["content"]
+
+
+def test_follow_up_can_backtest_requested_settings_without_mutation(network):
+    state, requests, payloads = network
+    backtest_call = tool(name="compare_strategy_settings", arguments={"settings": ALTERNATIVE})
+    state["responses"] += [chat_completion(tool_calls=[backtest_call]), chat_completion("검증 구간 결과를 비교했습니다.")]
+
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="upbit",
+        question="이 설정으로 백테스트해 줘", analysis_context={
+            "report": "기존 분석", "request": {"fee_bps": 7, "slippage_bps": 12}},
+        prior_messages=[], symbols=["KRW-BTC"], remaining_tokens=500_000,
+        calculation_url="http://calculation")
+
+    assert result["tool_calls"] == [{"name": "compare_strategy_settings", "symbols": 1, "status": "OK"}]
+    assert payloads[-1]["candidates"][0]["expected_high_percentage"] == 12
+    assert payloads[-1]["fee_bps"] == 7 and payloads[-1]["slippage_bps"] == 12
+    assert any(request.url.host == "api.upbit.com" for request in requests)
 
 
 def test_news_reader_rejects_entities_and_non_google_links(monkeypatch):

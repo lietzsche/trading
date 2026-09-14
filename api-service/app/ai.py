@@ -410,11 +410,13 @@ class AIService:
             original = {"question": analysis["prompt"], "report": (analysis["result"] or {}).get("report"),
                         "candidates": (analysis["result"] or {}).get("candidates", []),
                         "warnings": (analysis["result"] or {}).get("warnings", []),
-                        "dataset": (analysis["result"] or {}).get("dataset")}
+                        "dataset": (analysis["result"] or {}).get("dataset"),
+                        "request": {"fee_bps": request_payload.fee_bps, "slippage_bps": request_payload.slippage_bps}}
             request_started = True
             result = continue_analysis(api_key=key, model=analysis["model"], market=analysis["market"],
                                        question=row["question"], analysis_context=original,
-                                       prior_messages=prior, symbols=symbols, remaining_tokens=row["reserved_tokens"])
+                                       prior_messages=prior, symbols=symbols, remaining_tokens=row["reserved_tokens"],
+                                       calculation_url=self.calculation_url)
             used = max(0, int(result.get("usage_tokens", 0)))
             result = json.loads(json.dumps(result, ensure_ascii=False, default=str).replace(key, "[REDACTED]"))
             self._finish_conversation(message_id, "COMPLETED", used, result, None)
