@@ -199,7 +199,8 @@ def test_follow_up_keeps_context_and_can_research_news(network):
     result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="stock",
         question="최근 뉴스도 확인해 줘", analysis_context={"report": "기존 분석"},
         prior_messages=[{"question": "위험은?", "answer": "변동성입니다."}], symbols=["005930"],
-        remaining_tokens=500_000, calculation_url="http://calculation")
+        remaining_tokens=500_000, calculation_url="http://calculation",
+        instrument_catalog=[{"code": "005930", "name": "삼성전자"}])
     assert "추가 확인" in result["answer"] and result["usage_tokens"] == 240
     assert result["data_sources"][0]["articles"][0]["source"] == "테스트 언론"
     provider_payload = next(json.loads(request.content) for request in requests if str(request.url) == DEEPSEEK_URL)
@@ -215,12 +216,49 @@ def test_follow_up_can_backtest_requested_settings_without_mutation(network):
         question="이 설정으로 백테스트해 줘", analysis_context={
             "report": "기존 분석", "request": {"fee_bps": 7, "slippage_bps": 12}},
         prior_messages=[], symbols=["KRW-BTC"], remaining_tokens=500_000,
-        calculation_url="http://calculation")
+        calculation_url="http://calculation",
+        instrument_catalog=[{"code": "KRW-BTC", "name": "비트코인"}])
 
     assert result["tool_calls"] == [{"name": "compare_strategy_settings", "symbols": 1, "status": "OK"}]
     assert payloads[-1]["candidates"][0]["expected_high_percentage"] == 12
     assert payloads[-1]["fee_bps"] == 7 and payloads[-1]["slippage_bps"] == 12
     assert any(request.url.host == "api.upbit.com" for request in requests)
+
+
+def test_follow_up_can_search_statistics_and_consented_portfolio(network):
+    state, _, _ = network
+    calls = [
+        tool(name="search_instruments", arguments={"query": "비트", "count": 5}),
+        tool(name="get_market_statistics", arguments={"code": "KRW-BTC", "count": 120}),
+        tool(name="get_portfolio_context", arguments={}),
+    ]
+    for index, call in enumerate(calls):
+        call["id"] = f"call-{index}"
+    state["responses"] += [chat_completion(tool_calls=calls), chat_completion("동의한 계좌와 통계를 함께 검토했습니다.")]
+    portfolio = {"accounts": [{"currency": "KRW", "balance": "10000"}],
+                 "recent_orders": [{"market": "KRW-BTC", "side": "bid", "state": "done"}]}
+
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="upbit",
+        question="내 거래와 비트코인 상태를 같이 봐줘", analysis_context={"report": "기존 분석"},
+        prior_messages=[], symbols=["KRW-BTC"], remaining_tokens=500_000,
+        calculation_url="http://calculation",
+        instrument_catalog=[{"code": "KRW-BTC", "name": "비트코인"}],
+        portfolio_context=portfolio)
+
+    assert [item["name"] for item in result["tool_calls"]] == [
+        "search_instruments", "get_market_statistics", "get_portfolio_context"]
+    assert all(item["status"] == "OK" for item in result["tool_calls"])
+    assert result["data_sources"][0]["code"] == "KRW-BTC"
+
+
+def test_portfolio_tool_is_unavailable_without_per_message_consent(network):
+    state, _, _ = network
+    state["responses"] += [chat_completion(tool_calls=[tool(name="get_portfolio_context", arguments={})]), chat_completion()]
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="upbit",
+        question="내 계좌 봐줘", analysis_context={"report": "기존 분석"}, prior_messages=[],
+        symbols=["KRW-BTC"], remaining_tokens=500_000, calculation_url="http://calculation",
+        instrument_catalog=[{"code": "KRW-BTC", "name": "비트코인"}])
+    assert result["tool_calls"] == [{"name": "get_portfolio_context", "status": "UNAVAILABLE"}]
 
 
 def test_news_reader_rejects_entities_and_non_google_links(monkeypatch):

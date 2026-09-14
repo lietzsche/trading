@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE ai_conversation_messages
+    ADD COLUMN IF NOT EXISTS include_portfolio BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMIT;

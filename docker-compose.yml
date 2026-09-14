@@ -75,7 +75,7 @@ services:
       PGDATABASE: ${POSTGRES_DB:-postgres}
     volumes:
       - ./db/migrations:/migrations:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V002__ai_analysis.sql", "-f", "/migrations/V003__ai_conversations.sql"]
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V002__ai_analysis.sql", "-f", "/migrations/V003__ai_conversations.sql", "-f", "/migrations/V004__ai_portfolio_consent.sql"]
     depends_on:
       postgres:
         condition: service_healthy

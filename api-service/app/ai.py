@@ -69,6 +69,7 @@ class ApplyRequest(BaseModel):
 class ConversationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1500)
+    include_portfolio: bool = False
 
     @field_validator("question")
     @classmethod
@@ -318,7 +319,7 @@ class AIService:
         if not row:
             raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
         row["conversations"] = self.db.all("""SELECT id,status,question,answer,research,error_message,usage_tokens,
-            created_at,completed_at FROM ai_conversation_messages
+            include_portfolio,created_at,completed_at FROM ai_conversation_messages
             WHERE analysis_id=%s AND user_id=%s ORDER BY id""", (analysis_id, user_id))
         return row
 
@@ -367,9 +368,10 @@ class AIService:
             budget = RUN_TOKEN_BUDGET
             cursor.execute("UPDATE ai_daily_usage SET runs=runs+1,reserved_tokens=reserved_tokens+%s WHERE user_id=%s AND usage_date=%s",
                            (budget, user_id, today))
-            cursor.execute("""INSERT INTO ai_conversation_messages(analysis_id,user_id,status,question,reserved_tokens,usage_date)
-                VALUES(%s,%s,'PENDING',%s,%s,%s) RETURNING id,status""",
-                           (analysis_id, user_id, payload.question, budget, today))
+            cursor.execute("""INSERT INTO ai_conversation_messages(analysis_id,user_id,status,question,
+                include_portfolio,reserved_tokens,usage_date)
+                VALUES(%s,%s,'PENDING',%s,%s,%s,%s) RETURNING id,status""",
+                           (analysis_id, user_id, payload.question, payload.include_portfolio, budget, today))
             result = cursor.fetchone()
         try:
             self.executor.submit(self._run_conversation, result["id"])
@@ -412,11 +414,32 @@ class AIService:
                         "warnings": (analysis["result"] or {}).get("warnings", []),
                         "dataset": (analysis["result"] or {}).get("dataset"),
                         "request": {"fee_bps": request_payload.fee_bps, "slippage_bps": request_payload.slippage_bps}}
+            label_table = "upbit_history_label" if analysis["market"] == "upbit" else "stock_history_label"
+            catalog = self.db.all(f"""SELECT code,name FROM {label_table}
+                WHERE deleted_at IS NULL ORDER BY name,code LIMIT 5000""")
+            portfolio = None
+            if row.get("include_portfolio"):
+                if analysis["market"] != "upbit" or not analysis.get("include_account"):
+                    raise HTTPException(409, "계좌 정보 포함에 동의한 Upbit 분석에서만 계좌·주문 요약을 사용할 수 있습니다.")
+                owner = self.db.one("SELECT user_login_id FROM tb_user WHERE id=%s AND deleted_at IS NULL", (row["user_id"],))
+                key_row = self.db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (owner["user_login_id"],)) if owner else None
+                if not key_row:
+                    raise HTTPException(409, "현재 Upbit 계좌 정보를 확인할 수 없습니다.")
+                accounts = self.engine.private_upbit("GET", "/v1/accounts", key_row["access_key"], key_row["secret_key"])
+                orders = self.db.all("""SELECT market,side,ord_type,state,price,volume,executed_volume,
+                    paid_fee,trades_count,created_at FROM upbit_order_history
+                    WHERE login_id=%s ORDER BY id DESC LIMIT 100""", (owner["user_login_id"],))
+                portfolio = {"accounts": [{k: item.get(k) for k in (
+                    "currency", "balance", "locked", "avg_buy_price", "unit_currency")} for item in accounts[:100]],
+                    "recent_orders": orders, "order_limit": 100,
+                    "notice": "현재 잔고와 앱에 저장된 최근 주문 기록입니다. 주문 UUID와 API 키는 포함하지 않습니다."}
+                portfolio = json.loads(json.dumps(portfolio, ensure_ascii=False, default=str))
             request_started = True
             result = continue_analysis(api_key=key, model=analysis["model"], market=analysis["market"],
                                        question=row["question"], analysis_context=original,
                                        prior_messages=prior, symbols=symbols, remaining_tokens=row["reserved_tokens"],
-                                       calculation_url=self.calculation_url)
+                                       calculation_url=self.calculation_url, instrument_catalog=catalog,
+                                       portfolio_context=portfolio)
             used = max(0, int(result.get("usage_tokens", 0)))
             result = json.loads(json.dumps(result, ensure_ascii=False, default=str).replace(key, "[REDACTED]"))
             self._finish_conversation(message_id, "COMPLETED", used, result, None)
