@@ -84,6 +84,19 @@ def settings_dict(row):
     return {key: row[key] for key in SETTING_KEYS}
 
 
+def account_for_ai(row):
+    # avg_buy_price is only KRW-denominated when unit_currency is KRW; for
+    # legacy non-KRW-quoted holdings it uses a different scale (e.g. BTC) and
+    # must never be compared directly against a KRW daily close by the model.
+    unit_currency = row.get("unit_currency")
+    is_krw = unit_currency == "KRW"
+    return {"currency": row.get("currency"), "balance": row.get("balance"), "locked": row.get("locked"),
+            "avg_buy_price": row.get("avg_buy_price") if is_krw else None,
+            "avg_buy_price_unit_currency": unit_currency,
+            "avg_buy_price_note": None if is_krw else
+                "평균매수가가 KRW 기준이 아니어서 제외했습니다. 원화 시세와 직접 비교하지 마세요."}
+
+
 def key_cipher(secret, user_id):
     if len(secret) < 32:
         raise HTTPException(503, "서버 암호화 설정을 확인해 주세요.")
@@ -237,8 +250,7 @@ class AIService:
                 # Do not call /accounts route: its authentication failure changes auto_on.
                 try:
                     accounts = self.engine.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
-                    context["account"] = [{k: row.get(k) for k in ("currency", "balance", "locked", "avg_buy_price", "unit_currency")}
-                                          for row in accounts[:100]]
+                    context["account"] = [account_for_ai(row) for row in accounts[:100]]
                 except (httpx.HTTPError, ValueError, TypeError):
                     context["account_warning"] = "계좌 조회에 실패하여 계좌 요약은 포함하지 않았습니다. 자동매매 설정은 변경하지 않았습니다."
             else:
@@ -429,8 +441,7 @@ class AIService:
                 orders = self.db.all("""SELECT market,side,ord_type,state,price,volume,executed_volume,
                     paid_fee,trades_count,created_at FROM upbit_order_history
                     WHERE login_id=%s ORDER BY id DESC LIMIT 100""", (owner["user_login_id"],))
-                portfolio = {"accounts": [{k: item.get(k) for k in (
-                    "currency", "balance", "locked", "avg_buy_price", "unit_currency")} for item in accounts[:100]],
+                portfolio = {"accounts": [account_for_ai(item) for item in accounts[:100]],
                     "recent_orders": orders, "order_limit": 100,
                     "notice": "현재 잔고와 앱에 저장된 최근 주문 기록입니다. 주문 UUID와 API 키는 포함하지 않습니다."}
                 portfolio = json.loads(json.dumps(portfolio, ensure_ascii=False, default=str))

@@ -9,7 +9,7 @@ from fastapi import HTTPException
 os.environ.setdefault("SESSION_SECRET", "test-secret-that-is-at-least-thirty-two-characters")
 os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 
-from app.ai import AIService, AnalysisRequest, ConfigUpdate, candidate_verified, key_cipher
+from app.ai import AIService, AnalysisRequest, ConfigUpdate, account_for_ai, candidate_verified, key_cipher
 from app.main import SettingUpdate
 
 
@@ -52,6 +52,22 @@ def test_market_defaults_and_symbol_validation_are_explicit():
         AnalysisRequest(market="stock", symbols=["KRW-BTC"])
     with pytest.raises(ValidationError):
         AnalysisRequest(market="upbit", symbols=["BTC"])
+
+
+def test_account_for_ai_hides_non_krw_avg_buy_price():
+    # A non-KRW avg_buy_price is on a different scale than KRW daily closes
+    # (e.g. legacy BTC-quoted holdings); the model must never see it as if it
+    # were comparable to a KRW price.
+    krw = account_for_ai({"currency": "BTC", "balance": "1", "locked": "0",
+                           "avg_buy_price": "10000", "unit_currency": "KRW"})
+    assert krw["avg_buy_price"] == "10000"
+    assert krw["avg_buy_price_note"] is None
+
+    non_krw = account_for_ai({"currency": "ETH", "balance": "3", "locked": "0",
+                               "avg_buy_price": "0.01", "unit_currency": "BTC"})
+    assert non_krw["avg_buy_price"] is None
+    assert non_krw["avg_buy_price_unit_currency"] == "BTC"
+    assert "KRW" in non_krw["avg_buy_price_note"]
 
 
 def test_only_sufficiently_validated_non_current_candidate_can_apply():
