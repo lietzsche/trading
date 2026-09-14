@@ -446,6 +446,14 @@ class TradingEngine:
                     order.get("volume"), order.get("remaining_volume"), order.get("executed_volume"),
                     order.get("paid_fee"), order.get("trades_count"), self.now(), login_id, order.get("uuid")))
 
+    def order_fills(self, access, secret, uuid):
+        # /v1/orders/uuids (used by sync_orders) never returns per-trade fills;
+        # market sell orders store no proceeds locally, so realized P&L needs
+        # this per-order detail call instead.
+        detail = self.private_upbit("GET", "/v1/order", access, secret, {"uuid": uuid})
+        trades = detail.get("trades") if isinstance(detail, dict) else None
+        return trades if isinstance(trades, list) else []
+
     def auto_order(self):
         # APScheduler's max_instances does not cover administrator-triggered runs.
         if not self._auto_order_lock.acquire(blocking=False):

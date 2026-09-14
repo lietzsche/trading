@@ -33,6 +33,63 @@ def payload(**changes):
             "candidates": [settings()], "fee_bps": 5, "slippage_bps": 10, **changes}
 
 
+def search_payload(**changes):
+    return {"market": "upbit", "instruments": [{"code": "KRW-TEST", "name": "테스트", "prices": candles()}],
+            "search_space": {
+                "expected_high_percentage": {"values": [10, 20]},
+                "expected_low_percentage": {"values": [-5, -10]},
+                "highest_price_reference_days": {"values": [3]},
+                "volume_check": [False],
+            }, "fee_bps": 5, "slippage_bps": 10, **changes}
+
+
+def test_search_ranks_eligible_combinations_and_hides_per_instrument_detail():
+    response = client.post("/v1/backtests/search", json=search_payload(minimum_validation_trades=1))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["combinations_evaluated"] == 4  # 2 highs * 2 lows * 1 day * 1 volume_check
+    assert data["minimum_validation_trades"] == 1
+    assert all("per_instrument" not in item for item in data["top_candidates"])
+    returns = [item["validation"]["return_pct"] for item in data["top_candidates"]]
+    assert returns == sorted(returns, reverse=True)
+    assert data["dataset"]["market"] == "upbit"
+    assert any("과최적화" in value for value in data["limitations"])
+
+
+def test_search_rejects_combinations_where_low_is_not_below_high():
+    request = search_payload(search_space={
+        "expected_high_percentage": {"values": [10]},
+        "expected_low_percentage": {"values": [10, 20]},
+        "highest_price_reference_days": {"values": [3]},
+        "volume_check": [False],
+    })
+    response = client.post("/v1/backtests/search", json=request)
+    assert response.status_code == 422
+
+
+def test_search_grid_over_the_combination_cap_is_rejected():
+    request = search_payload(search_space={
+        "expected_high_percentage": {"values": [10, 20, 30]},
+        "expected_low_percentage": {"values": [-5, -10, -15]},
+        "highest_price_reference_days": {"values": [3, 10, 20]},
+        "volume_check": [False, True],
+    })  # 3 * 3 * 3 * 2 = 54, over MAX_SEARCH_COMBINATIONS
+    response = client.post("/v1/backtests/search", json=request)
+    assert response.status_code == 422
+
+
+def test_search_reports_no_eligible_combination_without_hiding_it():
+    response = client.post("/v1/backtests/search", json=search_payload(minimum_validation_trades=100))
+    data = response.json()
+    assert data["top_candidates"] == [] and data["combinations_eligible"] == 0
+    assert any("판별 가능한 결과가 없습니다" in warning for warning in data["warnings"])
+
+
+def test_search_top_n_bounds_the_result_count():
+    response = client.post("/v1/backtests/search", json=search_payload(minimum_validation_trades=1, top_n=1))
+    assert len(response.json()["top_candidates"]) == 1
+
+
 def test_comparison_is_deterministic_and_reports_dates_and_costs():
     first = client.post("/v1/backtests/compare", json=payload())
     second = client.post("/v1/backtests/compare", json=payload())

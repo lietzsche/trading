@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 
+import httpx
 import pytest
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
@@ -68,6 +69,57 @@ def test_account_for_ai_hides_non_krw_avg_buy_price():
     assert non_krw["avg_buy_price"] is None
     assert non_krw["avg_buy_price_unit_currency"] == "BTC"
     assert "KRW" in non_krw["avg_buy_price_note"]
+
+
+class StubFillsEngine:
+    def __init__(self, fills, failures=()):
+        self.fills, self.failures = fills, set(failures)
+
+    def order_fills(self, access, secret, uuid):
+        if uuid in self.failures:
+            raise httpx.HTTPError("boom")
+        return self.fills.get(uuid, [])
+
+
+def test_realized_pnl_fifo_matches_sells_across_multiple_buy_lots():
+    engine = StubFillsEngine({
+        "buy1": [{"volume": "2", "funds": "20000"}],
+        "buy2": [{"volume": "3", "funds": "36000"}],
+        "sell1": [{"volume": "4", "funds": "52000"}],
+    })
+    service_instance = AIService(lambda: CaptureDatabase(), engine, "http://calculation", os.environ["SESSION_SECRET"], SettingUpdate)
+    orders = [  # newest-first, as returned by the real order-history query
+        {"uuid": "sell1", "market": "KRW-BTC", "side": "ask", "state": "done", "paid_fee": "26"},
+        {"uuid": "buy2", "market": "KRW-BTC", "side": "bid", "state": "done", "paid_fee": "18"},
+        {"uuid": "buy1", "market": "KRW-BTC", "side": "bid", "state": "done", "paid_fee": "10"},
+    ]
+    summary = service_instance._realized_pnl_summary({"access_key": "a", "secret_key": "s"}, orders)
+    market = summary["per_market"]["KRW-BTC"]
+    assert market["realized_krw"] == 7952.0
+    assert market["matched_volume"] == 4
+    assert market["unmatched_sell_volume"] == 0
+    assert market["closed_sell_fills"] == 1
+    assert summary["orders_examined"] == 3 and summary["orders_unavailable"] == []
+
+
+def test_realized_pnl_tracks_unmatched_sells_and_unavailable_orders():
+    engine = StubFillsEngine({
+        "sell1": [{"volume": "5", "funds": "50000"}],
+        "buy1": [{"volume": "1", "funds": "9000"}],
+    }, failures={"buy2"})
+    service_instance = AIService(lambda: CaptureDatabase(), engine, "http://calculation", os.environ["SESSION_SECRET"], SettingUpdate)
+    orders = [
+        {"uuid": "sell1", "market": "KRW-ETH", "side": "ask", "state": "done", "paid_fee": "0"},
+        {"uuid": "buy2", "market": "KRW-ETH", "side": "bid", "state": "done", "paid_fee": "0"},
+        {"uuid": "buy1", "market": "KRW-ETH", "side": "bid", "state": "done", "paid_fee": "0"},
+        {"uuid": None, "market": "KRW-XRP", "side": "bid", "state": "done", "paid_fee": "0"},
+        {"uuid": "wait1", "market": "KRW-DOGE", "side": "bid", "state": "wait", "paid_fee": "0"},
+    ]
+    summary = service_instance._realized_pnl_summary({"access_key": "a", "secret_key": "s"}, orders)
+    market = summary["per_market"]["KRW-ETH"]
+    assert market["matched_volume"] == 1 and market["unmatched_sell_volume"] == 4
+    assert summary["orders_unavailable"] == ["KRW-ETH"]
+    assert "KRW-XRP" not in summary["per_market"] and "KRW-DOGE" not in summary["per_market"]
 
 
 def test_only_sufficiently_validated_non_current_candidate_can_apply():

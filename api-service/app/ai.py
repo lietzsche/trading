@@ -2,9 +2,11 @@
 import base64
 import json
 import logging
+import math
 import re
 import threading
 import time
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -23,6 +25,7 @@ SETTING_COLUMNS = "expected_high_percentage,expected_low_percentage,highest_pric
 SETTING_KEYS = ("expected_high_percentage", "expected_low_percentage", "highest_price_reference_days", "volume_check")
 DEFAULT_MODEL = "deepseek-flash"
 RUN_TOKEN_BUDGET = 200000
+REALIZED_PNL_ORDER_LIMIT = 20
 
 
 class ConfigUpdate(BaseModel):
@@ -392,6 +395,53 @@ class AIService:
             raise HTTPException(503, "서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.")
         return result
 
+    def _realized_pnl_summary(self, key_row, orders):
+        # Locally stored history has no proceeds for market sell orders
+        # (Upbit leaves `price` empty for them), so this fetches each
+        # completed order's actual trade fills instead of trusting local
+        # fields. Bounded to the most recent orders to fit the analysis
+        # time budget; earlier orders are simply out of window, not errors.
+        done = [order for order in orders if order.get("state") == "done" and order.get("market") and order.get("uuid")]
+        recent = done[:REALIZED_PNL_ORDER_LIMIT]
+        fills, unavailable_markets = [], set()
+        for order in reversed(recent):  # oldest-first so FIFO matching sees buys before their sells
+            try:
+                trades = self.engine.order_fills(key_row["access_key"], key_row["secret_key"], order["uuid"])
+            except (httpx.HTTPError, ValueError, TypeError):
+                unavailable_markets.add(order["market"])
+                continue
+            volume = sum(float(trade.get("volume") or 0) for trade in trades if isinstance(trade, dict))
+            funds = sum(float(trade.get("funds") or 0) for trade in trades if isinstance(trade, dict))
+            if volume <= 0 or not math.isfinite(volume) or not math.isfinite(funds):
+                continue
+            fills.append({"market": order["market"], "side": order.get("side"), "volume": volume,
+                          "funds": funds, "fee": float(order.get("paid_fee") or 0)})
+        lots, summary = defaultdict(deque), {}
+        for fill in fills:
+            stats = summary.setdefault(fill["market"], {"realized_krw": 0.0, "matched_volume": 0.0,
+                                                         "closed_sell_fills": 0, "unmatched_sell_volume": 0.0})
+            if fill["side"] == "bid":
+                lots[fill["market"]].append([fill["volume"], (fill["funds"] + fill["fee"]) / fill["volume"]])
+            elif fill["side"] == "ask":
+                unit_proceeds, remaining = (fill["funds"] - fill["fee"]) / fill["volume"], fill["volume"]
+                while remaining > 1e-9 and lots[fill["market"]]:
+                    lot = lots[fill["market"]][0]
+                    matched = min(remaining, lot[0])
+                    stats["realized_krw"] += matched * (unit_proceeds - lot[1])
+                    stats["matched_volume"] += matched
+                    lot[0] -= matched
+                    remaining -= matched
+                    if lot[0] <= 1e-9:
+                        lots[fill["market"]].popleft()
+                stats["unmatched_sell_volume"] += remaining
+                stats["closed_sell_fills"] += 1
+        return {"per_market": {market: {**stats, "realized_krw": round(stats["realized_krw"], 2)}
+                               for market, stats in summary.items()},
+                "orders_examined": len(recent), "orders_unavailable": sorted(unavailable_markets),
+                "notice": (f"최근 체결 완료 주문 최대 {REALIZED_PNL_ORDER_LIMIT}건의 실제 체결 내역(Upbit 조회)으로 계산한 "
+                          "부분 실현손익입니다. 이 범위 이전에 매수한 물량의 원가는 알 수 없어 그만큼 매도된 수량은 "
+                          "unmatched_sell_volume으로 표시하며, 세금·미실현 평가손익은 포함하지 않습니다.")}
+
     def _run_conversation(self, message_id):
         row = self.db.one("UPDATE ai_conversation_messages SET status='RUNNING' WHERE id=%s AND status='PENDING' RETURNING *", (message_id,))
         if not row:
@@ -438,11 +488,16 @@ class AIService:
                 if not key_row:
                     raise HTTPException(409, "현재 Upbit 계좌 정보를 확인할 수 없습니다.")
                 accounts = self.engine.private_upbit("GET", "/v1/accounts", key_row["access_key"], key_row["secret_key"])
-                orders = self.db.all("""SELECT market,side,ord_type,state,price,volume,executed_volume,
+                orders = self.db.all("""SELECT uuid,market,side,ord_type,state,price,volume,executed_volume,
                     paid_fee,trades_count,created_at FROM upbit_order_history
                     WHERE login_id=%s ORDER BY id DESC LIMIT 100""", (owner["user_login_id"],))
+                try:
+                    realized_pnl = self._realized_pnl_summary(key_row, orders)
+                except (httpx.HTTPError, ValueError, TypeError):
+                    realized_pnl = {"per_market": {}, "notice": "실현손익 계산에 필요한 체결 내역을 Upbit에서 조회하지 못했습니다."}
+                recent_orders = [{key: value for key, value in order.items() if key != "uuid"} for order in orders]
                 portfolio = {"accounts": [account_for_ai(item) for item in accounts[:100]],
-                    "recent_orders": orders, "order_limit": 100,
+                    "recent_orders": recent_orders, "order_limit": 100, "realized_pnl": realized_pnl,
                     "notice": "현재 잔고와 앱에 저장된 최근 주문 기록입니다. 주문 UUID와 API 키는 포함하지 않습니다."}
                 portfolio = json.loads(json.dumps(portfolio, ensure_ascii=False, default=str))
             request_started = True

@@ -334,6 +334,15 @@ def test_account_snapshot_preserves_unknown_prices_and_non_krw_costs(trading_eng
     assert by_currency["ETH"]["profit_rate"] is None
 
 
+def test_order_fills_returns_trades_list_and_tolerates_missing_detail(trading_engine, monkeypatch):
+    monkeypatch.setattr(trading_engine, "private_upbit",
+                        lambda *_, **__: {"uuid": "order-1", "trades": [{"price": "100", "volume": "2", "funds": "200"}]})
+    assert trading_engine.order_fills("access", "secret", "order-1") == [{"price": "100", "volume": "2", "funds": "200"}]
+
+    monkeypatch.setattr(trading_engine, "private_upbit", lambda *_, **__: {"uuid": "order-2"})
+    assert trading_engine.order_fills("access", "secret", "order-2") == []
+
+
 def test_empty_account_snapshot_is_complete(trading_engine, monkeypatch):
     monkeypatch.setattr(trading_engine, "private_upbit", lambda *_: [])
     monkeypatch.setattr(trading_engine, "upbit_public", lambda *_: [])

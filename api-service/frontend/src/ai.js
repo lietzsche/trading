@@ -43,6 +43,18 @@ export function sameSettings(before, after) {
   return Boolean(before && after && AI_SETTING_FIELDS.every(([key]) => before[key] === after[key]));
 }
 
+export function candidateRiskLabel(settings, baseline) {
+  if (!settings || !baseline) return null;
+  const high = Number(settings.expected_high_percentage), low = Math.abs(Number(settings.expected_low_percentage));
+  const baseHigh = Number(baseline.expected_high_percentage), baseLow = Math.abs(Number(baseline.expected_low_percentage));
+  if (![high, low, baseHigh, baseLow].every(Number.isFinite)) return null;
+  const wider = high > baseHigh || low > baseLow, narrower = high < baseHigh || low < baseLow;
+  if (wider && !narrower) return {text: '공격적', tone: 'high'};
+  if (narrower && !wider) return {text: '보수적', tone: 'low'};
+  if (!wider && !narrower) return {text: '동일 폭', tone: 'mixed'};
+  return {text: '변형', tone: 'mixed'};
+}
+
 export function candidateEligible(candidate) {
   return Boolean(candidate && !['current', 'baseline'].includes(candidate.id)
     && candidate.can_apply !== false && Number(candidate.validation?.trades || 0) > 0

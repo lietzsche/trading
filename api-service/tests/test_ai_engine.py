@@ -42,6 +42,11 @@ def chat_completion(answer="추가 조사 답변입니다.", tool_calls=None):
             "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120}}
 
 
+def malformed_completion(content="이것은 JSON이 아닙니다."):
+    return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+
+
 def tool(code="KRW-ETH", name="get_market_history", arguments=None):
     return {"id": "call-1", "type": "function", "function": {
         "name": name, "arguments": json.dumps(arguments if arguments is not None else {"code": code, "count": 200}),
@@ -51,7 +56,7 @@ def tool(code="KRW-ETH", name="get_market_history", arguments=None):
 @pytest.fixture
 def network(monkeypatch):
     requests, responses, comparison_payloads = [], [], []
-    state = {"responses": responses, "data_status": 200, "comparison_status": 200}
+    state = {"responses": responses, "data_status": 200, "comparison_status": 200, "search_payloads": []}
     real_client = httpx.Client
 
     def handler(request):
@@ -81,9 +86,21 @@ def network(monkeypatch):
                 <source>테스트 언론</source></item></channel></rss>"""
             return httpx.Response(200, content=body.encode())
         if request.url.host == "calculation":
-            assert request.method == "POST" and request.url.path == "/v1/backtests/compare"
-            assert "authorization" not in request.headers
+            assert request.method == "POST" and "authorization" not in request.headers
             payload = json.loads(request.content)
+            if request.url.path == "/v1/backtests/search":
+                state["search_payloads"].append(payload)
+                space = payload["search_space"]
+                combinations = (len(space["expected_high_percentage"]["values"]) * len(space["expected_low_percentage"]["values"])
+                                * len(space["highest_price_reference_days"]["values"]) * len(space["volume_check"]))
+                return httpx.Response(200, json={
+                    "top_candidates": [{"id": "search-0", "label": "탐색 조합 1",
+                                        "settings": {**CURRENT, "expected_high_percentage": space["expected_high_percentage"]["values"][0]},
+                                        "train": {"return_pct": 3.0}, "validation": {"return_pct": 1.5, "trades": 6}}],
+                    "combinations_evaluated": combinations, "combinations_eligible": 1,
+                    "minimum_validation_trades": 5, "warnings": [], "dataset": {"validation_days": 42}, "limitations": [],
+                })
+            assert request.url.path == "/v1/backtests/compare"
             comparison_payloads.append(payload)
             return httpx.Response(state["comparison_status"], json={
                 "candidates": [{"id": item["id"], "label": item["label"],
@@ -192,6 +209,24 @@ def test_initial_analysis_can_use_bounded_rss_news_tool(network):
     assert len([request for request in requests if request.url.host == "news.google.com"]) == 1
 
 
+def test_analyze_retries_once_on_malformed_final_json(network):
+    state, requests, _ = network
+    state["responses"] += [malformed_completion(), completion()]
+    result = run()
+    assert result["candidates"][0]["id"] == "current"
+    provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
+    assert len(provider) == 2
+
+
+def test_analyze_fails_after_two_malformed_final_replies(network):
+    state, requests, _ = network
+    state["responses"] += [malformed_completion(), malformed_completion()]
+    with pytest.raises(AIAnalysisError, match="형식"):
+        run()
+    provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
+    assert len(provider) == 2
+
+
 def test_follow_up_keeps_context_and_can_research_news(network):
     state, requests, _ = network
     news_call = tool(name="search_market_news", arguments={"query": "삼성전자 실적", "count": 5})
@@ -205,6 +240,18 @@ def test_follow_up_keeps_context_and_can_research_news(network):
     assert result["data_sources"][0]["articles"][0]["source"] == "테스트 언론"
     provider_payload = next(json.loads(request.content) for request in requests if str(request.url) == DEEPSEEK_URL)
     assert "기존 분석" in provider_payload["messages"][1]["content"]
+
+
+def test_follow_up_retries_once_on_malformed_final_json(network):
+    state, requests, _ = network
+    state["responses"] += [malformed_completion(), chat_completion("정상 재시도 답변입니다.")]
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="stock",
+        question="다시 물어볼게요", analysis_context={"report": "기존 분석"},
+        prior_messages=[], symbols=["005930"], remaining_tokens=500_000,
+        calculation_url="http://calculation", instrument_catalog=[{"code": "005930", "name": "삼성전자"}])
+    assert result["answer"] == "정상 재시도 답변입니다."
+    provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
+    assert len(provider) == 2
 
 
 def test_follow_up_can_backtest_requested_settings_without_mutation(network):
@@ -223,6 +270,42 @@ def test_follow_up_can_backtest_requested_settings_without_mutation(network):
     assert payloads[-1]["candidates"][0]["expected_high_percentage"] == 12
     assert payloads[-1]["fee_bps"] == 7 and payloads[-1]["slippage_bps"] == 12
     assert any(request.url.host == "api.upbit.com" for request in requests)
+
+
+def test_follow_up_can_search_a_bounded_grid_of_strategy_settings(network):
+    state, requests, _ = network
+    search_call = tool(name="search_strategy_settings", arguments={
+        "expected_high_percentage_values": [10, 20], "expected_low_percentage_values": [-5, -10],
+        "highest_price_reference_days_values": [60],
+    })
+    state["responses"] += [chat_completion(tool_calls=[search_call]), chat_completion("탐색 결과를 검토했습니다.")]
+
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="upbit",
+        question="여러 설정 조합 중 더 나은 값을 찾아줘", analysis_context={"report": "기존 분석"},
+        prior_messages=[], symbols=["KRW-BTC"], remaining_tokens=500_000,
+        calculation_url="http://calculation",
+        instrument_catalog=[{"code": "KRW-BTC", "name": "비트코인"}])
+
+    assert result["tool_calls"] == [{"name": "search_strategy_settings", "symbols": 1,
+                                     "combinations_evaluated": 8, "status": "OK"}]  # 2 highs * 2 lows * 1 day * 2 default volume_check values
+    assert state["search_payloads"][-1]["search_space"]["expected_high_percentage"]["values"] == [10, 20]
+    assert state["search_payloads"][-1]["search_space"]["volume_check"] == [False, True]
+    assert any(request.url.host == "api.upbit.com" for request in requests)
+
+
+def test_search_strategy_settings_rejects_missing_required_axis(network):
+    state, requests, _ = network
+    bad_call = tool(name="search_strategy_settings", arguments={"expected_high_percentage_values": [10]})
+    state["responses"] += [chat_completion(tool_calls=[bad_call]), chat_completion("설명입니다.")]
+
+    result = continue_analysis(api_key="test-only-key", model="deepseek-flash", market="upbit",
+        question="설정 조합을 찾아줘", analysis_context={"report": "기존 분석"},
+        prior_messages=[], symbols=["KRW-BTC"], remaining_tokens=500_000,
+        calculation_url="http://calculation",
+        instrument_catalog=[{"code": "KRW-BTC", "name": "비트코인"}])
+
+    assert result["tool_calls"] == [{"name": "search_strategy_settings", "status": "UNAVAILABLE"}]
+    assert not any(request.url.host == "calculation" for request in requests)
 
 
 def test_follow_up_can_search_statistics_and_consented_portfolio(network):
@@ -298,10 +381,11 @@ def test_invalid_final_response_preserves_consumed_tokens(network):
     state, _, _ = network
     reply = completion()
     reply["choices"][0]["message"]["content"] = "not json; test-only-key"
-    state["responses"] += [reply]
+    # Both the first reply and the retry are malformed, so the retry cannot save it.
+    state["responses"] += [reply, reply]
     with pytest.raises(AIAnalysisError) as caught:
         run()
-    assert caught.value.consumed_tokens == 150
+    assert caught.value.consumed_tokens == 300
     assert "test-only-key" not in str(caught.value)
 
 
@@ -326,13 +410,13 @@ def test_backtest_unavailable_returns_honest_unverified_candidates(network):
 
 def test_candidate_settings_are_validated_deduplicated_and_capped():
     warnings = []
-    message = {"content": json.dumps({"report": "key secret-value", "candidates": [
+    parsed = {"report": "key secret-value", "candidates": [
         {"label": "현재중복", "settings": CURRENT},
         {"label": "잘못된상한", "settings": {**CURRENT, "expected_high_percentage": 0}},
         {"label": "secret-value", "settings": ALTERNATIVE},
         {"label": "네번째무시", "settings": {**ALTERNATIVE, "volume_check": True}},
-    ]})}
-    report, candidates = _candidate_settings(message, "secret-value", CURRENT, warnings)
+    ]}
+    report, candidates = _candidate_settings(parsed, "secret-value", CURRENT, warnings)
     assert "secret-value" not in report
     assert len(candidates) == 2 and len(warnings) == 1
     assert candidates[1]["label"] == "[비밀키 삭제]"

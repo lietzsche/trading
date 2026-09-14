@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 
 MIN_EVALUATION_DAYS = 30
+MAX_SEARCH_COMBINATIONS = 40
 PositivePrice = Annotated[FiniteFloat, Field(ge=1e-12, le=1e15)]
 CostBps = Annotated[FiniteFloat, Field(ge=0, le=100)]
 router = APIRouter()
@@ -79,6 +80,39 @@ class ComparisonRequest(BaseModel):
         ids = [candidate.id for candidate in self.candidates]
         if len(ids) != len(set(ids)):
             raise ValueError("설정 후보 식별자는 중복될 수 없습니다.")
+        return self
+
+
+class SearchAxis(BaseModel):
+    values: list[int] = Field(min_length=1, max_length=3)
+
+
+class SearchSpace(BaseModel):
+    expected_high_percentage: SearchAxis
+    expected_low_percentage: SearchAxis
+    highest_price_reference_days: SearchAxis
+    volume_check: list[bool] = Field(default=[False, True], min_length=1, max_length=2)
+
+
+class SearchRequest(BaseModel):
+    market: Literal["stock", "upbit"]
+    instruments: list[HistoricalInstrument] = Field(min_length=1, max_length=5)
+    search_space: SearchSpace
+    fee_bps: CostBps | None = None
+    slippage_bps: CostBps = 10
+    minimum_validation_trades: int = Field(default=5, ge=1, le=100)
+    top_n: int = Field(default=5, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def unique_instruments_and_bounded_grid(self):
+        codes = [instrument.code for instrument in self.instruments]
+        if len(codes) != len(set(codes)):
+            raise ValueError("비교 종목은 중복될 수 없습니다.")
+        space = self.search_space
+        size = (len(space.expected_high_percentage.values) * len(space.expected_low_percentage.values)
+                * len(space.highest_price_reference_days.values) * len(space.volume_check))
+        if size > MAX_SEARCH_COMBINATIONS:
+            raise ValueError(f"탐색 조합이 최대 {MAX_SEARCH_COMBINATIONS}개를 초과합니다. 각 값의 후보 개수를 줄여 주세요.")
         return self
 
 
@@ -257,5 +291,46 @@ def compare_backtests(request: ComparisonRequest):
             "수수료와 슬리피지는 매수·매도 각각 적용하는 가정값입니다. 실제 세금·수수료 할인·시장 충격·배당·분할·상장폐지·생존 편향은 반영되지 않습니다.",
             "미청산 보유분은 마지막 종가로 평가하며 아직 발생하지 않은 매도 비용은 차감하지 않습니다. 거래 횟수는 청산 완료 횟수입니다.",
             "짧고 제한된 종목 표본의 과거 결과이며 미래 수익을 예측하거나 보장하지 않습니다.",
+        ],
+    }
+
+
+@router.post("/v1/backtests/search")
+def search_backtests(request: SearchRequest):
+    """Grid-search a bounded set of setting combinations via `compare_backtests`
+    and rank them by validation-segment return. Read-only research: this never
+    saves or applies a setting, and callers must not treat "best in this
+    window" as a promise of future performance (classic overfitting risk)."""
+    space = request.search_space
+    combinations = [
+        {"expected_high_percentage": high, "expected_low_percentage": low,
+         "highest_price_reference_days": days, "volume_check": volume_check}
+        for high in space.expected_high_percentage.values
+        for low in space.expected_low_percentage.values
+        for days in space.highest_price_reference_days.values
+        for volume_check in space.volume_check
+        if low < high
+    ]
+    if not combinations:
+        raise HTTPException(422, "유효한 조합이 없습니다. 하한 비율은 상한보다 작아야 합니다.")
+    candidates = [Candidate(id=f"search-{index}", label=f"탐색 조합 {index + 1}", **combo)
+                  for index, combo in enumerate(combinations)]
+    comparison = compare_backtests(ComparisonRequest(
+        market=request.market, instruments=request.instruments, candidates=candidates,
+        fee_bps=request.fee_bps, slippage_bps=request.slippage_bps))
+    eligible = [item for item in comparison["candidates"]
+                if item["validation"]["trades"] >= request.minimum_validation_trades]
+    ranked = sorted(eligible, key=lambda item: item["validation"]["return_pct"], reverse=True)
+    top = [{key: value for key, value in item.items() if key != "per_instrument"} for item in ranked[:request.top_n]]
+    warnings = list(comparison["warnings"])
+    if not eligible:
+        warnings.append(f"검증 구간 청산 거래 {request.minimum_validation_trades}건 이상인 조합이 없어 판별 가능한 결과가 없습니다.")
+    return {
+        "top_candidates": top, "combinations_evaluated": len(combinations), "combinations_eligible": len(eligible),
+        "minimum_validation_trades": request.minimum_validation_trades, "dataset": comparison["dataset"],
+        "warnings": warnings,
+        "limitations": comparison["limitations"] + [
+            "그리드 탐색 결과는 같은 과거 표본에 대한 과최적화(overfitting) 위험이 있습니다. "
+            "검증 구간 성과가 가장 높다는 것이 미래 성과를 보장하지 않으며, 이 결과만으로는 어떤 설정도 저장·적용되지 않습니다.",
         ],
     }

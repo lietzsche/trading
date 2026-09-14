@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {candidateEligible, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
+import {candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 
 describe('AI analysis input', () => {
   it('normalizes and deduplicates symbols without altering stock leading zeros', () => {
@@ -39,6 +39,15 @@ describe('AI result presentation', () => {
   it('does not stringify unexpected provider metadata into visible objects', () => {
     expect(textItems(['hello', {message: 'warning'}, {description: 'source'}, {secret: 'omit'}])).toEqual(['hello', 'warning', 'source']);
     expect(textItems(null)).toEqual([]);
+  });
+  it('labels candidates by how their target/stop width compares to the current setting, not by rank', () => {
+    const current = {expected_high_percentage: 25, expected_low_percentage: -12, highest_price_reference_days: 60, volume_check: false};
+    expect(candidateRiskLabel({expected_high_percentage: 18, expected_low_percentage: -10}, current)).toEqual({text: '보수적', tone: 'low'});
+    expect(candidateRiskLabel({expected_high_percentage: 40, expected_low_percentage: -18}, current)).toEqual({text: '공격적', tone: 'high'});
+    expect(candidateRiskLabel({expected_high_percentage: 25, expected_low_percentage: -12, volume_check: true}, current)).toEqual({text: '동일 폭', tone: 'mixed'});
+    expect(candidateRiskLabel({expected_high_percentage: 40, expected_low_percentage: -10}, current)).toEqual({text: '변형', tone: 'mixed'});
+    expect(candidateRiskLabel(null, current)).toBeNull();
+    expect(candidateRiskLabel(current, null)).toBeNull();
   });
   it('allows only verified non-baseline candidates with enough evaluation data', () => {
     const valid = {id: 'candidate-1', validation: {trades: 1, days: 10}};
