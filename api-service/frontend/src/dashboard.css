@@ -1013,3 +1013,57 @@
     justify-content: space-between;
   }
 }
+
+/* Recommendation Cards AI Action */
+.rec-card-action {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1c3248;
+}
+
+.btn-rec-ask-ai {
+  width: 100%;
+  padding: 8px 12px;
+  background: #112638;
+  color: #55dfb8;
+  border: 1px solid #1f425c;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-rec-ask-ai:hover {
+  background: #193852;
+  border-color: #2b5d80;
+  color: #79ebd0;
+}
+
+/* Mobile Narrow Screens (<480px) Tweaks */
+@media (max-width: 480px) {
+  .holding-prices-grid {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .holding-prices-grid small {
+    font-size: 10px;
+  }
+  .holding-prices-grid strong {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hero-submetrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .hero-valuation {
+    font-size: 32px;
+  }
+}

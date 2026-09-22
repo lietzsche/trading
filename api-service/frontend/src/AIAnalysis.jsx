@@ -74,8 +74,107 @@ export function SettingRecommendation({candidates, baselineSettings, master, pen
       && resultReturn > baselineReturn && drawdown >= baselineDrawdown - 2;
   }).sort((left, right) => Number(right.validation?.return_pct ?? -Infinity) - Number(left.validation?.return_pct ?? -Infinity));
   const recommended = eligible[0];
-  if (!recommended) return <section className="ai-setting-recommendation card"><div><div><span className="eyebrow">SETTING DECISION</span><h3>현재 계산 설정 유지</h3><p>검증 20일 이상·완료 거래 3회 이상·기존보다 높은 수익률·최대 낙폭 악화 2%p 이내를 모두 만족한 후보가 없습니다.</p></div><span className="ai-setting-verdict keep">유지 권장</span></div><div className="ai-setting-current"><b>유지할 계산 설정</b><div className="ai-setting-diff">{AI_SETTING_FIELDS.map(([key,label])=><div key={key}><span>{label}</span><b>{settingText(key,baselineSettings?.[key])}</b></div>)}</div></div><small>위 값이 이번 분석의 기준 설정입니다. 값이 ‘확인 불가’라면 오래된 분석 기록이므로 현재 설정을 다시 불러와 새 분석을 실행해 주세요.</small><small>AI의 문장만으로 설정을 추천하지 않고 동일 데이터 백테스트를 통과한 값만 변경 후보로 표시합니다.</small></section>;
-  return <section className="ai-setting-recommendation card"><div className="ai-setting-recommendation-head"><div><span className="eyebrow">SETTING DECISION</span><h3>{recommended.label || '검증된 설정 후보'}</h3><p>AI가 제안한 값 중 과거 검증 조건을 통과했고, 검증 수익률이 가장 높은 후보입니다.</p></div><span className="ai-setting-verdict change">변경 검토</span></div><div className="ai-setting-diff">{AI_SETTING_FIELDS.map(([key,label])=><div key={key}><span>{label}</span><small>{settingText(key,baselineSettings?.[key])}</small><b>→ {settingText(key,recommended.settings?.[key])}</b></div>)}</div><div className="ai-setting-score"><span>검증 수익률 <b>{percentText(recommended.validation?.return_pct)}</b></span><span>최대 낙폭 <b>{percentText(recommended.validation?.max_drawdown_pct)}</b></span><span>완료 거래 <b>{count(recommended.validation?.trades)}회</b></span></div>{master&&<button className="primary compact" disabled={Boolean(pending)} onClick={()=>onInspect(recommended)}>현재 설정과 비교하고 적용</button>}<small>과거 검증 결과이며 미래 수익을 보장하지 않습니다. 적용 전 변경값을 다시 확인합니다.</small></section>;
+
+  if (!recommended) return (
+    <section className="ai-setting-recommendation card">
+      <div className="ai-setting-recommendation-head">
+        <div>
+          <span className="eyebrow">SETTING DECISION</span>
+          <h3>현재 계산 설정 유지</h3>
+          <p>검증 20일 이상·완료 거래 3회 이상·기존보다 높은 수익률·최대 낙폭 악화 2%p 이내를 모두 만족한 후보가 없습니다.</p>
+        </div>
+        <span className="ai-setting-verdict keep">유지 권장</span>
+      </div>
+
+      <div className="ai-setting-current">
+        <b>유지할 계산 설정</b>
+        <div className="ai-setting-table-wrap">
+          <table className="ai-setting-comparison-table">
+            <thead>
+              <tr>
+                <th>설정 항목</th>
+                <th>현재 설정</th>
+                <th>AI 판단</th>
+                <th>결론</th>
+              </tr>
+            </thead>
+            <tbody>
+              {AI_SETTING_FIELDS.map(([key, label]) => (
+                <tr key={key}>
+                  <td className="col-label">{label}</td>
+                  <td className="col-cur">{settingText(key, baselineSettings?.[key])}</td>
+                  <td className="col-rec">유지</td>
+                  <td className="col-status">
+                    <span className="mini-badge badge-keep">유지</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <small>위 값이 이번 분석의 기준 설정입니다. 값이 ‘확인 불가’라면 오래된 분석 기록이므로 현재 설정을 다시 불러와 새 분석을 실행해 주세요.</small>
+      <small>AI의 문장만으로 설정을 추천하지 않고 동일 데이터 백테스트를 통과한 값만 변경 후보로 표시합니다.</small>
+    </section>
+  );
+
+  return (
+    <section className="ai-setting-recommendation card">
+      <div className="ai-setting-recommendation-head">
+        <div>
+          <span className="eyebrow">SETTING DECISION</span>
+          <h3>{recommended.label || '검증된 설정 후보'}</h3>
+          <p>AI가 제안한 값 중 과거 검증 조건을 통과했고, 검증 수익률이 가장 높은 후보입니다.</p>
+        </div>
+        <span className="ai-setting-verdict change">변경 검토</span>
+      </div>
+
+      <div className="ai-setting-table-wrap">
+        <table className="ai-setting-comparison-table">
+          <thead>
+            <tr>
+              <th>설정 항목</th>
+              <th>현재 설정</th>
+              <th>AI 추천</th>
+              <th>결론</th>
+            </tr>
+          </thead>
+          <tbody>
+            {AI_SETTING_FIELDS.map(([key, label]) => {
+              const curVal = settingText(key, baselineSettings?.[key]);
+              const recVal = settingText(key, recommended.settings?.[key]);
+              const isDiff = curVal !== recVal;
+              return (
+                <tr key={key} className={isDiff ? 'row-changed' : 'row-same'}>
+                  <td className="col-label">{label}</td>
+                  <td className="col-cur">{curVal}</td>
+                  <td className={`col-rec ${isDiff ? 'highlight-rec' : ''}`}>{recVal}</td>
+                  <td className="col-status">
+                    <span className={`mini-badge ${isDiff ? 'badge-change' : 'badge-keep'}`}>
+                      {isDiff ? '변경 검토' : '유지'}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="ai-setting-score">
+        <span>검증 수익률 <b>{percentText(recommended.validation?.return_pct)}</b></span>
+        <span>최대 낙폭 <b>{percentText(recommended.validation?.max_drawdown_pct)}</b></span>
+        <span>완료 거래 <b>{count(recommended.validation?.trades)}회</b></span>
+      </div>
+
+      {master && (
+        <button className="primary compact" disabled={Boolean(pending)} onClick={() => onInspect(recommended)}>
+          현재 설정과 비교하고 적용
+        </button>
+      )}
+      <small>과거 검증 결과이며 미래 수익을 보장하지 않습니다. 적용 전 변경값을 다시 확인합니다.</small>
+    </section>
+  );
 }
 
 export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate, initialSymbol = ''}) {

@@ -40,11 +40,77 @@ function PriceFreshness({rows}) {
  const parsed=new Date(String(latest).replace(' ','T')),age=Date.now()-parsed.getTime(),healthy=Number.isFinite(age)&&age<=150000;
  return <div className={`price-freshness ${healthy?'healthy':'delayed'}`} role="status"><span><i/>{healthy?'가격 갱신 정상':'가격 갱신 지연'} · {display('updated_at',latest)}</span><details><summary aria-label="가격 갱신 주기 안내">?</summary><p>Upbit 추천 가격은 서버가 1분마다 갱신하고, 이 화면은 열려 있는 동안 30초마다 결과를 확인합니다. 자동 주문 판단은 별도로 30초마다 실행됩니다.</p></details></div>;
 }
-function RecommendationCards({rows,market}) {
+function RecommendationCards({rows,market,onAskAI}) {
  const [ownedOnly,setOwnedOnly]=useState(false),ownedRows=(rows||[]).filter(row=>row.owned===true),visibleRows=ownedOnly?ownedRows:rows;
  const pagination=usePagination(visibleRows,9);
  if(!rows?.length)return <Empty text="다음 수집 주기에 조건에 맞는 종목이 자동으로 추가됩니다."/>;
- return <>{market==='upbit'&&<PriceFreshness rows={rows}/>}<div className="recommendation-toolbar"><p className="summary">갱신 단계 우선 · 같은 단계는 목표 도달률 순</p>{market==='upbit'&&rows.some(row=>typeof row.owned==='boolean')&&<div className="filter-chips" aria-label="추천 종목 필터"><button className={!ownedOnly?'active':''} aria-pressed={!ownedOnly} onClick={()=>setOwnedOnly(false)}>전체 {rows.length}</button><button className={ownedOnly?'active':''} aria-pressed={ownedOnly} onClick={()=>setOwnedOnly(true)}>내 보유 {ownedRows.length}</button></div>}</div>{ownedOnly&&!visibleRows.length?<Empty text="현재 추천 목록에 보유 중인 종목이 없습니다."/>:<><div className="recommendations">{pagination.items.map(row=>{const range=Number(row.expected_selling_price)-Number(row.minimum_selling_price);const progress=range?100-(Number(row.expected_selling_price)-Number(row.temp_price))*100/range:0;const change=Number(row.setting_price)?(Number(row.temp_price)-Number(row.setting_price))*100/Number(row.setting_price):0;const visual=Math.max(0,Math.min(100,progress));return <article className={`recommendation ${row.owned?'owned':''}`} key={row.code}><div className="recommendation-head"><div><div className="tag-row"><span className={`market ${market}`}>{market==='upbit'?'UPBIT':'STOCK'}</span>{row.owned&&<span className="owned-badge">보유 중 · {number(row.owned_quantity,8)}</span>}</div><h3>{row.name}</h3><small>{row.code}</small></div><div className={`change ${change>=0?'up':'down'}`}><small>기준가 대비</small><strong>{signed(change)}</strong></div></div><div className="price-main"><small>현재가</small><strong>{number(row.temp_price,8)}</strong></div><div className="progress-label"><span>손절가 {number(row.minimum_selling_price,8)}</span><b>목표 도달 {number(progress,0)}%</b><span>목표가 {number(row.expected_selling_price,8)}</span></div><div className="progress"><i style={{width:`${visual}%`}}/></div><div className="meta"><span><small>기준가</small>{number(row.setting_price,8)}</span><span><small>갱신 단계</small>{row.renewal_cnt}단계</span><span><small>최근 갱신</small>{display('pricing_reference_date',row.pricing_reference_date)}</span></div></article>})}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>}</>;
+ return (
+  <>
+   {market==='upbit'&&<PriceFreshness rows={rows}/>}
+   <div className="recommendation-toolbar">
+    <p className="summary">갱신 단계 우선 · 같은 단계는 목표 도달률 순</p>
+    {market==='upbit'&&rows.some(row=>typeof row.owned==='boolean')&&(
+     <div className="filter-chips" aria-label="추천 종목 필터">
+      <button className={!ownedOnly?'active':''} aria-pressed={!ownedOnly} onClick={()=>setOwnedOnly(false)}>전체 {rows.length}</button>
+      <button className={ownedOnly?'active':''} aria-pressed={ownedOnly} onClick={()=>setOwnedOnly(true)}>내 보유 {ownedRows.length}</button>
+     </div>
+    )}
+   </div>
+   {ownedOnly&&!visibleRows.length?<Empty text="현재 추천 목록에 보유 중인 종목이 없습니다."/>:(
+    <>
+     <div className="recommendations">
+      {pagination.items.map(row=>{
+       const range=Number(row.expected_selling_price)-Number(row.minimum_selling_price);
+       const progress=range?100-(Number(row.expected_selling_price)-Number(row.temp_price))*100/range:0;
+       const change=Number(row.setting_price)?(Number(row.temp_price)-Number(row.setting_price))*100/Number(row.setting_price):0;
+       const visual=Math.max(0,Math.min(100,progress));
+       return (
+        <article className={`recommendation ${row.owned?'owned':''}`} key={row.code}>
+         <div className="recommendation-head">
+          <div>
+           <div className="tag-row">
+            <span className={`market ${market}`}>{market==='upbit'?'UPBIT':'STOCK'}</span>
+            {row.owned&&<span className="owned-badge">보유 중 · {formatQty(row.owned_quantity)}</span>}
+           </div>
+           <h3>{row.name}</h3>
+           <small>{row.code}</small>
+          </div>
+          <div className={`change ${change>=0?'up':'down'}`}>
+           <small>기준가 대비</small>
+           <strong>{signed(change)}</strong>
+          </div>
+         </div>
+         <div className="price-main">
+          <small>현재가</small>
+          <strong>{formatPrice(row.temp_price)}</strong>
+         </div>
+         <div className="progress-label">
+          <span>손절가 {formatPrice(row.minimum_selling_price)}</span>
+          <b>목표 도달 {number(progress,0)}%</b>
+          <span>목표가 {formatPrice(row.expected_selling_price)}</span>
+         </div>
+         <div className="progress"><i style={{width:`${visual}%`}}/></div>
+         <div className="meta">
+          <span><small>기준가</small>{formatPrice(row.setting_price)}</span>
+          <span><small>갱신 단계</small>{row.renewal_cnt}단계</span>
+          <span><small>최근 갱신</small>{display('pricing_reference_date',row.pricing_reference_date)}</span>
+         </div>
+         {market==='upbit'&&onAskAI&&(
+          <div className="rec-card-action">
+           <button className="btn-rec-ask-ai" onClick={()=>onAskAI(row.code)}>
+            <span>✨ AI 분석 바로가기</span>
+           </button>
+          </div>
+         )}
+        </article>
+       );
+      })}
+     </div>
+     <Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/>
+    </>
+   )}
+  </>
+ );
 }
 function DividendCards({rows}){const pagination=usePagination(rows,12);if(!rows?.length)return <Empty text="배당 정보 수집이 끝나면 이곳에 표시됩니다."/>;return <><div className="info-note"><b>배당수익률이란?</b><span>최근 공시 기준 주당 배당금을 현재 주가로 나눈 연 환산 비율입니다. 실제 지급액과 향후 배당을 보장하는 수치는 아닙니다.</span></div><p className="summary">배당수익률 상위 <b>{rows.length}</b>개 종목 · 네이버 금융 기준</p><div className="dividend-grid">{pagination.items.map(row=><article className="card dividend" key={row.code}><div><h3>{row.name}</h3><small>{row.code}</small></div><strong>{number(row.dividend_rate)}%</strong></article>)}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>}
 
@@ -567,7 +633,39 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
 function Orders({rows}) {
  const pagination=usePagination(rows,10);
  if(!rows?.length)return <Empty text="자동매매 주문이 생성되면 이곳에 표시됩니다."/>;
- return <><p className="summary">최근 주문 <b>{rows.length}</b>건</p><div className="order-list">{pagination.items.map(row=>{const marketBuy=row.side==='bid'&&row.ord_type==='price',cancel=orderStatus(row);return <article className="card order" key={row.uuid}><div className="order-head"><div><span className={`order-side ${row.side}`}>{display('side',row.side)}</span><h3>{row.market}</h3></div><span className={`order-state ${row.state}`}>{cancel?.label||display('state',row.state)}</span></div><div className="order-values"><span><small>주문 방식</small>{display('ord_type',row.ord_type)}</span>{row.price&&<span><small>{marketBuy?'요청한 주문 금액':'주문 가격'}</small>{display('price',row.price)}</span>}{!marketBuy&&row.volume&&<span><small>주문 수량</small>{display('volume',row.volume)}</span>}<span className="executed"><small>실제 체결 수량</small>{display('executed_volume',row.executed_volume)}</span></div>{cancel&&<p className="order-note">{cancel.note}</p>}<div className="order-foot"><time>{display('created_at',row.created_at)}</time><details><summary>주문 번호 보기</summary><code>{row.uuid}</code></details></div></article>})}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>
+ return (
+  <>
+   <p className="summary">최근 주문 <b>{rows.length}</b>건</p>
+   <div className="order-list">
+    {pagination.items.map(row=>{
+     const marketBuy=row.side==='bid'&&row.ord_type==='price',cancel=orderStatus(row);
+     return (
+      <article className="card order" key={row.uuid}>
+       <div className="order-head">
+        <div>
+         <span className={`order-side ${row.side}`}>{display('side',row.side)}</span>
+         <h3>{row.market}</h3>
+        </div>
+        <span className={`order-state ${row.state}`}>{cancel?.label||display('state',row.state)}</span>
+       </div>
+       <div className="order-values">
+        <span><small>주문 방식</small>{display('ord_type',row.ord_type)}</span>
+        {row.price&&<span><small>{marketBuy?'요청 금액':'주문 가격'}</small>{formatPrice(row.price)}</span>}
+        {!marketBuy&&row.volume&&<span><small>주문 수량</small>{formatQty(row.volume)}</span>}
+        <span className="executed"><small>실제 체결 수량</small>{formatQty(row.executed_volume)}</span>
+       </div>
+       {cancel&&<p className="order-note">{cancel.note}</p>}
+       <div className="order-foot">
+        <time>{display('created_at',row.created_at)}</time>
+        <details><summary>주문 번호 보기</summary><code>{row.uuid}</code></details>
+       </div>
+      </article>
+     );
+    })}
+   </div>
+   <Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/>
+  </>
+ );
 }
 function ErrorLog({initial,setError}) {
  const [result,setResult]=useState(initial),[loading,setLoading]=useState(false),[source,setSource]=useState(''),[keyword,setKeyword]=useState('');
@@ -621,7 +719,7 @@ function App() {
  return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav">{visible.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><span>{label}</span><small>{short}</small></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><span>나머지 메뉴</span><small>더보기</small></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<div className="mobile-more-backdrop" onClick={()=>setMobileMore(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="전체 메뉴" onClick={event=>event.stopPropagation()}><div className="section-head"><h2>전체 메뉴</h2><button className="quiet compact" onClick={()=>setMobileMore(false)}>닫기</button></div><div>{mobileSecondary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><b>{short}</b><span>{label}</span></button>)}</div></section></div>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><span className={`badge ${error?'failed':''}`} role="status">{statusLabel}</span><button className="refresh quiet" onClick={load} disabled={loading}>{error?'다시 시도':'새로고침'}</button></div></header>
  {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}{loading&&<div className="loading-row" role="status"><div className="loader"/>데이터를 불러오는 중입니다.</div>}
  {data&&tab==='system'&&<section className="status-grid">{Object.entries(data).map(([key,value])=><article className="card status-card" key={key}><small>{labels[key]||key}</small><strong>{display(key,value)}</strong></article>)}</section>}
- {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab}/></>}
+ {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab} onAskAI={handleAskAI}/></>}
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
  {data&&tab==='orders'&&<Orders rows={data}/>}
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={selectTab}/>}

@@ -96,3 +96,74 @@
   .ai-view-summary { min-height: 260px; }
   .ai-markdown table { display: block; overflow-x: auto; }
 }
+
+/* AI Setting Comparison Table */
+.ai-setting-table-wrap {
+  overflow-x: auto;
+  margin: 14px 0;
+  border-radius: 12px;
+  border: 1px solid #1f364d;
+  background: #091320;
+}
+
+.ai-setting-comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ai-setting-comparison-table th {
+  background: #0f1f31;
+  padding: 10px 14px;
+  color: #8fa6c0;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid #1d334a;
+}
+
+.ai-setting-comparison-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #142436;
+  color: #c9d8e7;
+}
+
+.ai-setting-comparison-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ai-setting-comparison-table tr.row-changed {
+  background: rgba(85, 223, 184, 0.06);
+}
+
+.ai-setting-comparison-table .col-label {
+  font-weight: 600;
+  color: #ebf3fb;
+}
+
+.ai-setting-comparison-table .col-cur {
+  color: #8da4bc;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-setting-comparison-table .col-rec.highlight-rec {
+  color: #55dfb8;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-setting-comparison-table .mini-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ai-setting-comparison-table .mini-badge.badge-change {
+  background: rgba(85, 223, 184, 0.18);
+  color: #55dfb8;
+}
+
+.ai-setting-comparison-table .mini-badge.badge-keep {
+  background: rgba(142, 164, 187, 0.12);
+  color: #8fa4bc;
+}
