@@ -61,6 +61,26 @@
 .ai-view-chat .ai-details, .ai-view-chat .ai-result > .hint { display: none !important; }
 .ai-view-evidence .ai-chat, .ai-view-evidence .ai-first-question { display: none; }
 .ai-view-evidence .ai-first-answer { margin-bottom: 8px; }
+.ai-markdown { margin-top: 12px; color: #cbd2dd; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.ai-markdown > :first-child { margin-top: 0; }
+.ai-markdown > :last-child { margin-bottom: 0; }
+.ai-markdown h1, .ai-markdown h2, .ai-markdown h3, .ai-markdown h4 { margin: 20px 0 8px; color: #f1f3f7; line-height: 1.35; }
+.ai-markdown h1 { font-size: 20px; }
+.ai-markdown h2 { font-size: 17px; padding-bottom: 7px; border-bottom: 1px solid #303744; }
+.ai-markdown h3 { font-size: 15px; }
+.ai-markdown p { margin: 9px 0; }
+.ai-markdown ul, .ai-markdown ol { margin: 9px 0; padding-left: 22px; }
+.ai-markdown li + li { margin-top: 5px; }
+.ai-markdown strong { color: #f3f5f8; }
+.ai-markdown a { color: #aebaff; text-decoration: underline; text-underline-offset: 3px; }
+.ai-markdown blockquote { margin: 12px 0; padding: 8px 13px; border-left: 3px solid #7187e0; background: #121722; color: #aeb6c3; }
+.ai-markdown code { padding: 2px 5px; border-radius: 5px; background: #0e1117; color: #d6ddff; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+.ai-markdown pre { max-width: 100%; padding: 13px; overflow-x: auto; border: 1px solid #2b323e; border-radius: 9px; background: #0e1117; }
+.ai-markdown pre code { padding: 0; background: transparent; }
+.ai-markdown table { display: table; width: 100%; margin: 12px 0; font-size: 12px; }
+.ai-markdown th, .ai-markdown td { position: static; padding: 8px 10px; white-space: normal; border: 1px solid #303744; }
+.ai-markdown th { background: #202632; color: #dce2ef; }
+.ai-markdown hr { border: 0; border-top: 1px solid #303744; margin: 18px 0; }
 
 @media (max-width: 760px) {
   .ai-cockpit { grid-template-columns: 1fr auto; gap: 15px; padding: 18px; }
@@ -74,5 +94,5 @@
   .ai-setting-verdict { justify-self: start; }
   .ai-view-summary .ai-conversation-panel { padding: 14px; }
   .ai-view-summary { min-height: 260px; }
+  .ai-markdown table { display: block; overflow-x: auto; }
 }
-

@@ -3,7 +3,19 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": {"build": "vite build", "test": "vitest run"},
-  "dependencies": {"@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest"},
-  "devDependencies": {"vitest": "latest"}
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "vitest": "latest"
+  }
 }
