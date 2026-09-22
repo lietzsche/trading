@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -347,6 +348,173 @@ def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
             db.execute("UPDATE tb_upbit_key SET auto_on=false WHERE id=%s AND access_key=%s AND secret_key=%s",
                        (key["id"], key["access_key"], key["secret_key"]))
         raise HTTPException(502,"Upbit 계좌 조회에 실패했습니다.")
+
+
+@app.get("/api/dashboard")
+def dashboard(user: Annotated[dict, Depends(current_user)]):
+    key = db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+    snapshot = {"total_valuation": 0, "valuation_complete": True, "unpriced_currencies": [], "assets": []}
+    if key:
+        try:
+            snapshot = engine.account_snapshot(key["access_key"], key["secret_key"])
+        except httpx.HTTPError as error:
+            engine.record_error("UPBIT", "GET_DASHBOARD_ACCOUNT", error)
+            raise HTTPException(502, "대시보드 계좌 조회에 실패했습니다.") from None
+    invested = sum(float(row.get("purchase_amount") or 0) for row in snapshot["assets"] if row.get("currency") != "KRW")
+    valued = sum(float(row.get("valuation") or 0) for row in snapshot["assets"] if row.get("currency") != "KRW")
+    unrealized = valued - invested if invested else None
+    db.execute("""INSERT INTO portfolio_daily_snapshot(user_id,snapshot_date,total_valuation,purchase_amount,unrealized_profit)
+        VALUES(%s,CURRENT_DATE,%s,%s,%s) ON CONFLICT(user_id,snapshot_date) DO NOTHING""",
+        (user["id"], snapshot["total_valuation"], invested or None, unrealized))
+
+    prior_snapshot = db.one("""SELECT total_valuation FROM portfolio_daily_snapshot
+        WHERE user_id=%s AND snapshot_date < CURRENT_DATE
+        ORDER BY snapshot_date DESC LIMIT 1""", (user["id"],))
+    baseline = prior_snapshot or db.one("""SELECT total_valuation FROM portfolio_daily_snapshot
+        WHERE user_id=%s AND snapshot_date = CURRENT_DATE""", (user["id"],))
+    day_change = snapshot["total_valuation"] - float(baseline["total_valuation"]) if baseline else None
+    day_change_rate = (day_change * 100 / float(baseline["total_valuation"])) if (baseline and float(baseline["total_valuation"]) > 0 and day_change is not None) else None
+
+    recommendations = db.all("""SELECT code,name,temp_price,minimum_selling_price,expected_selling_price,
+        setting_price,renewal_cnt,updated_at FROM upbit WHERE deleted_at IS NULL ORDER BY renewal_cnt DESC,
+        (expected_selling_price-temp_price)/NULLIF(expected_selling_price-minimum_selling_price,0) ASC NULLS LAST,id DESC""")
+
+    recent_orders = db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
+        FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 5""",
+        (user["user_login_id"],))
+
+    today_orders = db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
+        FROM upbit_order_history
+        WHERE login_id=%s AND deleted_at IS NULL
+          AND (CASE WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}' THEN substring(created_at from 1 for 10) END = CURRENT_DATE::text)
+          AND (state = 'done' OR (executed_volume IS NOT NULL AND executed_volume::numeric > 0))
+        ORDER BY id DESC LIMIT 10""", (user["user_login_id"],))
+
+    latest_ai = db.one("""SELECT id, result, created_at, completed_at FROM ai_analyses
+        WHERE user_id=%s AND market='upbit' AND status='COMPLETED'
+        ORDER BY id DESC LIMIT 1""", (user["id"],))
+    ai_actions_by_code = {}
+    ai_sell_count = 0
+    if latest_ai and isinstance(latest_ai.get("result"), dict):
+        actions = latest_ai["result"].get("portfolio_actions") or []
+        if isinstance(actions, list):
+            for act in actions:
+                if isinstance(act, dict) and "code" in act:
+                    ai_actions_by_code[act["code"]] = act
+                    if act.get("action") == "SELL":
+                        ai_sell_count += 1
+
+    rec_by_code = {row["code"]: row for row in recommendations}
+    enriched_assets = []
+    for asset in snapshot["assets"]:
+        currency = asset.get("currency")
+        row = dict(asset)
+        if currency != "KRW":
+            code = f"KRW-{currency}"
+            rec = rec_by_code.get(code)
+            ai_dec = ai_actions_by_code.get(code)
+            if rec:
+                min_price = float(rec["minimum_selling_price"])
+                exp_price = float(rec["expected_selling_price"])
+                row["target_price"] = exp_price
+                row["stop_loss_price"] = min_price
+                row["setting_price"] = float(rec.get("setting_price") or 0)
+                row["renewal_cnt"] = rec.get("renewal_cnt")
+                curr = float(row.get("current_price") or rec.get("temp_price") or 0)
+                if curr > 0:
+                    row["distance_to_target_pct"] = round((exp_price - curr) * 100 / curr, 2)
+                    row["distance_to_stop_pct"] = round((curr - min_price) * 100 / curr, 2)
+                    span = exp_price - min_price
+                    row["target_progress"] = max(0, min(100, round((curr - min_price) * 100 / span, 1))) if span > 0 else 0
+            if ai_dec:
+                row["ai_action"] = ai_dec.get("action")
+                row["ai_reason"] = ai_dec.get("reason")
+                row["ai_confidence"] = ai_dec.get("confidence")
+        enriched_assets.append(row)
+    snapshot["assets"] = enriched_assets
+
+    latest_error = db.one("SELECT source,operation,error_type,message,created_at FROM trade_error_log ORDER BY id DESC LIMIT 1")
+    latest_price = max((row.get("updated_at") for row in recommendations if row.get("updated_at")), default=None)
+    now = time.time()
+    price_age = None
+    if latest_price:
+        try:
+            price_age = max(0, now - time.mktime(time.strptime(str(latest_price)[:19], "%Y-%m-%d %H:%M:%S")))
+        except ValueError:
+            pass
+
+    price_healthy = price_age is not None and price_age <= 150
+    auto_on = bool(key and key.get("auto_on"))
+    key_registered = bool(key)
+
+    next_decision_seconds = None
+    if hasattr(engine, "scheduler") and engine.scheduler.running:
+        job = engine.scheduler.get_job("trading-2")
+        if job and job.next_run_time:
+            now_utc = datetime.now(timezone.utc)
+            next_decision_seconds = max(0, int((job.next_run_time - now_utc).total_seconds()))
+
+    if not key_registered:
+        safety_summary = "Upbit API 키가 등록되지 않았습니다."
+        safety_level = "warning"
+    elif not auto_on:
+        safety_summary = "자동매매가 중지되어 있습니다."
+        safety_level = "neutral"
+    elif not price_healthy:
+        mins = max(1, int(price_age / 60)) if price_age else 1
+        safety_summary = f"가격 갱신이 {mins}분간 지연되어 신규 매수를 일시 중지했습니다."
+        safety_level = "delayed"
+    else:
+        time_str = str(latest_price)[11:16] if latest_price else "최근"
+        next_sec = next_decision_seconds if next_decision_seconds is not None else 30
+        safety_summary = f"자동매매 정상 작동 중 · 마지막 판단 {time_str} · 다음 판단 약 {next_sec}초 후"
+        safety_level = "healthy"
+
+    notifications = []
+    if not key_registered:
+        notifications.append({"id": "no-key", "level": "warning", "title": "API 키 미등록", "message": "Upbit API 키를 등록해야 잔고 조회 및 자동매매가 가능합니다."})
+    elif not auto_on:
+        notifications.append({"id": "auto-off", "level": "info", "title": "자동매매 꺼짐", "message": "자동매매가 꺼져 있어 신규 주문이 실행되지 않습니다."})
+    if latest_price and not price_healthy:
+        mins = max(1, int(price_age / 60)) if price_age else 1
+        notifications.append({"id": "price-delay", "level": "warning", "title": "가격 갱신 지연", "message": f"가격 데이터가 {mins}분째 지연되고 있습니다."})
+    if ai_sell_count > 0:
+        notifications.append({"id": "ai-sell", "level": "caution", "title": "AI 매도 검토", "message": f"보유 종목 중 {ai_sell_count}개에 대해 AI가 매도 검토를 제안했습니다."})
+    if latest_error:
+        notifications.append({"id": "recent-error", "level": "error", "title": f"{latest_error.get('source', '')} 오류", "message": latest_error.get("operation") or "오류가 기록되었습니다."})
+
+    return {
+        **snapshot,
+        "auto_on": auto_on,
+        "key_registered": key_registered,
+        "recommendations": recommendations,
+        "recent_orders": recent_orders,
+        "today_orders": today_orders,
+        "today_executed_count": len(today_orders),
+        "performance": {
+            "invested": invested or None,
+            "unrealized_profit": unrealized,
+            "unrealized_rate": round(unrealized * 100 / invested, 2) if invested else None,
+            "today_change": round(day_change, 2) if day_change is not None else None,
+            "today_change_rate": round(day_change_rate, 2) if day_change_rate is not None else None,
+        },
+        "safety": {
+            "summary": safety_summary,
+            "level": safety_level,
+            "price_updated_at": latest_price,
+            "price_age_seconds": price_age,
+            "price_healthy": price_healthy,
+            "next_decision_seconds": next_decision_seconds,
+            "latest_error": latest_error,
+        },
+        "ai_summary": {
+            "sell_count": ai_sell_count,
+            "total_actions": len(ai_actions_by_code),
+            "latest_at": latest_ai["completed_at"] if latest_ai else None,
+            "latest_id": latest_ai["id"] if latest_ai else None,
+        },
+        "notifications": notifications,
+    }
 
 
 @app.post("/api/upbit/orders/market-sell", status_code=201)

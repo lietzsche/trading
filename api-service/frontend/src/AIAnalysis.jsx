@@ -78,7 +78,7 @@ export function SettingRecommendation({candidates, baselineSettings, master, pen
   return <section className="ai-setting-recommendation card"><div className="ai-setting-recommendation-head"><div><span className="eyebrow">SETTING DECISION</span><h3>{recommended.label || '검증된 설정 후보'}</h3><p>AI가 제안한 값 중 과거 검증 조건을 통과했고, 검증 수익률이 가장 높은 후보입니다.</p></div><span className="ai-setting-verdict change">변경 검토</span></div><div className="ai-setting-diff">{AI_SETTING_FIELDS.map(([key,label])=><div key={key}><span>{label}</span><small>{settingText(key,baselineSettings?.[key])}</small><b>→ {settingText(key,recommended.settings?.[key])}</b></div>)}</div><div className="ai-setting-score"><span>검증 수익률 <b>{percentText(recommended.validation?.return_pct)}</b></span><span>최대 낙폭 <b>{percentText(recommended.validation?.max_drawdown_pct)}</b></span><span>완료 거래 <b>{count(recommended.validation?.trades)}회</b></span></div>{master&&<button className="primary compact" disabled={Boolean(pending)} onClick={()=>onInspect(recommended)}>현재 설정과 비교하고 적용</button>}<small>과거 검증 결과이며 미래 수익을 보장하지 않습니다. 적용 전 변경값을 다시 확인합니다.</small></section>;
 }
 
-export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate}) {
+export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate, initialSymbol = ''}) {
   const [config, setConfig] = useState(null), [configDraft, setConfigDraft] = useState(defaults), [apiKey, setApiKey] = useState('');
   const [history, setHistory] = useState({items: [], total: 0, page: 0, page_size: 10}), [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState(null), [selected, setSelected] = useState(null), [detailLoading, setDetailLoading] = useState(false);
@@ -92,6 +92,14 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
   const mounted = useRef(false), operation = useRef(false), pageRef = useRef(page), previousPage = useRef(page), errorHandler = useRef(setError), selectedIdRef = useRef(selectedId), chatBottomRef = useRef(null);
   const listRequests = useRef(createRequestGate()), detailRequests = useRef(createRequestGate());
   pageRef.current = page; errorHandler.current = setError; selectedIdRef.current = selectedId;
+
+  useEffect(() => {
+    if (initialSymbol) {
+      setMarket('upbit');
+      setSymbols(initialSymbol);
+      setPrompt(`${initialSymbol} 종목의 현재 수익률과 손절/목표가 도달 가능성, 시장 상황에 따른 대응 전략을 분석해 주세요.`);
+    }
+  }, [initialSymbol]);
 
   const showError = useCallback(error => {
     if (!mounted.current || error?.name === 'AbortError') return;

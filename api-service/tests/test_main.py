@@ -275,3 +275,57 @@ def test_only_master_can_apply_ai_candidate(monkeypatch, role, expected):
     monkeypatch.setattr(main.ai_service, "apply", lambda user_id, analysis_id, payload: {"ok": True})
     result = client.post("/api/admin/ai/analyses/1/apply", json={"candidate_id": "candidate-1", "confirm": True})
     assert result.status_code == expected
+
+
+def test_dashboard_requires_login():
+    assert client.get("/api/dashboard").status_code == 401
+
+
+def test_dashboard_returns_enriched_data(monkeypatch):
+    authenticated("USER")
+    monkeypatch.setattr(main.db, "one", lambda query, params=(): {
+        "id": 10, "access_key": "acc", "secret_key": "sec", "auto_on": True,
+        "total_valuation": 1000000.0, "source": "UPBIT", "operation": "TICKER",
+        "error_type": "TIMEOUT", "message": "fail", "created_at": "2026-09-22 10:00:00",
+        "result": {
+            "portfolio_actions": [
+                {"code": "KRW-BTC", "action": "SELL", "reason": "변동성 증가", "confidence": 80}
+            ]
+        },
+        "completed_at": "2026-09-22 10:05:00",
+    } if "portfolio_actions" in query or "ai_analyses" in query or "tb_upbit_key" in query else None)
+
+    monkeypatch.setattr(main.engine, "account_snapshot", lambda a, s: {
+        "total_valuation": 1100000.0,
+        "valuation_complete": True,
+        "unpriced_currencies": [],
+        "assets": [
+            {"currency": "KRW", "balance": 100000.0, "locked": 0.0, "quantity": 100000.0, "current_price": 1.0, "valuation": 100000.0, "purchase_amount": 100000.0, "profit_rate": 0.0},
+            {"currency": "BTC", "balance": 0.01, "locked": 0.0, "quantity": 0.01, "current_price": 100000000.0, "valuation": 1000000.0, "purchase_amount": 900000.0, "profit_rate": 11.11},
+        ],
+    })
+
+    monkeypatch.setattr(main.db, "all", lambda query, params=(): [
+        {
+            "code": "KRW-BTC", "name": "비트코인", "temp_price": 100000000.0,
+            "minimum_selling_price": 95000000.0, "expected_selling_price": 110000000.0,
+            "setting_price": 100000000.0, "renewal_cnt": 2, "updated_at": "2026-09-22 12:00:00",
+        }
+    ] if "FROM upbit" in query else [])
+
+    res = client.get("/api/dashboard")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_valuation"] == 1100000.0
+    assert data["auto_on"] is True
+    assert "safety" in data
+    assert "performance" in data
+    assert "ai_summary" in data
+    assert data["ai_summary"]["sell_count"] == 1
+    btc = next(a for a in data["assets"] if a["currency"] == "BTC")
+    assert btc["target_price"] == 110000000.0
+    assert btc["stop_loss_price"] == 95000000.0
+    assert btc["ai_action"] == "SELL"
+    assert btc["distance_to_target_pct"] == 10.0
+    assert btc["distance_to_stop_pct"] == 5.0
+
