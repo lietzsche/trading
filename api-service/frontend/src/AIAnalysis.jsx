@@ -3,10 +3,14 @@ import {api, createRequestGate} from './api';
 import {AI_SETTING_FIELDS, AI_STATUS_LABELS, candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 import './ai.css';
 import './ai-chat.css';
+import './ai-redesign.css';
 
 const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
 const timestamp = value => value ? String(value).replace('T', ' ').slice(0, 16) : '—';
+const analysisErrorText = value => String(value || '').includes('질문을 짧게 바꾸어')
+  ? '이 기록은 간결 자동 재시도 기능이 적용되기 전에 AI 출력 길이가 초과되어 중단된 분석입니다.'
+  : value || '자료 또는 연결 상태를 확인한 뒤 새 분석을 요청해 주세요.';
 const marketName = value => value === 'upbit' ? 'Upbit' : '주식';
 const defaults = {model: 'deepseek-flash'};
 const automationDefaults = {enabled: false, trigger_mode: 'interval', interval_minutes: 60, auto_apply_settings: false};
@@ -50,6 +54,22 @@ function PortfolioActions({items, onNavigate}) {
   return <section className="ai-decision-section"><div className="section-head"><h3>종목별 결론</h3><small>AI 판단 · 최종 결정은 사용자</small></div><div className="ai-decision-grid">{items.map(item => <article className={`card ai-decision action-${String(item.action).toLowerCase()}`} key={item.code}><div className="section-head"><h3>{item.code}</h3><span className="ai-decision-label">{labels[item.action] || item.action}</span></div><p>{item.reason}</p>{Array.isArray(item.evidence)&&item.evidence.length>0&&<ul>{item.evidence.map((evidence,index)=><li key={index}>{evidence}</li>)}</ul>}<small>근거 확신도 {Number(item.confidence||0)}% · 성공 확률이 아닙니다</small>{item.action==='SELL'&&onNavigate&&<button className="danger compact" onClick={()=>onNavigate('account')}>내 계좌에서 수량 확인·매도</button>}</article>)}</div></section>;
 }
 
+function SettingRecommendation({candidates, baselineSettings, master, pending, onInspect}) {
+  const baseline = (candidates || []).find(candidate => candidate.id === 'current' || candidate.id === 'baseline');
+  const baselineReturn = Number(baseline?.validation?.return_pct);
+  const baselineDrawdown = Number(baseline?.validation?.max_drawdown_pct);
+  const alternatives = (candidates || []).filter(candidate => candidate.id !== 'current' && candidate.id !== 'baseline');
+  const eligible = alternatives.filter(candidate => {
+    const validation = candidate.validation || {}, resultReturn = Number(validation.return_pct), drawdown = Number(validation.max_drawdown_pct);
+    return Number(validation.days) >= 20 && Number(validation.trades) >= 3
+      && Number.isFinite(baselineReturn) && Number.isFinite(baselineDrawdown)
+      && resultReturn > baselineReturn && drawdown >= baselineDrawdown - 2;
+  }).sort((left, right) => Number(right.validation?.return_pct ?? -Infinity) - Number(left.validation?.return_pct ?? -Infinity));
+  const recommended = eligible[0];
+  if (!recommended) return <section className="ai-setting-recommendation card"><div><div><span className="eyebrow">SETTING DECISION</span><h3>현재 계산 설정 유지</h3><p>검증 20일 이상·완료 거래 3회 이상·기존보다 높은 수익률·최대 낙폭 악화 2%p 이내를 모두 만족한 후보가 없습니다.</p></div><span className="ai-setting-verdict keep">유지 권장</span></div><small>AI의 문장만으로 설정을 추천하지 않고 동일 데이터 백테스트를 통과한 값만 변경 후보로 표시합니다.</small></section>;
+  return <section className="ai-setting-recommendation card"><div className="ai-setting-recommendation-head"><div><span className="eyebrow">SETTING DECISION</span><h3>{recommended.label || '검증된 설정 후보'}</h3><p>AI가 제안한 값 중 과거 검증 조건을 통과했고, 검증 수익률이 가장 높은 후보입니다.</p></div><span className="ai-setting-verdict change">변경 검토</span></div><div className="ai-setting-diff">{AI_SETTING_FIELDS.map(([key,label])=><div key={key}><span>{label}</span><small>{settingText(key,baselineSettings?.[key])}</small><b>→ {settingText(key,recommended.settings?.[key])}</b></div>)}</div><div className="ai-setting-score"><span>검증 수익률 <b>{percentText(recommended.validation?.return_pct)}</b></span><span>최대 낙폭 <b>{percentText(recommended.validation?.max_drawdown_pct)}</b></span><span>완료 거래 <b>{count(recommended.validation?.trades)}회</b></span></div>{master&&<button className="primary compact" disabled={Boolean(pending)} onClick={()=>onInspect(recommended)}>현재 설정과 비교하고 적용</button>}<small>과거 검증 결과이며 미래 수익을 보장하지 않습니다. 적용 전 변경값을 다시 확인합니다.</small></section>;
+}
+
 export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate}) {
   const [config, setConfig] = useState(null), [configDraft, setConfigDraft] = useState(defaults), [apiKey, setApiKey] = useState('');
   const [history, setHistory] = useState({items: [], total: 0, page: 0, page_size: 10}), [page, setPage] = useState(0);
@@ -60,6 +80,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
   const [recommendations, setRecommendations] = useState([]), [chatQuestion, setChatQuestion] = useState(''), [includePortfolio, setIncludePortfolio] = useState(false);
   const [automation, setAutomation] = useState(null), [automationDraft, setAutomationDraft] = useState(automationDefaults);
   const [proposal, setProposal] = useState(null), [confirmed, setConfirmed] = useState(false), [detailVersion, setDetailVersion] = useState(0), [showEvidence, setShowEvidence] = useState(false);
+  const [viewMode, setViewMode] = useState('summary'), [settingsOpen, setSettingsOpen] = useState(false);
   const mounted = useRef(false), operation = useRef(false), pageRef = useRef(page), previousPage = useRef(page), errorHandler = useRef(setError), selectedIdRef = useRef(selectedId), chatBottomRef = useRef(null);
   const listRequests = useRef(createRequestGate()), detailRequests = useRef(createRequestGate());
   pageRef.current = page; errorHandler.current = setError; selectedIdRef.current = selectedId;
@@ -241,13 +262,17 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     chatBottomRef.current.scrollIntoView({behavior: conversations.length ? 'smooth' : 'auto', block: 'end'});
   }, [selectedId, selected?.status, conversations.length, conversations.at(-1)?.status]);
 
+  const decisions = Array.isArray(result.portfolio_actions) ? result.portfolio_actions : [];
+  const decisionCounts = decisions.reduce((values,item) => ({...values,[item.action]:(values[item.action]||0)+1}), {});
+
   return <div className="ai-page">
-    <section className="ai-intro"><div><span className="eyebrow">AI MARKET CHAT</span><h2>시장 분석을 대화로<br/>이어가세요.</h2><p>주식·Upbit 종목을 고르고 질문하면 DeepSeek가 시세와 RSS 뉴스를 조사해 같은 대화에서 답합니다. 검증된 설정만 별도 승인할 수 있습니다.</p></div><span className="ai-mode">조회·대화 전용</span></section>
+    <section className="ai-cockpit"><div><span className="eyebrow">AI INVESTMENT DESK</span><h2>투자 판단</h2><p>{selected?.status === 'COMPLETED' ? `${timestamp(selected.completed_at || selected.created_at)} 분석 기준` : '계좌·추천·설정·과거 가격을 한곳에서 검토합니다.'}</p></div><div className="ai-cockpit-stats"><span><small>매도 검토</small><b className="sell">{decisionCounts.SELL || 0}</b></span><span><small>보유</small><b className="hold">{decisionCounts.HOLD || 0}</b></span><span><small>판단 보류</small><b className="watch">{decisionCounts.WATCH || 0}</b></span></div><button className="quiet compact" onClick={()=>setSettingsOpen(value=>!value)}>{settingsOpen?'설정 닫기':'AI 설정'}</button></section>
+    <nav className="ai-view-tabs" aria-label="AI 화면"><button className={viewMode==='summary'?'active':''} onClick={()=>setViewMode('summary')}>판단 요약</button><button className={viewMode==='chat'?'active':''} onClick={()=>setViewMode('chat')}>AI 대화</button><button className={viewMode==='evidence'?'active':''} onClick={()=>setViewMode('evidence')}>근거·설정</button></nav>
     {localError && <div className="error" role="alert">{localError}<button className="quiet compact" onClick={() => {setLocalError(''); refresh(false); setDetailVersion(value => value + 1);}}>다시 조회</button></div>}
     {notice && <div className="notice" role="status">{notice}</div>}
     <div className="info-note"><b>수익 예측이 아닌 과거 데이터 검증입니다.</b><span>종목별 독립·동일 비중으로 계산하는 단순 시뮬레이션이며 실제 자동매매 전체를 재현하지 않습니다. 수수료와 가격 차이를 반영해도 미체결·유동성·미래 시장 변동은 보장할 수 없습니다. 실제 수익을 약속하지 않습니다.</span></div>
 
-    <details className="card ai-config" open={!config?.configured || undefined}>
+    {settingsOpen && <div className="ai-settings-panel"><details className="card ai-config" open={!config?.configured || undefined}>
       <summary><span>DeepSeek 연결 설정</span><span className={`status-pill ${config?.configured ? 'on' : 'off'}`}>{config?.configured ? '키 등록됨' : '키 등록 필요'}</span></summary>
       <form className="form" onSubmit={saveConfig}>
         <p className="hint">내 계정의 키와 분석 기록만 사용합니다. 키는 서버에 암호화해 저장하며 다시 표시하지 않습니다. Upbit 비밀키·로그인 비밀번호는 AI에 보내지 않습니다.</p>
@@ -266,7 +291,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       <label className="check ai-consent"><input type="checkbox" checked={automationDraft.auto_apply_settings} onChange={event => setAutomationDraft({...automationDraft, auto_apply_settings: event.target.checked})}/><span><b>검증을 통과한 계산 설정만 자동 적용</b><small>검증 20일 이상·청산 3회 이상, 기존보다 수익률이 높고 최대 낙폭이 2%p 넘게 악화되지 않은 후보만 적용합니다. 자동매매 상태와 주문은 변경하지 않습니다.</small></span></label>
       <p className="hint">최근 실행 {timestamp(automation?.last_started_at)} · 다음 확인 {automation?.enabled ? timestamp(automation?.next_run_at) : '꺼짐'}{automation?.last_error ? ` · 최근 오류: ${automation.last_error}` : ''}</p>
       <div className="ai-actions"><button className="primary" disabled={Boolean(pending) || !config?.configured}>{pending === 'automation' ? '저장 중…' : '자동 판단 설정 저장'}</button><button type="button" className="quiet" disabled={Boolean(pending) || !config?.configured} onClick={runAutomationNow}>{pending === 'automation-run' ? '시작 중…' : '지금 한 번 판단'}</button></div>
-    </form></details>}
+    </form></details>}</div>}
 
     {selectedId === null && <section className="card ai-new-chat"><div className="section-head ai-section-head"><h3>새 분석 대화</h3><span className="ai-muted">첫 메시지와 함께 백테스트를 시작합니다</span></div><form className="form" onSubmit={startAnalysis}>
       <div className="ai-form-grid ai-two"><label>시장<select value={market} onChange={event => {setMarket(event.target.value); setSymbols(''); setIncludeAccount(false); setFeeBps(event.target.value === 'upbit' ? 5 : 15);}}><option value="upbit">Upbit · 원화 마켓</option><option value="stock">국내 주식</option></select></label><label>분석 종목 <small>최대 5개 · 비워 두면 서버가 추천 종목에서 선택</small><input value={symbols} maxLength={150} onChange={event => setSymbols(event.target.value)} placeholder={market === 'upbit' ? 'KRW-BTC, KRW-ETH' : '005930, 000660'}/></label></div>
@@ -279,19 +304,20 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       <button className="primary" disabled={!config?.configured || Boolean(pending) || running || !prompt.trim()}>{pending === 'analysis' ? '대화 만드는 중…' : running ? '진행 중인 분석을 기다려 주세요' : !config?.configured ? '먼저 DeepSeek 키를 등록해 주세요' : '새 분석 대화 시작'}</button>
     </form></section>}
 
-    <div className="ai-chat-workspace">
+    <div className={`ai-chat-workspace ai-view-${viewMode}`}>
     <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span></div> : <div className="ai-history-list">{history.items.map(item => <button key={item.id} className={`ai-history-item ${String(item.id) === String(selectedId) ? 'selected' : ''}`} onClick={() => selectAnalysis(item.id)} aria-pressed={String(item.id) === String(selectedId)}><span><b>{marketName(item.market)} · {item.prompt || '분석 대화'}{item.automation_run ? ' · 자동 판단' : ''}</b><time>{timestamp(item.created_at)}</time></span><span><b className={`ai-status ${String(item.status).toLowerCase()}`}>{AI_STATUS_LABELS[item.status] || item.status}</b><small>{count(item.usage_tokens)} 토큰</small></span></button>)}</div>}{pages > 1 && <nav className="pager" aria-label="AI 대화 목록 페이지"><button className="quiet" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>이전</button><span>{page + 1} / {pages}</span><button className="quiet" disabled={page + 1 >= pages || loading} onClick={() => setPage(value => value + 1)}>다음</button></nav>}</section></aside>
     <div className="ai-conversation-panel">
 
-    {selectedId !== null && <section className={`ai-result ${showEvidence ? 'show-evidence' : ''}`} aria-label="선택한 분석 결과">
-      <div className="section-head ai-section-head"><h3>{selected ? `${marketName(selected.market)} 분석 대화` : '대화 불러오는 중'}</h3><div className="ai-header-actions">{selected?.status === 'COMPLETED' && <button className="quiet compact" onClick={() => setShowEvidence(value => !value)}>{showEvidence ? '근거 접기' : '분석 근거'}</button>}{selected && !running && !chatRunning && !selected.applied_candidate_id && <button className="danger compact" disabled={pending === 'delete-chat'} onClick={deleteConversation}>{pending === 'delete-chat' ? '삭제 중…' : '삭제'}</button>}<button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false);}}>새 대화</button></div></div>
+    {selectedId !== null && <section className={`ai-result ${(showEvidence || viewMode === 'evidence') ? 'show-evidence' : ''}`} aria-label="선택한 분석 결과">
+      <div className="section-head ai-section-head"><h3>{selected ? `${marketName(selected.market)} 분석` : '분석 불러오는 중'}</h3><div className="ai-header-actions">{selected && !running && !chatRunning && !selected.applied_candidate_id && <button className="danger compact" disabled={pending === 'delete-chat'} onClick={deleteConversation}>{pending === 'delete-chat' ? '삭제 중…' : '삭제'}</button>}<button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false); setViewMode('chat');}}>새 분석</button></div></div>
       {detailLoading && <div className="loading-row" role="status"><div className="loader"/>분석 결과를 확인하고 있습니다.</div>}
       {selected && <><p className="ai-muted">{timestamp(selected.created_at)} · {AI_STATUS_LABELS[selected.status] || selected.status} · {count(selected.usage_tokens)} 토큰{selected.include_account ? ' · 계좌 요약 포함' : ' · 계좌 요약 제외'}{selected.automation_run ? ' · AI 자동 판단' : ''}</p>{selected.automation_note && <div className="info-note"><b>자동 판단 처리 결과</b><span>{selected.automation_note}</span></div>}<article className="ai-chat-user ai-first-question"><b>{selected.automation_run ? '자동 판단 요청' : '나'}</b><p>{selected.prompt}</p></article>
         {running && <div className="info-note" role="status"><b>자료 조회 및 분석 중입니다.</b><span>3초마다 상태를 확인합니다. 화면을 닫아도 분석은 계속되며, 기록에서 다시 확인할 수 있습니다.</span></div>}
-        {selected.status === 'FAILED' && <div className="error" role="alert"><b>분석을 완료하지 못했습니다.</b><p>{selected.error_message || '자료 또는 연결 상태를 확인한 뒤 새 분석을 요청해 주세요.'}</p><span>자동 재요청은 하지 않습니다. 새 분석은 별도 사용량이 발생할 수 있습니다.</span></div>}
+        {selected.status === 'FAILED' && <div className="error" role="alert"><b>분석을 완료하지 못했습니다.</b><p>{analysisErrorText(selected.error_message)}</p><span>현재는 출력 길이 초과 시 서버가 한 번 간결하게 자동 재요청합니다. 이 기록은 재요청까지 실패했거나 다른 오류가 발생한 경우입니다.</span></div>}
         {selected.status === 'COMPLETED' && <>
           <AIReport report={result.report}/>
           <PortfolioActions items={result.portfolio_actions} onNavigate={onNavigate}/>
+          <SettingRecommendation candidates={candidates} baselineSettings={baselineSettings} master={master} pending={pending} onInspect={inspectCandidate}/>
           <Notes title="주의 사항" items={result.warnings}/>
           <div className="info-note"><b>탐색 구간과 검증 구간을 나눠 비교했습니다.</b><span>탐색 구간으로 설정 후보를 살펴보고 뒤쪽 검증 구간에서 다시 계산합니다. 검증 거래가 없거나 분석 당시 설정이 변경된 결과는 적용할 수 없습니다. 표본이 작으면 비교 결과를 신뢰하기 어렵습니다.</span></div>
           <Dataset dataset={result.dataset}/>

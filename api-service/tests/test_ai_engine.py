@@ -51,6 +51,12 @@ def malformed_completion(content="이것은 JSON이 아닙니다."):
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
 
 
+def length_completion():
+    return {"choices": [{"message": {"role": "assistant", "content": "{\"report\":\"잘린 답변"},
+                         "finish_reason": "length"}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 2500, "total_tokens": 2600}}
+
+
 def tool(code="KRW-ETH", name="get_market_history", arguments=None):
     return {"id": "call-1", "type": "function", "function": {
         "name": name, "arguments": json.dumps(arguments if arguments is not None else {"code": code, "count": 200}),
@@ -233,6 +239,18 @@ def test_analyze_retries_when_portfolio_decision_is_missing(network):
     assert result["portfolio_actions"][0]["action"] == "HOLD"
     provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
     assert len(provider) == 2
+
+
+def test_analyze_retries_once_with_compact_answer_after_output_limit(network):
+    state, requests, _ = network
+    state["responses"] += [length_completion(), completion(actions=[{"code": "KRW-BTC", "action": "WATCH",
+        "reason": "간결 재분석입니다.", "evidence": [], "confidence": 40}])]
+    result = run()
+    assert result["portfolio_actions"][0]["action"] == "WATCH"
+    assert result["usage_tokens"] == 2750
+    provider = [json.loads(request.content) for request in requests if str(request.url) == DEEPSEEK_URL]
+    assert len(provider) == 2 and provider[-1]["tool_choice"] == "none"
+    assert "700자" in provider[-1]["messages"][-1]["content"]
 
 
 def test_analyze_fails_after_two_malformed_final_replies(network):

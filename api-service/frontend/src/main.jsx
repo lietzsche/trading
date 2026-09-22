@@ -7,6 +7,7 @@ import './sell.css';
 import './pwa.css';
 import './pagination.css';
 import './review.css';
+import './theme.css';
 
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 

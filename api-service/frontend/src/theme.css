@@ -1,0 +1,32 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #151922;
+  --panel-raised: #1a1f29;
+  --line: #2b313d;
+  --text: #edf0f5;
+  --muted: #929baa;
+  --accent: #8da2fb;
+  --positive: #66d6a8;
+  --danger-color: #ff7b87;
+  --warning: #e6bd68;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  background: radial-gradient(circle at 85% -10%, #20283a 0, transparent 34%), var(--bg);
+}
+
+aside { background: #11141b; border-color: var(--line); }
+aside nav button.active { background: #252c3e; color: #bac5ff; }
+.brand h2, .eyebrow { color: #aebaff; }
+.card, .table-wrap, .recommendation { background: #151922ed; border-color: var(--line); box-shadow: 0 10px 28px #0003; }
+.primary, .install { background: #8da2fb; color: #0b0e15; }
+.quiet { background: #252b36; color: #d0d5df; }
+.info-note { background: #191f2a; border-color: #7f93e8; }
+.info-note b { color: #bdc7ff; }
+.form input, .login-form input { background: #101319; border-color: #343b48; }
+.form input:focus, .login-form input:focus { border-color: #8da2fb; box-shadow: 0 0 0 3px #8da2fb24; }
+.status-pill.on { background: #20342d; color: #82dfb7; }
+.badge { background: #222a3d; color: #bdc7ff; }
+

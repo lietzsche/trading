@@ -1,0 +1,78 @@
+.ai-cockpit {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 24px;
+  background: #151922;
+  border: 1px solid #2b313d;
+  border-radius: 14px;
+}
+.ai-cockpit h2 { margin: 2px 0 5px; font-size: 26px; letter-spacing: -.03em; }
+.ai-cockpit p { margin: 0; color: #929baa; font-size: 12px; }
+.ai-cockpit-stats { display: flex; gap: 10px; }
+.ai-cockpit-stats span { min-width: 78px; padding: 10px 13px; background: #101319; border-radius: 10px; }
+.ai-cockpit-stats small { display: block; color: #929baa; font-size: 10px; }
+.ai-cockpit-stats b { display: block; margin-top: 5px; font-size: 20px; }
+.ai-cockpit-stats .sell { color: #ff7b87; }
+.ai-cockpit-stats .hold { color: #66d6a8; }
+.ai-cockpit-stats .watch { color: #e6bd68; }
+.ai-view-tabs { display: flex; gap: 4px; width: max-content; padding: 4px; background: #12151c; border: 1px solid #292f39; border-radius: 11px; }
+.ai-view-tabs button { padding: 9px 15px; background: transparent; color: #929baa; border-radius: 8px; font-size: 13px; }
+.ai-view-tabs button.active { background: #262d3a; color: #f4f6fa; box-shadow: 0 1px 4px #0005; }
+.ai-settings-panel { display: grid; gap: 12px; padding: 16px; background: #101319; border: 1px solid #292f39; border-radius: 14px; }
+.ai-setting-recommendation { display: grid; gap: 16px; border-color: #394258; background: #171c26; }
+.ai-setting-recommendation > div:first-child:not(.ai-setting-recommendation-head), .ai-setting-recommendation-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ai-setting-recommendation h3 { margin: 3px 0 7px; }
+.ai-setting-recommendation p { margin: 0; color: #a6aebb; font-size: 13px; line-height: 1.6; }
+.ai-setting-verdict { flex: none; padding: 6px 9px; border-radius: 7px; font-size: 11px; font-weight: 800; }
+.ai-setting-verdict.keep { background: #26302c; color: #86dfba; }
+.ai-setting-verdict.change { background: #2b3046; color: #b5c0ff; }
+.ai-setting-diff { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ai-setting-diff > div { display: grid; gap: 4px; padding: 11px; background: #101319; border-radius: 9px; }
+.ai-setting-diff span, .ai-setting-diff small { color: #8f98a7; font-size: 10px; }
+.ai-setting-diff b { font-size: 12px; color: #dce2ef; }
+.ai-setting-score { display: flex; gap: 8px; flex-wrap: wrap; }
+.ai-setting-score span { padding: 7px 9px; background: #202632; border-radius: 7px; color: #9fa8b7; font-size: 11px; }
+.ai-setting-score b { color: #edf0f5; }
+.ai-setting-recommendation > small { color: #7f8999; font-size: 10px; }
+.ai-page .ai-config, .ai-page .ai-candidate, .ai-page .ai-decision { box-shadow: none; }
+.ai-page .ai-config { background: #151922; border-color: #2b313d; }
+.ai-page .primary { background: #8da2fb; color: #0d1017; }
+.ai-page .quiet { background: #252b36; color: #c9cfda; }
+.ai-page .danger { background: #3b2228; color: #ffadb5; }
+.ai-chat-workspace { background: #101319; border-color: #292f39; border-radius: 14px; }
+.ai-conversation-list { background: #12161d; border-color: #292f39; }
+.ai-conversation-panel { background: #11151c; }
+.ai-chat-assistant { background: #171c25; border-color: #2b323e; }
+.ai-chat-user { background: #262d45; }
+.ai-message-composer { background: #171c25f5; border-color: #353d4b; }
+.ai-history-item { background: #181d26; border-color: #292f39; }
+.ai-history-item.selected { background: #252c3e; border-color: #8da2fb; }
+.ai-view-summary { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 360px; }
+.ai-view-summary > .ai-conversation-list { display: none; }
+.ai-view-summary .ai-conversation-panel { overflow: visible; }
+.ai-view-summary .ai-first-question, .ai-view-summary .ai-first-answer, .ai-view-summary .ai-chat,
+.ai-view-summary .ai-notes, .ai-view-summary .ai-dataset, .ai-view-summary .ai-candidates,
+.ai-view-summary .ai-details, .ai-view-summary .ai-result > .hint { display: none !important; }
+.ai-view-chat .ai-decision-section, .ai-view-chat .ai-setting-recommendation,
+.ai-view-chat .ai-result > .ai-notes, .ai-view-chat .ai-result > .info-note,
+.ai-view-chat .ai-dataset, .ai-view-chat .ai-candidates, .ai-view-chat .ai-confirm,
+.ai-view-chat .ai-details, .ai-view-chat .ai-result > .hint { display: none !important; }
+.ai-view-evidence .ai-chat, .ai-view-evidence .ai-first-question { display: none; }
+.ai-view-evidence .ai-first-answer { margin-bottom: 8px; }
+
+@media (max-width: 760px) {
+  .ai-cockpit { grid-template-columns: 1fr auto; gap: 15px; padding: 18px; }
+  .ai-cockpit-stats { grid-column: 1 / -1; width: 100%; }
+  .ai-cockpit-stats span { flex: 1; min-width: 0; }
+  .ai-cockpit > button { grid-column: 2; grid-row: 1; }
+  .ai-view-tabs { width: 100%; }
+  .ai-view-tabs button { flex: 1; padding-inline: 8px; }
+  .ai-setting-diff { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-setting-recommendation-head { display: grid; }
+  .ai-setting-verdict { justify-self: start; }
+  .ai-view-summary .ai-conversation-panel { padding: 14px; }
+  .ai-view-summary { min-height: 260px; }
+}
+

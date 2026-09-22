@@ -45,6 +45,10 @@ class AIAnalysisError(Exception):
         self.request_started = request_started
 
 
+class AIOutputLimitError(AIAnalysisError):
+    """The provider stopped a valid request because its answer was too long."""
+
+
 def _settings(value):
     if not isinstance(value, dict):
         raise ValueError("계산 설정 형식이 올바르지 않습니다.")
@@ -409,7 +413,7 @@ class _Analysis:
                 self.warnings.append("AI 공급자 사용량이 확인되지 않은 요청은 예약 토큰으로 보수적으로 집계했습니다.")
             choice = body["choices"][0]
             if choice.get("finish_reason") == "length":
-                raise AIAnalysisError("AI 답변이 최대 길이를 초과했습니다. 질문을 짧게 바꾸어 다시 시도해 주세요.")
+                raise AIOutputLimitError("AI 답변이 최대 길이를 초과했습니다.")
             message = choice["message"]
             if not isinstance(message, dict):
                 raise ValueError("message")
@@ -555,10 +559,24 @@ def analyze(*, api_key, model, market, prompt, context, symbols, fee_bps,
                 "initial_market_data": [_summary(item) for item in data.cache.values()],
                 "limits": {"maximum_total_symbols": MAX_SYMBOLS, "remaining_tool_calls": MAX_TOOLS},
             })}]
-            used_tools, final = 0, None
+            used_tools, final, compact_retried = 0, None, False
             for turn in range(MAX_TOOLS + 1):
                 enabled = used_tools < MAX_TOOLS and turn < MAX_TOOLS
-                message = session.ask(client, messages, enabled)
+                try:
+                    message = session.ask(client, messages, enabled)
+                except AIOutputLimitError:
+                    if compact_retried:
+                        raise AIAnalysisError("AI가 간결 재요청에서도 답변 길이 제한을 초과했습니다. 종목 수를 줄여 다시 시도해 주세요.")
+                    compact_retried = True
+                    messages.append({"role": "user", "content": (
+                        "직전 답변이 길이 제한을 넘었습니다. 도구를 더 호출하지 말고 결론만 매우 짧게 다시 작성하세요. "
+                        "report는 700자 이내, 종목별 reason은 120자 이내, evidence는 종목당 최대 2개, "
+                        "설정 후보는 최대 2개로 제한하고 지정된 JSON 형식을 지키세요.")})
+                    try:
+                        final = session.ask(client, messages, False)
+                    except AIOutputLimitError:
+                        raise AIAnalysisError("AI가 간결 재요청에서도 답변 길이 제한을 초과했습니다. 종목 수를 줄여 다시 시도해 주세요.")
+                    break
                 requested = message.get("tool_calls") or []
                 if not requested:
                     final = message
@@ -704,10 +722,22 @@ def continue_analysis(*, api_key, model, market, question, analysis_context, pri
                           headers={"User-Agent": "Mozilla/5.0 Trading-ReadOnlyResearch/1.0"}) as client:
             data, news = _MarketData(client, market, session.deadline), _NewsData(client, session.deadline)
             messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}, {"role": "user", "content": _json(bounded)}]
-            tool_calls, used_tools, final = [], 0, None
+            tool_calls, used_tools, final, compact_retried = [], 0, None, False
             for turn in range(MAX_TOOLS + 1):
                 enabled = used_tools < MAX_TOOLS and turn < MAX_TOOLS
-                message = session.ask(client, messages, enabled, CHAT_TOOLS)
+                try:
+                    message = session.ask(client, messages, enabled, CHAT_TOOLS)
+                except AIOutputLimitError:
+                    if compact_retried:
+                        raise AIAnalysisError("AI가 간결 재요청에서도 답변 길이 제한을 초과했습니다. 질문 범위를 줄여 다시 시도해 주세요.")
+                    compact_retried = True
+                    messages.append({"role": "user", "content":
+                        "직전 답변이 길이 제한을 넘었습니다. 도구를 더 호출하지 말고 핵심 결론과 이유만 1,200자 이내의 answer로 다시 작성하세요."})
+                    try:
+                        final = session.ask(client, messages, False, CHAT_TOOLS)
+                    except AIOutputLimitError:
+                        raise AIAnalysisError("AI가 간결 재요청에서도 답변 길이 제한을 초과했습니다. 질문 범위를 줄여 다시 시도해 주세요.")
+                    break
                 requested = message.get("tool_calls") or []
                 if not requested:
                     final = message
