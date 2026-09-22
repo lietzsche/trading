@@ -74,11 +74,11 @@ function Settings({rows,onChange,onSave,pending}) {
 
 function App() {
  const [aiRefresh,setAiRefresh]=useState(0);
- const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('upbit'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]),[mobileMore,setMobileMore]=useState(false);
- const requests=useRef(createRequestGate()),authRequests=useRef(createRequestGate()),activeTab=useRef('upbit'),view=useRef(0),actions=useRef(new Set());
+ const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('account'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]),[mobileMore,setMobileMore]=useState(false);
+ const requests=useRef(createRequestGate()),authRequests=useRef(createRequestGate()),activeTab=useRef('account'),view=useRef(0),actions=useRef(new Set());
  const expireSession=useCallback(()=>{requests.current.cancel();view.current++;setData(null);setUser(null);setAuthMessage('로그인이 만료되었습니다. 다시 로그인해 주세요.')},[]);
  const handleError=useCallback(e=>{if(e?.status===401){expireSession();return}setError(typeof e==='string'?e:e?.message||'요청을 처리하지 못했습니다.')},[expireSession]);
- const loadUser=useCallback(async()=>{const request=authRequests.current.begin();try{const next=await api('/auth/me',{signal:request.signal});if(!request.isCurrent())return;if(!['ADMIN','MASTER'].includes(next.user_role)&&!['stock','upbit','dividends','orders','account','profile'].includes(activeTab.current)){activeTab.current='upbit';setTab('upbit')}setUser(next);setAuthMessage('')}catch(e){if(request.isCurrent()){setUser(null);if(e.status!==401)setAuthMessage(e.message)}}finally{if(request.isCurrent())setReady(true)}},[]);
+ const loadUser=useCallback(async()=>{const request=authRequests.current.begin();try{const next=await api('/auth/me',{signal:request.signal});if(!request.isCurrent())return;if(!['ADMIN','MASTER'].includes(next.user_role)&&!['stock','upbit','dividends','orders','account','profile'].includes(activeTab.current)){activeTab.current='account';setTab('account')}setUser(next);setAuthMessage('')}catch(e){if(request.isCurrent()){setUser(null);if(e.status!==401)setAuthMessage(e.message)}}finally{if(request.isCurrent())setReady(true)}},[]);
  useEffect(()=>{loadUser();const handler=e=>{e.preventDefault();setInstallPrompt(e)};window.addEventListener('beforeinstallprompt',handler);return()=>{authRequests.current.cancel();window.removeEventListener('beforeinstallprompt',handler)}},[loadUser]);
  const load=useCallback(async()=>{
   if(activeTab.current!==tab)return;
