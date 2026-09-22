@@ -49,6 +49,104 @@
 .ai-message-composer { background: #171c25f5; border-color: #353d4b; }
 .ai-history-item { background: #181d26; border-color: #292f39; }
 .ai-history-item.selected { background: #252c3e; border-color: #8da2fb; }
+.ai-history-item-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: #181d26;
+  border: 1px solid #292f39;
+  border-radius: 10px;
+  transition: all 0.15s ease;
+  overflow: hidden;
+}
+.ai-history-item-row:hover {
+  border-color: #3b4556;
+}
+.ai-history-item-row.selected {
+  background: #252c3e;
+  border-color: #8da2fb;
+}
+.ai-history-item-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.ai-history-item-btn:focus {
+  outline: none;
+}
+.ai-history-item-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.ai-history-item-info b {
+  font-size: 13px;
+  color: #edf0f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-history-item-info time {
+  font-size: 11px;
+  color: #8a96a8;
+}
+.ai-history-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.ai-applied-tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(141, 162, 251, 0.15);
+  color: #bac5ff;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ai-item-delete-btn {
+  width: 30px;
+  height: 30px;
+  margin-right: 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #728096;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.ai-item-delete-btn:hover:not(:disabled) {
+  background: rgba(255, 123, 135, 0.15);
+  border-color: rgba(255, 123, 135, 0.35);
+  color: #ff7b87;
+}
+.ai-item-delete-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.ai-item-delete-btn.disabled-tag {
+  color: #8da2fb;
+  font-size: 11px;
+}
+.disabled-applied {
+  opacity: 0.75;
+  border-color: #3d475a !important;
+  color: #bac5ff !important;
+  cursor: default;
+}
 .ai-view-summary { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 360px; }
 .ai-view-summary > .ai-conversation-list { display: none; }
 .ai-view-summary .ai-conversation-panel { overflow: visible; }

@@ -330,15 +330,42 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     });
   }
 
-  async function deleteConversation() {
-    const deletingId = selectedId;
-    if (deletingId == null || !window.confirm('이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.')) return;
-    await runAction('delete-chat', async () => {
-      await api(`${API}/analyses/${encodeURIComponent(deletingId)}`, {method: 'DELETE'});
+  async function deleteTargetConversation(itemOrId) {
+    const targetId = typeof itemOrId === 'object' && itemOrId !== null ? itemOrId.id : itemOrId;
+    if (targetId == null) return;
+    const targetItem = typeof itemOrId === 'object' && itemOrId !== null
+      ? itemOrId
+      : (history.items || []).find(it => String(it.id) === String(targetId)) || selected;
+
+    if (targetItem?.applied_candidate_id) {
+      window.alert('실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다.');
+      return;
+    }
+    if (targetItem?.status === 'RUNNING' || targetItem?.status === 'PENDING') {
+      window.alert('현재 분석이 진행 중인 대화는 완료 전까지 삭제할 수 없습니다.');
+      return;
+    }
+
+    if (!window.confirm('이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.')) return;
+
+    await runAction(`delete-chat-${targetId}`, async () => {
+      await api(`${API}/analyses/${encodeURIComponent(targetId)}`, {method: 'DELETE'});
       if (!mounted.current) return;
-      detailRequests.current.cancel(); selectedIdRef.current = null; setSelectedId(null); setSelected(null);
-      setProposal(null); setShowEvidence(false); setNotice('AI 대화를 삭제했습니다.'); await refresh(false);
+      if (String(selectedId) === String(targetId)) {
+        detailRequests.current.cancel();
+        selectedIdRef.current = null;
+        setSelectedId(null);
+        setSelected(null);
+        setProposal(null);
+        setShowEvidence(false);
+      }
+      setNotice('AI 대화를 삭제했습니다.');
+      await refresh(false);
     });
+  }
+
+  function deleteConversation() {
+    deleteTargetConversation(selected);
   }
 
   async function inspectCandidate(candidate) {
@@ -420,11 +447,70 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     </form></section>}
 
     <div className={`ai-chat-workspace ai-view-${viewMode}`}>
-    <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span></div> : <div className="ai-history-list">{history.items.map(item => <button key={item.id} className={`ai-history-item ${String(item.id) === String(selectedId) ? 'selected' : ''}`} onClick={() => selectAnalysis(item.id)} aria-pressed={String(item.id) === String(selectedId)}><span><b>{marketName(item.market)} · {item.prompt || '분석 대화'}{item.automation_run ? ' · 자동 판단' : ''}</b><time>{timestamp(item.created_at)}</time></span><span><b className={`ai-status ${String(item.status).toLowerCase()}`}>{AI_STATUS_LABELS[item.status] || item.status}</b><small>{count(item.usage_tokens)} 토큰</small></span></button>)}</div>}{pages > 1 && <nav className="pager" aria-label="AI 대화 목록 페이지"><button className="quiet" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>이전</button><span>{page + 1} / {pages}</span><button className="quiet" disabled={page + 1 >= pages || loading} onClick={() => setPage(value => value + 1)}>다음</button></nav>}</section></aside>
+    <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span></div> : <div className="ai-history-list">{history.items.map(item => {
+      const isSelected = String(item.id) === String(selectedId);
+      const isApplied = Boolean(item.applied_candidate_id);
+      const isRunning = item.status === 'RUNNING' || item.status === 'PENDING';
+      const isDeleting = pending === `delete-chat-${item.id}`;
+      return (
+        <div key={item.id} className={`ai-history-item-row ${isSelected ? 'selected' : ''}`}>
+          <button type="button" className="ai-history-item-btn" onClick={() => selectAnalysis(item.id)} aria-pressed={isSelected}>
+            <div className="ai-history-item-info">
+              <b>{marketName(item.market)} · {item.prompt || '분석 대화'}{item.automation_run ? ' · 자동 판단' : ''}</b>
+              <time>{timestamp(item.created_at)}</time>
+            </div>
+            <div className="ai-history-item-meta">
+              <b className={`ai-status ${String(item.status).toLowerCase()}`}>{AI_STATUS_LABELS[item.status] || item.status}</b>
+              {isApplied && <span className="ai-applied-tag" title="실제 설정 적용 기록 (감사 보존)">적용 보존</span>}
+              <small>{count(item.usage_tokens)} 토큰</small>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`ai-item-delete-btn ${isApplied ? 'disabled-tag' : ''}`}
+            title={isApplied ? '실제 설정을 적용한 분석은 삭제할 수 없습니다' : isRunning ? '진행 중인 분석은 삭제할 수 없습니다' : '대화 삭제'}
+            disabled={Boolean(pending) || isApplied || isRunning}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteTargetConversation(item);
+            }}
+            aria-label={`${item.prompt || '대화'} 삭제`}
+          >
+            {isDeleting ? '…' : isApplied ? '🔒' : '✕'}
+          </button>
+        </div>
+      );
+    })}</div>}{pages > 1 && <nav className="pager" aria-label="AI 대화 목록 페이지"><button className="quiet" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>이전</button><span>{page + 1} / {pages}</span><button className="quiet" disabled={page + 1 >= pages || loading} onClick={() => setPage(value => value + 1)}>다음</button></nav>}</section></aside>
     <div className="ai-conversation-panel">
 
     {selectedId !== null && <section className={`ai-result ${(showEvidence || viewMode === 'evidence') ? 'show-evidence' : ''}`} aria-label="선택한 분석 결과">
-      <div className="section-head ai-section-head"><h3>{selected ? `${marketName(selected.market)} 분석` : '분석 불러오는 중'}</h3><div className="ai-header-actions">{selected && !running && !chatRunning && !selected.applied_candidate_id && <button className="danger compact" disabled={pending === 'delete-chat'} onClick={deleteConversation}>{pending === 'delete-chat' ? '삭제 중…' : '삭제'}</button>}<button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false); setViewMode('chat');}}>새 분석</button></div></div>
+      <div className="section-head ai-section-head">
+        <h3>{selected ? `${marketName(selected.market)} 분석` : '분석 불러오는 중'}</h3>
+        <div className="ai-header-actions">
+          {selected && !running && !chatRunning && (
+            selected.applied_candidate_id ? (
+              <button
+                type="button"
+                className="quiet compact disabled-applied"
+                disabled
+                title="실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다."
+              >
+                🔒 설정 적용 보존됨
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="danger compact"
+                disabled={Boolean(pending?.startsWith('delete-chat'))}
+                onClick={() => deleteTargetConversation(selected)}
+              >
+                {pending?.startsWith('delete-chat') ? '삭제 중…' : '대화 삭제'}
+              </button>
+            )
+          )}
+          <button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false); setViewMode('chat');}}>새 분석</button>
+        </div>
+      </div>
       {detailLoading && <div className="loading-row" role="status"><div className="loader"/>분석 결과를 확인하고 있습니다.</div>}
       {selected && <><p className="ai-muted">{timestamp(selected.created_at)} · {AI_STATUS_LABELS[selected.status] || selected.status} · {count(selected.usage_tokens)} 토큰{selected.include_account ? ' · 계좌 요약 포함' : ' · 계좌 요약 제외'}{selected.automation_run ? ' · AI 자동 판단' : ''}</p>{selected.automation_note && <div className="info-note"><b>자동 판단 처리 결과</b><span>{selected.automation_note}</span></div>}<article className="ai-chat-user ai-first-question"><b>{selected.automation_run ? '자동 판단 요청' : '나'}</b><p>{selected.prompt}</p></article>
         {running && <div className="info-note" role="status"><b>자료 조회 및 분석 중입니다.</b><span>3초마다 상태를 확인합니다. 화면을 닫아도 분석은 계속되며, 기록에서 다시 확인할 수 있습니다.</span></div>}

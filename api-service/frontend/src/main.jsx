@@ -442,7 +442,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
            </div>
            <div className="coin-valuation-block">
             <span className="coin-valuation-amount">{formatKrw(row.balance)}</span>
-            <small style={{color:'#7b95ae',fontSize:'11px'}}>보유액 100% 매수 가능</small>
+            <small className="coin-cash-desc">보유액 100% 매수 가능</small>
            </div>
           </div>
          </article>
@@ -475,12 +475,12 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
          <div className="holding-prices-grid">
           <div><small>현재가</small><strong>{formatPrice(row.current_price)}</strong></div>
           <div><small>평균 매수가</small><strong>{formatPrice(row.avg_buy_price)}</strong></div>
-          <div>
-           <small>평가 손익</small>
-           <strong style={{color:(row.valuation-row.purchase_amount)>=0?'#ff7e8e':'#72b2ff'}}>
-            {row.valuation&&row.purchase_amount?`${(row.valuation-row.purchase_amount)>0?'+':''}${formatKrw(row.valuation-row.purchase_amount)}`:'—'}
-           </strong>
-          </div>
+           <div>
+            <small>평가 손익</small>
+            <strong className={(row.valuation-row.purchase_amount)>=0?'profit-pos':'profit-neg'}>
+             {row.valuation&&row.purchase_amount?`${(row.valuation-row.purchase_amount)>0?'+':''}${formatKrw(row.valuation-row.purchase_amount)}`:'—'}
+            </strong>
+           </div>
          </div>
 
          {row.target_price&&(
