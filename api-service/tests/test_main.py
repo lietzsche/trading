@@ -223,6 +223,15 @@ def test_recommendation_balance_failure_means_unknown_not_unowned(monkeypatch):
     assert result.json()[0]["owned"] is None
 
 
+def test_recommendation_refresh_can_skip_private_account_lookup(monkeypatch):
+    authenticated()
+    monkeypatch.setattr(main.db, "all", lambda *args: [{"code": "KRW-BTC", "updated_at": "2026-09-22 12:00:00"}])
+    monkeypatch.setattr(main.engine, "private_upbit", lambda *args: pytest.fail("private account API must not be called"))
+    result = client.get("/api/recommendations/upbit?include_ownership=false")
+    assert result.status_code == 200
+    assert result.json() == [{"code": "KRW-BTC", "updated_at": "2026-09-22 12:00:00"}]
+
+
 def test_user_deactivation_disables_auto_in_same_statement(monkeypatch):
     authenticated()
     calls = []

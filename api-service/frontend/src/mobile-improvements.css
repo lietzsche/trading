@@ -1,0 +1,48 @@
+.mobile-nav,
+.mobile-more-backdrop {
+  display: none;
+}
+
+.recommendation-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.recommendation-toolbar .summary { margin: 0; }
+.filter-chips { display: flex; gap: 5px; padding: 4px; background: #101319; border: 1px solid #2b313d; border-radius: 12px; }
+.filter-chips button { padding: 8px 11px; background: transparent; color: #929baa; font-size: 12px; }
+.filter-chips button.active { background: #293149; color: #cbd3ff; }
+
+.price-freshness { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin: -8px 0 10px; color: #929baa; font-size: 12px; }
+.price-freshness > span { display: flex; align-items: center; gap: 7px; }
+.price-freshness i { width: 7px; height: 7px; border-radius: 50%; background: #e6bd68; }
+.price-freshness.healthy i { background: #66d6a8; box-shadow: 0 0 8px #66d6a888; }
+.price-freshness.delayed { color: #e6bd68; }
+.price-freshness details { position: relative; }
+.price-freshness summary { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid #3a4352; border-radius: 50%; cursor: pointer; list-style: none; color: #bac2cf; font-weight: 800; }
+.price-freshness summary::-webkit-details-marker { display: none; }
+.price-freshness details p { position: absolute; z-index: 5; right: 0; top: 27px; width: min(310px, calc(100vw - 28px)); padding: 12px; margin: 0; background: #202632; border: 1px solid #394252; border-radius: 10px; color: #c3cad5; line-height: 1.6; box-shadow: 0 12px 30px #0008; }
+.ai-setting-current { display: grid !important; gap: 10px; }
+.ai-setting-current > b { color: #cbd2dd; font-size: 12px; }
+
+@media (max-width: 760px) {
+  aside .desktop-nav { display: none !important; }
+  aside .mobile-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(55px, 1fr)); overflow: visible; gap: 4px; margin: 0; padding: 7px 7px max(7px, env(safe-area-inset-bottom)); background: #0b1728f2; border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
+  aside .mobile-nav button { min-width: 0; display: grid; justify-items: center; gap: 2px; text-align: center; font-size: 11px; padding: 8px 3px; }
+  aside .mobile-nav button span { font-size: 0; }
+  aside .mobile-nav button small { display: block; font-size: 11px; }
+  .mobile-more-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; align-items: flex-end; background: #02050bb5; }
+  .mobile-more-sheet { width: 100%; max-height: 78dvh; padding: 20px 14px max(22px, env(safe-area-inset-bottom)); overflow-y: auto; background: #151922; border: 1px solid #303744; border-radius: 20px 20px 0 0; box-shadow: 0 -20px 60px #0008; }
+  .mobile-more-sheet h2 { margin: 0; font-size: 19px; }
+  .mobile-more-sheet > div:last-child { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 18px; }
+  .mobile-more-sheet > div:last-child button { display: grid; justify-items: start; gap: 5px; min-width: 0; padding: 13px 11px; text-align: left; background: #202632; border: 1px solid #303744; }
+  .mobile-more-sheet > div:last-child button.active { border-color: #8da2fb; background: #293149; }
+  .mobile-more-sheet b { font-size: 13px; color: #edf0f5; }
+  .mobile-more-sheet span { font-size: 10px; color: #929baa; overflow-wrap: anywhere; }
+  .recommendation-toolbar { align-items: flex-start; flex-direction: column; }
+  .filter-chips { width: 100%; }
+  .filter-chips button { flex: 1; }
+  .price-freshness { justify-content: space-between; margin-top: -5px; }
+}

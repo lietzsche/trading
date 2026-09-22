@@ -1,7 +1,7 @@
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {describe, expect, it} from 'vitest';
-import {MarkdownAnswer} from './AIAnalysis';
+import {MarkdownAnswer, SettingRecommendation} from './AIAnalysis';
 
 describe('MarkdownAnswer', () => {
   it('renders readable GFM without executing provider HTML or unsafe links', () => {
@@ -23,5 +23,22 @@ describe('MarkdownAnswer', () => {
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('javascript:');
+  });
+});
+
+describe('SettingRecommendation', () => {
+  it('shows the exact values when keeping the current settings', () => {
+    const html = renderToStaticMarkup(<SettingRecommendation candidates={[]} baselineSettings={{
+      expected_high_percentage: 12,
+      expected_low_percentage: -6,
+      highest_price_reference_days: 90,
+      volume_check: true,
+    }}/>);
+    expect(html).toContain('현재 계산 설정 유지');
+    expect(html).toContain('유지할 계산 설정');
+    expect(html).toContain('12%');
+    expect(html).toContain('-6%');
+    expect(html).toContain('90일');
+    expect(html).toContain('사용');
   });
 });

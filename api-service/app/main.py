@@ -201,7 +201,8 @@ def me(user: Annotated[dict, Depends(current_user)]):
 
 
 @app.get("/api/recommendations/{market}")
-def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Depends(current_user)]):
+def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Depends(current_user)],
+                    include_ownership: bool = True):
     rows = db.all(
         f"""SELECT code, name, origin_minimum_selling_price, origin_expected_selling_price,
                     minimum_selling_price, expected_selling_price, temp_price, setting_price,
@@ -212,7 +213,7 @@ def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Dep
                         / NULLIF(expected_selling_price-minimum_selling_price, 0) ASC NULLS LAST,
                       id DESC"""
     )
-    if market == "upbit":
+    if market == "upbit" and include_ownership:
         key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
         owned = {}
         ownership_available = True
