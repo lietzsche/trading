@@ -19,9 +19,12 @@ const priceKeys=new Set(['minimum_selling_price','expected_selling_price','origi
 const dateKeys=new Set(['pricing_reference_date','updated_at','created_at','ex_div_date','pay_date']);
 const number=(value,digits=2)=>Number(value).toLocaleString('ko-KR',{maximumFractionDigits:digits});
 const signed=value=>`${value>0?'+':''}${number(value)}%`;
+function formatKrw(val){if(val==null||val==='')return '—';const num=Number(val);if(isNaN(num))return String(val);return `₩ ${Math.round(num).toLocaleString('ko-KR')}`;}
+function formatPrice(val){if(val==null||val==='')return '—';const num=Number(val);if(isNaN(num))return String(val);if(num>=1000)return `${Math.round(num).toLocaleString('ko-KR')}원`;if(num>=100)return `${Number(num.toFixed(1)).toLocaleString('ko-KR')}원`;if(num>=1)return `${Number(num.toFixed(2)).toLocaleString('ko-KR')}원`;return `${Number(num.toFixed(4)).toLocaleString('ko-KR')}원`;}
+function formatQty(val,currency=''){if(val==null||val==='')return '0';const num=Number(val);if(isNaN(num))return String(val);const formatted=num.toLocaleString('ko-KR',{maximumFractionDigits:6});return currency?`${formatted} ${currency}`:formatted;}
 function display(key,value){if(value===null||value===undefined||value==='')return '—';if(typeof value==='boolean')return value?'예':'아니오';if(['dividend_rate','profit_rate'].includes(key))return `${number(value)}%`;if(key==='api_uptime_seconds'){const hours=Math.floor(value/3600),minutes=Math.floor(value%3600/60);return `${hours}시간 ${minutes}분`}if(priceKeys.has(key))return number(value,8);if(dateKeys.has(key))return String(value).replace('T',' ').slice(0,16);return stateLabels[value]??String(value)}
 
-const tabs=[['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['account','내 계좌','계좌'],['profile','내 정보','정보'],['ai','AI 분석','AI'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
+const tabs=[['account','오늘의 대시보드','홈'],['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['ai','AI 분석','AI'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
 
 function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[joining,setJoining]=useState(false),[name,setName]=useState('');async function submit(event){event.preventDefault();setError('');try{if(joining){await api('/auth/join',{method:'POST',body:JSON.stringify({login_id:loginId,password,name})});setJoining(false);setPassword('');return}await api('/auth/login',{method:'POST',body:JSON.stringify({login_id:loginId,password})});onLogin()}catch(e){setError(e.message)}}return <main className="login"><section className="login-shell"><div className="login-intro"><img src="/icons/icon-192.png" alt="Trading"/><small className="eyebrow">PERSONAL TRADING DESK</small><h1>내 투자 흐름을<br/>한눈에 확인하세요.</h1><p>추천 종목, 보유 자산과 자동매매 상태를 안전하게 관리합니다.</p></div><form className="login-form" onSubmit={submit}><div><h2>{joining?'새 계정 만들기':'로그인'}</h2><p>{joining?'필요한 정보만 입력해 시작하세요.':'계속하려면 계정 정보를 입력하세요.'}</p></div>{joining&&<label>이름<input value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></label>}<label>아이디<input autoFocus value={loginId} onChange={e=>setLoginId(e.target.value)} required autoComplete="username"/></label><label>비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={joining?'new-password':'current-password'}/></label>{(error||message)&&<div className="error" role="alert">{error||message}</div>}<button className="primary">{joining?'계정 만들기':'로그인'}</button><button type="button" className="text-button" onClick={()=>{setJoining(!joining);setError('')}}>{joining?'이미 계정이 있나요? 로그인':'처음이신가요? 계정 만들기'}</button></form></section></main>}
 function Empty({text='표시할 데이터가 없습니다.'}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span></div>}
@@ -45,14 +48,123 @@ function RecommendationCards({rows,market}) {
 }
 function DividendCards({rows}){const pagination=usePagination(rows,12);if(!rows?.length)return <Empty text="배당 정보 수집이 끝나면 이곳에 표시됩니다."/>;return <><div className="info-note"><b>배당수익률이란?</b><span>최근 공시 기준 주당 배당금을 현재 주가로 나눈 연 환산 비율입니다. 실제 지급액과 향후 배당을 보장하는 수치는 아닙니다.</span></div><p className="summary">배당수익률 상위 <b>{rows.length}</b>개 종목 · 네이버 금융 기준</p><div className="dividend-grid">{pagination.items.map(row=><article className="card dividend" key={row.code}><div><h3>{row.name}</h3><small>{row.code}</small></div><strong>{number(row.dividend_rate)}%</strong></article>)}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>}
 
+function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매도"}) {
+ const [dragPct,setDragPct]=useState(0);
+ const [confirmed,setConfirmed]=useState(false);
+ const [isDragging,setIsDragging]=useState(false);
+ const trackRef=useRef(null);
+ const activePointerId=useRef(null);
+
+ useEffect(()=>{
+  if(!disabled){
+   setConfirmed(false);
+   setDragPct(0);
+   setIsDragging(false);
+  }
+ },[disabled]);
+
+ function handlePointerDown(e){
+  if(disabled||confirmed||!trackRef.current)return;
+  const rect=trackRef.current.getBoundingClientRect();
+  const touchX=e.clientX-rect.left;
+  // Fail-safe: Drag must originate on or near the handle (left 64px)
+  // Tapping anywhere else on the track does NOT trigger or jump!
+  if(touchX>64)return;
+  activePointerId.current=e.pointerId;
+  try{e.currentTarget.setPointerCapture(e.pointerId)}catch(_){}
+  setIsDragging(true);
+ }
+
+ function handlePointerMove(e){
+  if(!isDragging||confirmed||disabled||!trackRef.current)return;
+  if(activePointerId.current!==null&&e.pointerId!==activePointerId.current)return;
+  const rect=trackRef.current.getBoundingClientRect();
+  const maxDrag=Math.max(1,rect.width-54);
+  const currentX=e.clientX-rect.left-4;
+  const pct=Math.max(0,Math.min(100,(currentX/maxDrag)*100));
+  setDragPct(pct);
+  if(pct>=90&&!confirmed){
+   setIsDragging(false);
+   setConfirmed(true);
+   setDragPct(100);
+   activePointerId.current=null;
+   if(typeof window!=='undefined'&&window.navigator?.vibrate){
+    try{window.navigator.vibrate(50)}catch(_){}
+   }
+   onConfirm();
+  }
+ }
+
+ function handlePointerUp(e){
+  if(!isDragging)return;
+  if(activePointerId.current!==null&&e.pointerId!==activePointerId.current)return;
+  activePointerId.current=null;
+  setIsDragging(false);
+  if(!confirmed&&dragPct<90){
+   setDragPct(0);
+  }
+ }
+
+ const trackWidth=trackRef.current?trackRef.current.getBoundingClientRect().width:320;
+ const maxOffset=Math.max(0,trackWidth-54);
+ const handleOffset=(dragPct/100)*maxOffset;
+
+ return (
+  <div
+   className={`slide-track ${confirmed?'confirmed':''} ${isDragging?'dragging':''}`}
+   ref={trackRef}
+   onPointerDown={handlePointerDown}
+   onPointerMove={handlePointerMove}
+   onPointerUp={handlePointerUp}
+   onPointerCancel={handlePointerUp}
+   role="slider"
+   aria-valuemin={0}
+   aria-valuemax={100}
+   aria-valuenow={Math.round(dragPct)}
+   aria-label="안전 매도 확인 슬라이더"
+  >
+   <div className="slide-fill" style={{width:`${Math.max(handleOffset+27,0)}px`}} />
+   <span className="slide-label">
+    {confirmed?'주문 전송 중…':(
+     <span className="slide-label-content">
+      <span>{label}</span>
+      <span className="slide-chevrons">›››</span>
+     </span>
+    )}
+   </span>
+   <div
+    className="slide-handle"
+    style={{
+     transform:`translateX(${handleOffset}px)`,
+     transition:isDragging?'none':'transform 0.22s cubic-bezier(0.2,0.9,0.3,1)'
+    }}
+   >
+    {confirmed?'✓':'→'}
+   </div>
+  </div>
+ );
+}
+
 function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const [access,setAccess]=useState(''),[secret,setSecret]=useState(''),[saving,setSaving]=useState(false),[showKeys,setShowKeys]=useState(false);
- const [sellTarget,setSellTarget]=useState(null),[sellConfirmed,setSellConfirmed]=useState(false),[selling,setSelling]=useState(false),[message,setMessage]=useState('');
- const [compact,setCompact]=useState(false);
+ const [sellTarget,setSellTarget]=useState(null),[selling,setSelling]=useState(false),[message,setMessage]=useState('');
+ const [filter,setFilter]=useState('all');
  const [togglingAuto,setTogglingAuto]=useState(false);
  const [pullDist,setPullDist]=useState(0);
+ const [countdown,setCountdown]=useState(snapshot?.safety?.next_decision_seconds??30);
  const touchStart=useRef(0);
  const saveLock=useRef(false),sellLock=useRef(false);
+
+ useEffect(()=>{
+  setCountdown(snapshot?.safety?.next_decision_seconds??30);
+ },[snapshot?.safety?.next_decision_seconds]);
+
+ useEffect(()=>{
+  const timer=setInterval(()=>{
+   setCountdown(prev=>(prev>1?prev-1:30));
+  },1000);
+  return()=>clearInterval(timer);
+ },[]);
 
  const assets=snapshot?.assets||[];
  const incomplete=snapshot?.valuation_complete===false;
@@ -74,7 +186,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  }
 
  async function sell(){
-  if(!sellTarget||!sellConfirmed||sellLock.current)return;
+  if(!sellTarget||sellLock.current)return;
   sellLock.current=true;setSelling(true);setError('');setMessage('');
   try{
    const result=await api('/upbit/orders/market-sell',{
@@ -86,7 +198,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
      keep_auto:true
     })
    });
-   setSellTarget(null);setSellConfirmed(false);
+   setSellTarget(null);
    setMessage(`${result.market} 시장가 매도 주문을 접수했습니다. 자동매매는 유지되며 이 종목만 10분간 재매수하지 않습니다. 주문 내역에서 체결 상태를 확인하세요.`);
    await reload();
   }catch(e){setError(e)}finally{sellLock.current=false;setSelling(false)}
@@ -120,96 +232,107 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const todayChangeRate=performance.today_change_rate;
  const unrealized=performance.unrealized_profit;
  const unrealizedRate=performance.unrealized_rate;
+ const autoOn=Boolean(snapshot?.auto_on);
+ const keyRegistered=Boolean(snapshot?.key_registered);
+ const safetyLevel=!keyRegistered?'warning':!autoOn?'neutral':!safety?.price_healthy?'delayed':'healthy';
+
+ const coinAssets=assets.filter(a=>a.currency!=='KRW');
+ const krwAsset=assets.find(a=>a.currency==='KRW');
+ const visibleAssets=filter==='coins'?coinAssets:filter==='krw'?(krwAsset?[krwAsset]:[]):assets;
 
  return (
   <div className="dashboard-stack" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
    {pullDist>0&&<div className="pull-refresh-indicator"><span>{pullDist>45?'손을 떼면 새로고침합니다':'아래로 당겨서 새로고침'}</span></div>}
    {message&&<div className="notice" role="status">{message}</div>}
 
-   <section className="dashboard-metrics">
-    <article className="metric-card hero">
-     <div className="metric-head">
-      <small>{incomplete?'확인된 평가금액':'총 평가금액'}</small>
-      <span className="badge">대시보드</span>
-     </div>
-     <div className="metric-value">{money(snapshot?.total_valuation)}</div>
-     <div className="metric-sub">
+   <section className="dashboard-hero-card">
+    <div className="hero-main-row">
+     <div className="hero-balance-section">
+      <div className="hero-label">
+       <span>{incomplete?'확인된 총 평가금액':'총 평가금액'}</span>
+       <span className="hero-badge">포트폴리오</span>
+      </div>
+      <div className="hero-valuation">{formatKrw(snapshot?.total_valuation)}</div>
       {todayChange!=null?(
-       <span className={`pnl-badge ${todayChange>0?'up':todayChange<0?'down':'neutral'}`}>
-        오늘 {todayChange>0?'+':''}{number(todayChange)}원 ({todayChangeRate!=null&&todayChangeRate>0?'+':''}{number(todayChangeRate??0)}%)
-       </span>
+       <div className={`hero-pnl-pill ${todayChange>0?'up':todayChange<0?'down':'neutral'}`}>
+        <span>오늘 변동</span>
+        <strong>{todayChange>0?'+':''}{number(todayChange)}원</strong>
+        <span>({todayChangeRate!=null&&todayChangeRate>0?'+':''}{number(todayChangeRate??0)}%)</span>
+       </div>
       ):(
-       <span>오늘 기준 자산 기록 중</span>
-      )}
-     </div>
-     {incomplete&&<small role="status" style={{color:'#f6b868',fontSize:'11px'}}>{(snapshot?.unpriced_currencies||[]).join(', ')||'일부 자산'}의 원화 시세 미반영</small>}
-    </article>
-
-    <article className="metric-card">
-     <div className="metric-head">
-      <small>평가 손익 · 투자 원금</small>
-     </div>
-     <div className="metric-value">
-      {unrealized!=null?(
-       <span className={unrealized>=0?'change up':'change down'}>
-        {unrealized>0?'+':''}{number(unrealized)}원
-       </span>
-      ):'—'}
-     </div>
-     <div className="metric-sub">
-      <span>수익률 <b>{unrealizedRate!=null?signed(unrealizedRate):'—'}</b> · 매수원금 {money(performance.invested)}</span>
-     </div>
-    </article>
-
-    <article className="metric-card">
-     <div className="metric-head">
-      <small>오늘의 활동 요약</small>
-     </div>
-     <div className="metric-value">
-      체결 {snapshot?.today_executed_count||0}건
-     </div>
-     <div className="metric-sub">
-      <span>AI 매도 검토 <b style={{color:aiSummary?.sell_count>0?'#ff7582':'#8da2b6'}}>{aiSummary?.sell_count||0}개</b> 종목</span>
-     </div>
-    </article>
-   </section>
-
-   <section className="safety-card">
-    <div className="safety-header">
-     <div className="safety-status-row">
-      <div className={`status-dot ${safety.level||'neutral'}`}/>
-      <span className="safety-summary-text">{safety.summary||'자동매매 상태 확인 중'}</span>
-     </div>
-     <div className="safety-controls">
-      {snapshot?.key_registered&&(
-       <button
-        className={snapshot.auto_on?'danger compact':'primary compact'}
-        disabled={togglingAuto}
-        onClick={toggleAuto}
-       >
-        {togglingAuto?'변경 중…':snapshot.auto_on?'자동매매 끄기':'자동매매 켜기'}
-       </button>
+       <small style={{color:'#7b95ae'}}>당일 기준 자산 변동 집계 중</small>
       )}
      </div>
     </div>
-    <div className="safety-details-grid">
-     <div><small>가격 갱신 상태</small><strong>{safety.price_healthy?'정상 수신':'지연'}</strong></div>
-     <div><small>마지막 가격 확인</small><strong>{display('updated_at',safety.price_updated_at)}</strong></div>
-     <div><small>다음 자동 판단</small><strong>약 {safety.next_decision_seconds??30}초 후</strong></div>
-     <div><small>스케줄러</small><strong>{safety.trading_execution_enabled!==false?'정상 가동':'중지'}</strong></div>
+
+    <div className="hero-submetrics">
+     <div className="submetric-item">
+      <small>미실현 손익</small>
+      <strong style={{color:(unrealized??0)>=0?'#ff7e8e':'#72b2ff'}}>
+       {unrealized!=null?`${unrealized>0?'+':''}${number(unrealized)}원`:'—'}
+      </strong>
+     </div>
+     <div className="submetric-item">
+      <small>평가 수익률</small>
+      <strong style={{color:(unrealizedRate??0)>=0?'#ff7e8e':'#72b2ff'}}>
+       {unrealizedRate!=null?signed(unrealizedRate):'—'}
+      </strong>
+     </div>
+     <div className="submetric-item">
+      <small>총 매수 원금</small>
+      <strong>{formatKrw(performance.invested)}</strong>
+     </div>
+     <div className="submetric-item">
+      <small>오늘 체결 건수</small>
+      <strong>{snapshot?.today_executed_count||0}건</strong>
+     </div>
+    </div>
+   </section>
+
+   <section className="safety-bar-card">
+    <div className="safety-bar-left">
+     <div className={`safety-dot ${safetyLevel}`} />
+     <div className="safety-statement">
+      <h4>
+       {!keyRegistered
+        ?'Upbit API 키 미등록 상태'
+        :!autoOn
+        ?'자동매매가 일시 중지되어 있습니다'
+        :!safety?.price_healthy
+        ?'가격 갱신 지연으로 신규 매수가 제한될 수 있습니다'
+        :'자동매매 정상 가동 중'}
+      </h4>
+      <span>
+       {autoOn
+        ?`다음 자동 판단 약 ${countdown}초 후 · 마지막 가격 확인 ${display('updated_at',safety?.price_updated_at)}`
+        :'Upbit API 키로 안전하게 연결되어 있습니다. 언제든 자동매매를 켤 수 있습니다.'}
+      </span>
+     </div>
+    </div>
+    <div className="safety-bar-right">
+     {keyRegistered&&(
+      <button
+       className={`btn-auto-toggle ${autoOn?'on':'off'}`}
+       disabled={togglingAuto}
+       onClick={toggleAuto}
+      >
+       <span className="toggle-dot" />
+       <span>{togglingAuto?'변경 중…':autoOn?'자동매매 켜짐 (끄기)':'자동매매 꺼짐 (켜기)'}</span>
+      </button>
+     )}
     </div>
    </section>
 
    {notifications.length>0&&(
-    <section className="notifications-tray">
+    <section className="dashboard-alerts-tray">
      {notifications.map(item=>(
-      <div key={item.id} className={`notification-pill ${item.level}`}>
+      <div key={item.id} className={`dashboard-alert-pill ${item.level}`}>
        <div><b>{item.title}</b> — <span>{item.message}</span></div>
        {item.id==='ai-sell'&&onNavigate&&(
-        <button onClick={()=>onNavigate('ai')}>AI 분석 가기</button>
+        <button onClick={()=>onNavigate('ai')}>AI 분석 바로가기</button>
        )}
        {item.id==='recent-error'&&onNavigate&&(
-        <button onClick={()=>onNavigate('errors')}>오류 로그 보기</button>
+        <button onClick={()=>onNavigate('errors')}>오류 로그 확인</button>
        )}
       </div>
      ))}
@@ -217,106 +340,130 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
    )}
 
    <section className="dashboard-holdings">
-    <div className="holdings-toolbar">
+    <div className="holdings-header">
      <h2>보유 자산 <span className="badge-count">{assets.length}</span></h2>
-     <div style={{display:'flex',gap:'8px'}}>
-      <button className="quiet compact" onClick={()=>setCompact(!compact)}>
-       {compact?'상세히 보기':'간략히 보기'}
-      </button>
-      <button className="quiet compact" onClick={()=>setShowKeys(!showKeys)}>
-       {showKeys?'닫기':'API 키 관리'}
+     <div className="holdings-filter-tabs">
+      <button className={filter==='all'?'active':''} onClick={()=>setFilter('all')}>전체 ({assets.length})</button>
+      <button className={filter==='coins'?'active':''} onClick={()=>setFilter('coins')}>코인 ({coinAssets.length})</button>
+      {krwAsset&&(
+       <button className={filter==='krw'?'active':''} onClick={()=>setFilter('krw')}>원화 잔고</button>
+      )}
+      <button className="quiet" onClick={()=>setShowKeys(!showKeys)}>
+       {showKeys?'닫기':'API 키'}
       </button>
      </div>
     </div>
 
-    {!assets.length?(
-     <Empty text="Upbit API 키 등록 상태와 실제 보유 자산을 확인해 주세요."/>
+    {!visibleAssets.length?(
+     <Empty text="표시할 보유 자산이 없습니다." />
     ):(
      <div className="holdings-grid">
-      {assets.map(row=>{
+      {visibleAssets.map(row=>{
        const available=Number(row.balance||0);
        const isKrw=row.currency==='KRW';
        const isSellAction=row.ai_action==='SELL';
+
+       if(isKrw){
+        return (
+         <article className="holding-card krw-cash-card" key="KRW">
+          <div className="holding-card-top">
+           <div className="coin-identity">
+            <div className="coin-badge krw-badge">₩</div>
+            <div className="coin-names">
+             <h3>원화 예수금 (KRW)</h3>
+             <small>주문 가능 원화 잔고</small>
+            </div>
+           </div>
+           <div className="coin-valuation-block">
+            <span className="coin-valuation-amount">{formatKrw(row.balance)}</span>
+            <small style={{color:'#7b95ae',fontSize:'11px'}}>보유액 100% 매수 가능</small>
+           </div>
+          </div>
+         </article>
+        );
+       }
+
        return (
         <article
-         className={`holding-card ${isSellAction?'has-sell-recommendation':''}`}
+         className={`holding-card ${isSellAction?'has-sell-alert':''}`}
          key={row.currency}
         >
-         <div className="holding-head">
-          <div className="holding-title">
-           <h3>{row.currency}</h3>
-           <small>보유 {number(row.quantity,8)} · 매도 가능 {number(row.balance,8)}</small>
+         <div className="holding-card-top">
+          <div className="coin-identity">
+           <div className="coin-badge">{row.currency}</div>
+           <div className="coin-names">
+            <h3>{row.currency}</h3>
+            <small>보유 {formatQty(row.quantity)} · 매도 가능 {formatQty(row.balance)}</small>
+           </div>
           </div>
-          <div className="holding-valuation">
-           <strong>{money(row.valuation)}</strong>
-           {!isKrw&&row.profit_rate!=null&&(
-            <span className={`pnl-badge ${Number(row.profit_rate)>=0?'up':'down'}`}>
-             {display('profit_rate',row.profit_rate)}
+          <div className="coin-valuation-block">
+           <span className="coin-valuation-amount">{formatKrw(row.valuation)}</span>
+           {row.profit_rate!=null&&(
+            <span className={`coin-return-badge ${Number(row.profit_rate)>=0?'up':'down'}`}>
+             {Number(row.profit_rate)>=0?'+':''}{number(row.profit_rate)}%
             </span>
            )}
           </div>
          </div>
 
-         {!isKrw&&(
-          <div className="holding-figures">
-           <div><small>현재가</small><strong>{money(row.current_price,8)}</strong></div>
-           <div><small>평균 매수가</small><strong>{row.avg_buy_price==null?'—':`${number(row.avg_buy_price,8)} ${row.unit_currency||'KRW'}`}</strong></div>
-           <div><small>평가 손익</small><strong>{row.valuation&&row.purchase_amount?`${number(row.valuation-row.purchase_amount)}원`:'—'}</strong></div>
+         <div className="holding-prices-grid">
+          <div><small>현재가</small><strong>{formatPrice(row.current_price)}</strong></div>
+          <div><small>평균 매수가</small><strong>{formatPrice(row.avg_buy_price)}</strong></div>
+          <div>
+           <small>평가 손익</small>
+           <strong style={{color:(row.valuation-row.purchase_amount)>=0?'#ff7e8e':'#72b2ff'}}>
+            {row.valuation&&row.purchase_amount?`${(row.valuation-row.purchase_amount)>0?'+':''}${formatKrw(row.valuation-row.purchase_amount)}`:'—'}
+           </strong>
           </div>
-         )}
+         </div>
 
-         {!compact&&!isKrw&&row.target_price&&(
-          <div className="holding-targets">
-           <div className="target-labels">
-            <span className="stop">
-             손절 {number(row.stop_loss_price,8)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
+         {row.target_price&&(
+          <div className="targets-section">
+           <div className="targets-header-line">
+            <span className="stop-text">
+             손절 {formatPrice(row.stop_loss_price)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
             </span>
-            <span className="target">
-             목표 {number(row.target_price,8)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
+            <span className="target-text">
+             목표 {formatPrice(row.target_price)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
             </span>
            </div>
-           <div className="target-progress-track">
-            <div className="target-progress-bar" style={{width:`${row.target_progress||0}%`}}/>
+           <div className="targets-track">
+            <div className="targets-fill" style={{width:`${Math.max(0,Math.min(100,row.target_progress||0))}%`}} />
            </div>
-           <div className="target-meta-line">
-            <span>목표 도달 진척도 {number(row.target_progress||0,0)}%</span>
-            {row.renewal_cnt!=null&&<span>갱신 {row.renewal_cnt}단계</span>}
+           <div className="targets-footer-line">
+            <span>목표 도달 {number(row.target_progress||0,0)}%</span>
+            {row.renewal_cnt!=null&&<span>추천 갱신 {row.renewal_cnt}단계</span>}
            </div>
           </div>
          )}
 
-         {!compact&&!isKrw&&(
-          <div className={`holding-ai-box ${String(row.ai_action||'watch').toLowerCase()}`}>
-           <div className="holding-ai-head">
-            <span className="holding-ai-sub">AI 최근 판단</span>
-            {row.ai_action?(
-             <span className={`ai-action-tag ${String(row.ai_action).toLowerCase()}`}>
-              {row.ai_action==='SELL'?'매도 검토':row.ai_action==='HOLD'?'보유':'판단 보류'}
-             </span>
-            ):(
-             <span className="holding-ai-sub">분석 대기 중</span>
-            )}
+         {row.ai_action&&(
+          <div className={`ai-insight-box ${String(row.ai_action).toLowerCase()}`}>
+           <div className="ai-insight-header">
+            <span className="ai-meta-text">AI 분석 판단</span>
+            <span className={`ai-tag ${String(row.ai_action).toLowerCase()}`}>
+             {row.ai_action==='SELL'?'매도 검토':row.ai_action==='HOLD'?'보유 권장':'관망'}
+            </span>
            </div>
-           {row.ai_reason?<p className="holding-ai-reason">{row.ai_reason}</p>:null}
-           {row.ai_confidence?<span className="holding-ai-sub">근거 확신도 {row.ai_confidence}%</span>:null}
+           {row.ai_reason&&<p className="ai-reason-text">{row.ai_reason}</p>}
+           {row.ai_confidence&&<span className="ai-meta-text">근거 확신도 {row.ai_confidence}%</span>}
           </div>
          )}
 
-         {!isKrw&&(
-          <div className="holding-action-row">
-           <button className="btn-ask-ai" onClick={()=>onAskAI&&onAskAI(row.currency)}>
-            AI에게 물어보기
+         <div className="holding-safe-actions">
+          <button className="btn-ai-ask" onClick={()=>onAskAI&&onAskAI(row.currency)}>
+           <span>✨ AI에게 물어보기</span>
+          </button>
+          {user?.user_role==='MASTER'&&available>0&&(
+           <button
+            className="btn-safe-sell-open"
+            onClick={()=>{setSellTarget(row);setMessage('');}}
+            title="안전 매도 주문 창 열기"
+           >
+            <span>🛡️ 매도 검토</span>
            </button>
-           {user?.user_role==='MASTER'&&available>0&&(
-            <button
-             className="danger compact"
-             onClick={()=>{setSellTarget(row);setSellConfirmed(false);setMessage('');}}
-            >
-             시장가 매도
-            </button>
-           )}
-          </div>
-         )}
+          )}
+         </div>
         </article>
        );
       })}
@@ -324,27 +471,27 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     )}
    </section>
 
-   <section className="today-orders-section">
-    <div className="today-orders-header">
+   <section className="today-orders-card">
+    <div className="today-orders-top">
      <h3>오늘 체결된 주문 ({todayOrders.length}건)</h3>
      {onNavigate&&(
       <button className="quiet compact" onClick={()=>onNavigate('orders')}>
-       전체 주문 내역 보기 →
+       전체 내역 보기 →
       </button>
      )}
     </div>
     {todayOrders.length>0?(
-     <div className="today-orders-list">
+     <div className="today-orders-table">
       {todayOrders.map(order=>(
-       <div key={order.uuid} className="today-order-row">
+       <div key={order.uuid} className="today-order-item">
         <div className="today-order-left">
-         <span className={`order-side ${order.side}`}>{display('side',order.side)}</span>
+         <span className={`order-badge-side ${order.side}`}>{display('side',order.side)}</span>
          <strong>{order.market}</strong>
          <small>{display('created_at',order.created_at)}</small>
         </div>
         <div className="today-order-right">
-         <span>체결 수량 {number(order.executed_volume,6)}</span>
-         <span>{order.price?`단가 ${number(order.price)}원`:'시장가'}</span>
+         <span>체결 {formatQty(order.executed_volume)}</span>
+         <span>{order.price?`단가 ${formatPrice(order.price)}`:'시장가'}</span>
         </div>
        </div>
       ))}
@@ -355,40 +502,60 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
    </section>
 
    {sellTarget&&(
-    <section className="card form market-sell-confirm" aria-label="시장가 매도 확인">
-     <div className="section-head">
-      <h3>KRW-{sellTarget.currency} 전량 시장가 매도</h3>
-      <button className="quiet compact" disabled={selling} onClick={()=>{setSellTarget(null);setSellConfirmed(false);}}>
-       닫기
+    <div className="safe-sell-overlay" onClick={()=>!selling&&setSellTarget(null)}>
+     <div className="safe-sell-modal" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="오작동 방지 안전 매도">
+      <div className="safe-sell-header">
+       <div className="safe-sell-title-wrap">
+        <span className="safe-sell-shield-badge">🛡️ 오작동 방지 2단계 잠금</span>
+        <h3>KRW-{sellTarget.currency} 시장가 매도</h3>
+       </div>
+       <button className="safe-sell-close-btn" disabled={selling} onClick={()=>setSellTarget(null)} aria-label="닫기">
+        ✕
+       </button>
+      </div>
+
+      <dl className="safe-sell-details">
+       <div><dt>매도 종목</dt><dd>KRW-{sellTarget.currency}</dd></div>
+       <div><dt>주문 수량</dt><dd>{formatQty(sellTarget.balance, sellTarget.currency)} (전량)</dd></div>
+       <div><dt>현재가 환산액</dt><dd className="highlight-krw">{formatKrw(Number(sellTarget.balance||0)*Number(sellTarget.current_price||0))}</dd></div>
+       {sellTarget.avg_buy_price&&(
+        <div><dt>평균 매수가</dt><dd>{formatPrice(sellTarget.avg_buy_price)}</dd></div>
+       )}
+      </dl>
+
+      <div className="safe-sell-warning-box">
+       <b>실수 방지 안전 안내</b>
+       <p>화면 실수 터치로 인한 오작동을 막기 위해 단일 탭으로는 주문이 실행되지 않습니다.</p>
+       <p>아래 슬라이더의 핸들을 <strong>오른쪽 끝까지 밀어야</strong> 매도 주문이 접수되며, 체결 후 해당 종목은 10분간 자동 재매수에서 제외됩니다.</p>
+      </div>
+
+      <div className="slide-track-container">
+       <SlideToConfirm
+        key={sellTarget.currency}
+        onConfirm={sell}
+        disabled={selling}
+        label={selling?"주문 처리 중…":"오른쪽으로 밀어서 매도 실행"}
+       />
+      </div>
+
+      <button
+       type="button"
+       className="btn-safe-sell-cancel"
+       disabled={selling}
+       onClick={()=>setSellTarget(null)}
+      >
+       취소하고 돌아가기
       </button>
      </div>
-     <dl>
-      <div><dt>매도 가능 수량</dt><dd>{number(sellTarget.balance,8)} {sellTarget.currency}</dd></div>
-      <div><dt>현재 평가 참고액</dt><dd>{money(Number(sellTarget.balance||0)*Number(sellTarget.current_price||0))}</dd></div>
-     </dl>
-     <div className="error">
-      <b>시장가 주문은 표시된 가격으로 체결된다는 보장이 없습니다.</b>
-      <p>호가와 유동성에 따라 실제 체결가는 달라질 수 있습니다. 주문 직전에 서버가 수량과 최소 주문금액을 다시 확인합니다.</p>
-     </div>
-     <label className="check">
-      <input type="checkbox" checked={sellConfirmed} disabled={selling} onChange={e=>setSellConfirmed(e.target.checked)}/>
-      <span>
-       <b>매도 가능 수량 전부를 즉시 시장가로 주문합니다.</b>
-       <small>자동매매는 유지되며, 매도한 종목만 10분간 재매수에서 제외됩니다. 주문 후 체결 여부를 확인하겠습니다.</small>
-      </span>
-     </label>
-     <button className="danger" disabled={!sellConfirmed||selling} onClick={sell}>
-      {selling?'주문 전송 중…':'확인하고 시장가 매도'}
-     </button>
-    </section>
+    </div>
    )}
 
    {showKeys&&(
     <section className="card form narrow key-form">
      <h3>Upbit API 키 변경</h3>
-     <p className="hint">키는 서버에만 저장되며 화면에 다시 표시되지 않습니다.</p>
-     <label>Access Key<input value={access} onChange={e=>setAccess(e.target.value)} autoComplete="off"/></label>
-     <label>Secret Key<input type="password" value={secret} onChange={e=>setSecret(e.target.value)} autoComplete="new-password"/></label>
+     <p className="hint">키는 서버에만 안전하게 저장되며 화면에 다시 노출되지 않습니다.</p>
+     <label>Access Key<input value={access} onChange={e=>setAccess(e.target.value)} autoComplete="off" /></label>
+     <label>Secret Key<input type="password" value={secret} onChange={e=>setSecret(e.target.value)} autoComplete="new-password" /></label>
      <button className="primary" disabled={saving||!access.trim()||!secret.trim()} onClick={save}>
       {saving?'저장 중…':'API 키 저장'}
      </button>
