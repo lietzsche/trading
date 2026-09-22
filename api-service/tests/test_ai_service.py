@@ -10,7 +10,7 @@ from fastapi import HTTPException
 os.environ.setdefault("SESSION_SECRET", "test-secret-that-is-at-least-thirty-two-characters")
 os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 
-from app.ai import AIService, AnalysisRequest, ConfigUpdate, account_for_ai, candidate_verified, key_cipher
+from app.ai import AIService, AnalysisRequest, AutomationUpdate, ConfigUpdate, account_for_ai, candidate_verified, key_cipher
 from app.main import SettingUpdate
 
 
@@ -53,6 +53,16 @@ def test_market_defaults_and_symbol_validation_are_explicit():
         AnalysisRequest(market="stock", symbols=["KRW-BTC"])
     with pytest.raises(ValidationError):
         AnalysisRequest(market="upbit", symbols=["BTC"])
+
+
+def test_ai_automation_has_bounded_explicit_options():
+    payload = AutomationUpdate(enabled=True, trigger_mode="recommendation_change",
+                               interval_minutes=120, auto_apply_settings=True)
+    assert payload.interval_minutes == 120 and payload.auto_apply_settings is True
+    with pytest.raises(ValidationError):
+        AutomationUpdate(enabled=True, interval_minutes=59)
+    with pytest.raises(ValidationError):
+        AutomationUpdate(enabled=True, trigger_mode="price_tick")
 
 
 def test_account_for_ai_hides_non_krw_avg_buy_price():

@@ -1,5 +1,6 @@
 """Owner-scoped AI analysis, separate from the live trading scheduler."""
 import base64
+import hashlib
 import json
 import logging
 import math
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
+from apscheduler.schedulers.background import BackgroundScheduler
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -83,6 +85,14 @@ class ConversationRequest(BaseModel):
         return value
 
 
+class AutomationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    trigger_mode: Literal["interval", "recommendation_change"] = "interval"
+    interval_minutes: int = Field(default=360, ge=60, le=1440)
+    auto_apply_settings: bool = False
+
+
 def settings_dict(row):
     return {key: row[key] for key in SETTING_KEYS}
 
@@ -121,6 +131,7 @@ class AIService:
         self.engine, self.calculation_url = engine, calculation_url
         self.session_secret, self.setting_schema = session_secret, setting_schema
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai-analysis")
+        self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
         self._test_times, self._test_lock = {}, threading.Lock()
 
     @property
@@ -144,8 +155,13 @@ class AIService:
                 charged = row["reserved_tokens"] if row["status"] == "RUNNING" else 0
                 self._settle_conversation(cursor, row, "FAILED", charged, None,
                                           "서버 재시작으로 후속 답변이 중단되었습니다. 실행 중이던 요청은 사용량에 보수적으로 반영합니다.")
+        self.scheduler.add_job(self.automation_tick, "interval", minutes=1, id="ai-automation",
+                               max_instances=1, coalesce=True, misfire_grace_time=30)
+        self.scheduler.start()
 
     def stop(self):
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
         self.executor.shutdown(wait=False, cancel_futures=True)
 
     def config(self, user_id):
@@ -199,7 +215,86 @@ class AIService:
         return {"ok": True, "model": config["model"], "available_models": models,
                 "message": "연결을 확인했습니다. 분석 토큰을 사용하는 요청은 실행하지 않았습니다."}
 
-    def enqueue(self, user, payload):
+    def automation_config(self, user_id):
+        row = self.db.one("SELECT * FROM ai_automation_config WHERE user_id=%s", (user_id,))
+        return row or {"user_id": user_id, "enabled": False, "trigger_mode": "interval",
+                       "interval_minutes": 360, "auto_apply_settings": False,
+                       "last_started_at": None, "next_run_at": None, "last_analysis_id": None,
+                       "last_error": None}
+
+    def save_automation_config(self, user, payload):
+        if payload.enabled:
+            if not self.db.one("SELECT 1 FROM ai_credentials WHERE user_id=%s", (user["id"],)):
+                raise HTTPException(400, "먼저 DeepSeek API 키를 등록해 주세요.")
+            if not self.db.one("SELECT 1 FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],)):
+                raise HTTPException(400, "먼저 Upbit API 키를 등록해 주세요.")
+        self.db.execute("""INSERT INTO ai_automation_config(user_id,enabled,trigger_mode,interval_minutes,
+            auto_apply_settings,next_run_at,updated_at)
+            VALUES(%s,%s,%s,%s,%s,CASE WHEN %s THEN now() ELSE NULL END,now())
+            ON CONFLICT(user_id) DO UPDATE SET enabled=EXCLUDED.enabled,
+              trigger_mode=EXCLUDED.trigger_mode,interval_minutes=EXCLUDED.interval_minutes,
+              auto_apply_settings=EXCLUDED.auto_apply_settings,
+              next_run_at=CASE WHEN EXCLUDED.enabled THEN now() ELSE NULL END,
+              last_fingerprint=CASE WHEN EXCLUDED.enabled THEN NULL ELSE ai_automation_config.last_fingerprint END,
+              last_error=NULL,updated_at=now()""",
+            (user["id"], payload.enabled, payload.trigger_mode, payload.interval_minutes,
+             payload.auto_apply_settings, payload.enabled))
+        return self.automation_config(user["id"])
+
+    def _automation_fingerprint(self):
+        settings = self.db.one(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name='upbit' AND deleted_at IS NULL")
+        recommendations = self.db.all("""SELECT code,renewal_cnt,temp_price,minimum_selling_price,
+            expected_selling_price,pricing_reference_date FROM upbit WHERE deleted_at IS NULL
+            ORDER BY code""")
+        raw = json.dumps({"settings": settings, "recommendations": recommendations}, ensure_ascii=False,
+                         sort_keys=True, default=str).encode()
+        return hashlib.sha256(raw).hexdigest()
+
+    def _launch_automation(self, config, *, force=False):
+        fingerprint = self._automation_fingerprint()
+        if (not force and config["trigger_mode"] == "recommendation_change"
+                and config.get("last_fingerprint") == fingerprint):
+            return None
+        user = self.db.one("""SELECT id,user_login_id,user_role FROM tb_user
+            WHERE id=%s AND deleted_at IS NULL AND user_role='MASTER'""", (config["user_id"],))
+        if not user:
+            raise RuntimeError("자동 AI 검토를 실행할 MASTER 사용자를 찾을 수 없습니다.")
+        payload = AnalysisRequest(market="upbit", include_account=True, symbols=[], fee_bps=5,
+            slippage_bps=10, prompt=("현재 보유 계좌, 기존 추천 이력, 활성 추천, 계산 설정과 완료 일봉을 함께 검토하세요. "
+            "각 보유 종목을 SELL/HOLD/WATCH로 하나만 명확히 분류하고 핵심 근거를 짧게 제시하세요. "
+            "설정 후보는 목표 상승률, 허용 하락률, 분석 기간, 거래량 조건을 모두 제시하고 과거 검증 가능한 안만 제안하세요."))
+        result = self.enqueue(user, payload, automation_run=True)
+        self.db.execute("""UPDATE ai_automation_config SET last_fingerprint=%s,last_started_at=now(),
+            next_run_at=now()+(interval_minutes*interval '1 minute'),last_analysis_id=%s,last_error=NULL,
+            updated_at=now() WHERE user_id=%s""", (fingerprint, result["id"], config["user_id"]))
+        return result
+
+    def automation_tick(self):
+        configs = self.db.all("""SELECT c.* FROM ai_automation_config c
+            JOIN ai_credentials a ON a.user_id=c.user_id WHERE c.enabled=true
+              AND (c.trigger_mode='recommendation_change' OR c.next_run_at IS NULL OR c.next_run_at<=now())""")
+        for config in configs:
+            try:
+                self._launch_automation(config)
+            except HTTPException as error:
+                if error.status_code not in (409, 429):
+                    self.db.execute("UPDATE ai_automation_config SET last_error=%s,updated_at=now() WHERE user_id=%s",
+                                    (str(error.detail)[:500], config["user_id"]))
+            except Exception as error:
+                log.exception("Scheduled AI review failed for user %s", config["user_id"])
+                self.db.execute("UPDATE ai_automation_config SET last_error=%s,updated_at=now() WHERE user_id=%s",
+                                (str(error)[:500] or type(error).__name__, config["user_id"]))
+
+    def run_automation_now(self, user):
+        config = self.automation_config(user["id"])
+        if not config.get("enabled"):
+            raise HTTPException(409, "AI 자동 검토를 먼저 켜 주세요.")
+        result = self._launch_automation(config, force=True)
+        if not result:
+            raise HTTPException(409, "자동 검토를 시작하지 못했습니다.")
+        return result
+
+    def enqueue(self, user, payload, automation_run=False):
         user_id, today = user["id"], self.today()
         with self.db.connection() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext('trading-ai-queue'))")
@@ -229,8 +324,10 @@ class AIService:
             budget = RUN_TOKEN_BUDGET
             cursor.execute("UPDATE ai_daily_usage SET runs=runs+1,reserved_tokens=reserved_tokens+%s WHERE user_id=%s AND usage_date=%s", (budget, user_id, today))
             cursor.execute("""INSERT INTO ai_analyses(user_id,market,status,prompt,include_account,request_payload,
-                settings_snapshot,model,reserved_tokens,usage_date) VALUES(%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,%s) RETURNING id,status""",
-                (user_id, payload.market, payload.prompt, payload.include_account, Jsonb(payload.model_dump()), Jsonb(snapshot), config["model"], budget, today))
+                settings_snapshot,model,reserved_tokens,usage_date,automation_run)
+                VALUES(%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,status""",
+                (user_id, payload.market, payload.prompt, payload.include_account, Jsonb(payload.model_dump()),
+                 Jsonb(snapshot), config["model"], budget, today, automation_run))
             result = cursor.fetchone()
         try:
             self.executor.submit(self._run, result["id"])
@@ -243,7 +340,11 @@ class AIService:
         market = job["market"]
         recommendations = self.db.all(f"""SELECT code,name,temp_price,expected_selling_price,minimum_selling_price,
             renewal_cnt,updated_at FROM {market} WHERE deleted_at IS NULL ORDER BY renewal_cnt DESC,id DESC LIMIT 20""")
+        recommendation_history = self.db.all(f"""SELECT code,name,temp_price,expected_selling_price,
+            minimum_selling_price,renewal_cnt,created_at,updated_at,deleted_at
+            FROM {market} ORDER BY id DESC LIMIT 60""")
         context = {"settings": job["settings_snapshot"], "recommendations": recommendations,
+                   "recommendation_history": recommendation_history,
                    "snapshot_at": datetime.now(timezone.utc).isoformat()}
         context["error_counts"] = self.db.all("""SELECT source,error_type,count(*) AS count FROM trade_error_log
             WHERE created_at::timestamp > now()-interval '24 hours' GROUP BY source,error_type ORDER BY count(*) DESC LIMIT 10""")
@@ -275,7 +376,18 @@ class AIService:
             _, key = self.credentials(job["user_id"])
             context = self._context(job, user)
             payload = AnalysisRequest.model_validate(job["request_payload"])
-            symbols = payload.symbols or [r["code"] for r in context["recommendations"][:3]]
+            account_symbols = []
+            if job["market"] == "upbit":
+                for account in context.get("account", []):
+                    try:
+                        if account.get("currency") != "KRW" and float(account.get("balance") or 0) + float(account.get("locked") or 0) > 0:
+                            account_symbols.append(f"KRW-{account['currency']}")
+                    except (TypeError, ValueError):
+                        continue
+            requested = payload.symbols or [r["code"] for r in context["recommendations"][:3]]
+            symbols = list(dict.fromkeys(account_symbols + requested))[:5]
+            if len(set(account_symbols + requested)) > 5:
+                context["universe_warning"] = "보유·선택 종목이 5개를 넘어 보유 종목 우선 최대 5개만 분석했습니다."
             if not symbols:
                 symbols = ["KRW-BTC", "KRW-ETH", "KRW-XRP"] if job["market"] == "upbit" else ["005930", "000660", "035420"]
                 context["universe_warning"] = "현재 추천 목록이 없어 기본 예시 종목으로 분석합니다. 전체 시장을 대표하지 않습니다."
@@ -291,6 +403,8 @@ class AIService:
             # Defense in depth: never persist even an accidentally echoed provider credential.
             result = json.loads(json.dumps(result, ensure_ascii=False, default=str).replace(key, "[REDACTED]"))
             self._finish(analysis_id, "COMPLETED", used, result, None)
+            if job.get("automation_run"):
+                self._auto_apply_verified_settings(analysis_id, result)
         except Exception as error:
             from app.ai_engine import AIAnalysisError
             if isinstance(error, AIAnalysisError):
@@ -302,6 +416,59 @@ class AIService:
                 used = job["reserved_tokens"] if request_started else 0
                 message = "AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요. 기존 자동매매에는 영향이 없습니다."
             self._finish(analysis_id, "FAILED", used, None, message)
+
+    def _auto_apply_verified_settings(self, analysis_id, result):
+        candidates = result.get("candidates", []) if isinstance(result, dict) else []
+        baseline = next((item for item in candidates if item.get("id") in {"current", "baseline"}), None)
+        baseline_validation = (baseline or {}).get("validation") or {}
+        try:
+            baseline_return = float(baseline_validation["return_pct"])
+            baseline_drawdown = float(baseline_validation["max_drawdown_pct"])
+        except (KeyError, TypeError, ValueError):
+            self.db.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
+                            ("기존 설정의 검증 지표가 없어 자동 적용하지 않았습니다.", analysis_id))
+            return
+        eligible = []
+        for candidate in candidates:
+            metrics = candidate.get("validation") or {}
+            try:
+                candidate_return = float(metrics["return_pct"])
+                candidate_drawdown = float(metrics["max_drawdown_pct"])
+                days, trades = int(metrics["days"]), int(metrics["trades"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (candidate.get("id") not in {"current", "baseline"} and days >= 20 and trades >= 3
+                    and candidate_return > baseline_return and candidate_drawdown >= baseline_drawdown - 2):
+                eligible.append((candidate_return, candidate))
+        if not eligible:
+            self.db.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
+                            ("검증 20일·청산 3건·기존 대비 수익 개선·낙폭 악화 2%p 이내 조건을 통과한 설정이 없어 유지했습니다.", analysis_id))
+            return
+        selected = max(eligible, key=lambda item: item[0])[1]
+        proposed = self.setting_schema.model_validate(selected["settings"]).model_dump()
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("""SELECT a.*,c.auto_apply_settings FROM ai_analyses a
+                JOIN ai_automation_config c ON c.user_id=a.user_id
+                WHERE a.id=%s FOR UPDATE""", (analysis_id,))
+            analysis = cursor.fetchone()
+            if not analysis or not analysis["auto_apply_settings"]:
+                cursor.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
+                               ("자동 설정 적용이 꺼져 있어 분석 결과만 저장했습니다.", analysis_id))
+                return
+            cursor.execute(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name=%s AND deleted_at IS NULL FOR UPDATE",
+                           (analysis["market"],))
+            current = cursor.fetchone()
+            if not current or settings_dict(current) != analysis["settings_snapshot"]:
+                cursor.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
+                               ("분석 중 설정이 변경되어 자동 적용하지 않았습니다.", analysis_id))
+                return
+            cursor.execute("""UPDATE deal_settings SET expected_high_percentage=%s,expected_low_percentage=%s,
+                highest_price_reference_days=%s,is_volume_check=%s,
+                updated_at=to_char(clock_timestamp(),'YYYY-MM-DD HH24:MI:SS.US')
+                WHERE name=%s AND deleted_at IS NULL""", (*[proposed[key] for key in SETTING_KEYS], analysis["market"]))
+            cursor.execute("""UPDATE ai_analyses SET applied_candidate_id=%s,applied_at=now(),applied_by=%s,
+                automation_note=%s WHERE id=%s""", (selected["id"], analysis["user_id"],
+                "강화된 과거 검증 기준을 통과한 설정을 자동 적용했습니다. AI가 주문을 직접 실행하지는 않았습니다.", analysis_id))
 
     @staticmethod
     def _settle(cursor, row, status, used, result, error_message):
@@ -319,7 +486,7 @@ class AIService:
 
     def history(self, user_id, page):
         total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s", (user_id,))["count"]
-        items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens
+        items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens,automation_run
             FROM ai_analyses WHERE user_id=%s ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
         return {"items": items, "total": total, "page": page, "page_size": 10}
 
@@ -329,7 +496,7 @@ class AIService:
 
     def detail(self, user_id, analysis_id):
         row = self.db.one("""SELECT id,market,status,prompt,include_account,settings_snapshot,result,error_message,
-            model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at
+            model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at,automation_run,automation_note
             FROM ai_analyses WHERE id=%s AND user_id=%s""", (analysis_id, user_id))
         if not row:
             raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
@@ -579,6 +746,18 @@ def create_router(service, admin_dependency, master_dependency):
     @router.post("/config/test")
     def test_config(user: dict = Depends(admin_dependency)):
         return service.test_connection(user["id"])
+
+    @router.get("/automation")
+    def automation(user: dict = Depends(master_dependency)):
+        return service.automation_config(user["id"])
+
+    @router.put("/automation")
+    def save_automation(payload: AutomationUpdate, user: dict = Depends(master_dependency)):
+        return service.save_automation_config(user, payload)
+
+    @router.post("/automation/run", status_code=202)
+    def run_automation(user: dict = Depends(master_dependency)):
+        return service.run_automation_now(user)
 
     @router.get("/analyses")
     def analyses(page: int = Query(default=0, ge=0, le=100000), user: dict = Depends(admin_dependency)):

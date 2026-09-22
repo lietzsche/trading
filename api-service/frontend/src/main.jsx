@@ -97,7 +97,7 @@ function App() {
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user}/>}
  {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
- {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError}/>}
+ {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={setTab}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
  {data&&tab==='users'&&<Table rows={data}/>}

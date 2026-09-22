@@ -87,6 +87,18 @@ def test_admin_cannot_run_order_job_or_change_user():
     assert client.put("/api/admin/users/2", json={"user_role": "MASTER"}).status_code == 403
 
 
+def test_ai_automation_is_master_only():
+    authenticated("ADMIN")
+    assert client.get("/api/admin/ai/automation").status_code == 403
+    assert client.put("/api/admin/ai/automation", json={"enabled": False}).status_code == 403
+    assert client.post("/api/admin/ai/automation/run").status_code == 403
+
+    authenticated("MASTER")
+    response = client.get("/api/admin/ai/automation")
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
 def test_market_sell_is_master_only_and_requires_explicit_confirmation(monkeypatch):
     payload = {"market": "KRW-BTC", "expected_available_quantity": "0.25", "confirm": True, "keep_auto": True}
     authenticated("USER")

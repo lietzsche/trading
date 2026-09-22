@@ -25,9 +25,13 @@ def candles(code="KRW-BTC", count=200):
              "candle_acc_trade_volume": 1000} for index in range(count)]
 
 
-def completion(report="완료 일봉을 참고한 설정 검토입니다.", candidates=None, tool_calls=None):
+def completion(report="완료 일봉을 참고한 설정 검토입니다.", candidates=None, tool_calls=None, actions=None):
+    if actions is None:
+        actions = [{"code": "KRW-BTC", "action": "WATCH", "reason": "추가 확인이 필요합니다.",
+                    "evidence": [], "confidence": 50}]
     message = {"role": "assistant", "content": json.dumps({
         "report": report, "candidates": candidates if candidates is not None else [{"label": "대안", "settings": ALTERNATIVE}],
+        "portfolio_actions": actions,
     }, ensure_ascii=False)}
     if tool_calls is not None:
         message = {"role": "assistant", "content": None, "tool_calls": tool_calls}
@@ -184,7 +188,10 @@ def test_excessive_tool_calls_fail_without_executing_them(network):
 
 def test_maximum_five_distinct_symbols_including_initial_symbols(network):
     state, requests, payloads = network
-    state["responses"] += [completion(tool_calls=[tool("KRW-DOGE"), tool("KRW-ADA"), tool("KRW-SOL")]), completion()]
+    decisions = [{"code": code, "action": "WATCH", "reason": "추가 확인이 필요합니다.",
+                  "evidence": [], "confidence": 50} for code in ("KRW-BTC", "KRW-ETH", "KRW-XRP")]
+    state["responses"] += [completion(tool_calls=[tool("KRW-DOGE"), tool("KRW-ADA"), tool("KRW-SOL")]),
+                           completion(actions=decisions)]
     result = run(symbols=["KRW-BTC", "KRW-ETH", "KRW-XRP"])
     assert len([request for request in requests if request.url.host == "api.upbit.com"]) == 5
     assert len(payloads[0]["instruments"]) == 5
@@ -214,6 +221,16 @@ def test_analyze_retries_once_on_malformed_final_json(network):
     state["responses"] += [malformed_completion(), completion()]
     result = run()
     assert result["candidates"][0]["id"] == "current"
+    provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
+    assert len(provider) == 2
+
+
+def test_analyze_retries_when_portfolio_decision_is_missing(network):
+    state, requests, _ = network
+    state["responses"] += [completion(actions=[]), completion(actions=[{"code": "KRW-BTC", "action": "HOLD",
+        "reason": "추세가 유지됩니다.", "evidence": ["완료 일봉"], "confidence": 60}])]
+    result = run()
+    assert result["portfolio_actions"][0]["action"] == "HOLD"
     provider = [request for request in requests if str(request.url) == DEEPSEEK_URL]
     assert len(provider) == 2
 
@@ -416,10 +433,42 @@ def test_candidate_settings_are_validated_deduplicated_and_capped():
         {"label": "secret-value", "settings": ALTERNATIVE},
         {"label": "네번째무시", "settings": {**ALTERNATIVE, "volume_check": True}},
     ]}
-    report, candidates = _candidate_settings(parsed, "secret-value", CURRENT, warnings)
+    report, candidates, actions = _candidate_settings(parsed, "secret-value", CURRENT, warnings)
     assert "secret-value" not in report
-    assert len(candidates) == 2 and len(warnings) == 1
+    assert len(candidates) == 2 and len(warnings) == 1 and actions == []
     assert candidates[1]["label"] == "[비밀키 삭제]"
+
+
+def test_portfolio_actions_are_explicit_owner_safe_and_redacted():
+    warnings = []
+    parsed = {"report": "결론", "candidates": [], "portfolio_actions": [
+        {"code": "KRW-BTC", "action": "SELL", "reason": "secret-value 근거", "evidence": ["손절선 이탈"], "confidence": 82},
+        {"code": "KRW-ETH", "action": "BUY", "reason": "허용되지 않은 행동", "confidence": 90},
+        {"code": "KRW-XRP", "action": "HOLD", "reason": "분석하지 않은 종목", "confidence": 70},
+    ]}
+    _, _, actions = _candidate_settings(parsed, "secret-value", CURRENT, warnings, ["KRW-BTC", "KRW-ETH"])
+    assert actions == [{"code": "KRW-BTC", "action": "SELL", "reason": "[비밀키 삭제] 근거",
+                        "evidence": ["손절선 이탈"], "confidence": 82}]
+    assert len(warnings) == 2
+
+
+def test_portfolio_action_normalizes_provider_format_without_losing_decision():
+    parsed = {"report": "결론", "candidates": [], "portfolio_actions": [{
+        "code": "KRW-BTC", "action": "HOLD", "reason": "근거가 있습니다.",
+        "evidence": ["가" * 300, "둘", "셋", "넷", 123], "confidence": 72.6,
+    }]}
+    _, _, actions = _candidate_settings(parsed, "test-only-key", CURRENT, [], ["KRW-BTC"])
+    assert actions[0]["action"] == "HOLD" and actions[0]["confidence"] == 73
+    assert len(actions[0]["evidence"]) == 3 and len(actions[0]["evidence"][0]) == 250
+
+
+def test_analysis_returns_validated_portfolio_decision(network):
+    state, _, _ = network
+    state["responses"] += [completion(actions=[{"code": "KRW-BTC", "action": "HOLD",
+        "reason": "완료 일봉상 추세가 유지됩니다.", "evidence": ["20일 이동평균 상단"], "confidence": 65}])]
+    result = run()
+    assert result["portfolio_actions"][0]["action"] == "HOLD"
+    assert result["portfolio_actions"][0]["confidence"] == 65
 
 
 @pytest.mark.parametrize("change", [{"expected_high_percentage": 0}, {"expected_low_percentage": -100},
