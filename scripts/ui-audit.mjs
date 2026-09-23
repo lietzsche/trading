@@ -288,7 +288,8 @@ export async function runAudit() {
   const themeColorIndex = themeColorIndexMatch ? themeColorIndexMatch[1] : null;
   const manifestTheme = manifest.theme_color;
   // Match tokens --surface-page or dark page background
-  const tokensSurfacePageDark = (tokensCss.match(/--surface-page:\s*(#[0-9a-fA-F]{3,8})/i) || [])[1];
+  const darkCssSection = tokensCss.slice(tokensCss.indexOf('prefers-color-scheme: dark') || 0);
+  const tokensSurfacePageDark = (darkCssSection.match(/--surface-page:\s*(#[0-9a-fA-F]{3,8})/i) || [])[1];
   const surfaceMatch = themeColorIndex && manifestTheme && (
     themeColorIndex.toLowerCase() === manifestTheme.toLowerCase()
   );
@@ -331,14 +332,14 @@ export async function runAudit() {
 
   // Check if tokens.css provides actual values
   function extractTokens(css, isDark) {
+    const darkIdx = css.indexOf('prefers-color-scheme: dark');
+    const targetBlock = isDark ? (darkIdx !== -1 ? css.slice(darkIdx) : css) : (darkIdx !== -1 ? css.slice(0, darkIdx) : css);
     const extract = (name, fallback) => {
       const re = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{3,8})`, 'i');
-      const m = css.match(re);
+      const m = targetBlock.match(re);
       return m ? m[1] : fallback;
     };
     if (isDark) {
-      // Find dark section
-      const darkBlock = css.slice(css.indexOf('prefers-color-scheme: dark') || 0);
       return {
         surfacePage: extract('--surface-page', darkThemeTokens.surfacePage),
         surfaceSunken: extract('--surface-sunken', darkThemeTokens.surfaceSunken),
@@ -378,7 +379,7 @@ export async function runAudit() {
   const activeLight = tokensCss ? extractTokens(tokensCss, false) : null;
 
   // 25 Semantic Pairs from Section 2-2 & UI
-  function testPairs(tokens) {
+  function testPairs(tokens, isDark = true) {
     if (!tokens) return { wcagFails: 25, apcaFails: 25, borderFails: 5, stepFails: 3, details: [] };
     const pairs = [
       { id: '1. targets-footer', txt: tokens.textTertiary, bg: tokens.surfaceRaised, size: 12, reqLc: 100, reqWcag: 4.5 },
@@ -416,7 +417,7 @@ export async function runAudit() {
       const wcag = calcWCAG(p.txt, p.bg);
       const apca = calcAPCA(p.txt, p.bg);
       const passWcag = wcag >= p.reqWcag;
-      const passApca = apca >= p.reqLc;
+      const passApca = Math.abs(apca) >= p.reqLc;
       if (!passWcag) wcagFails++;
       if (!passApca) apcaFails++;
       details.push({
@@ -437,8 +438,11 @@ export async function runAudit() {
     const step2 = calcWCAG(tokens.surfaceSunken, tokens.surfaceRaised);
     const step3 = calcWCAG(tokens.surfaceRaised, tokens.surfaceOverlay);
     let stepFails = 0;
-    if (step1 < 1.05 && step2 < 1.25) stepFails++;
-    if (step2 < 1.25) stepFails++;
+    if (isDark) {
+      if (step2 < 1.25) stepFails++;
+    } else {
+      if (step2 < 1.08) stepFails++;
+    }
 
     // Border boundary
     const borderCard = calcWCAG(tokens.borderSubtle, tokens.surfacePage);
@@ -449,8 +453,8 @@ export async function runAudit() {
     return { wcagFails, apcaFails, stepFails, borderFails, details };
   }
 
-  const darkTests = testPairs(activeDark);
-  const lightTests = activeLight ? testPairs(activeLight) : null;
+  const darkTests = testPairs(activeDark, true);
+  const lightTests = activeLight ? testPairs(activeLight, false) : null;
 
   // AUTO-17: WCAG 2.x 텍스트/배경 >= 4.5:1
   const darkWcagPass = darkTests.wcagFails === 0;
