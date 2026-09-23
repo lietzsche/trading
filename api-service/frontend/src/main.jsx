@@ -55,7 +55,7 @@ function RecommendationCards({rows,market,onAskAI}) {
    </div>
    {ownedOnly&&!visibleRows.length?<Empty text="현재 추천 목록에 보유 중인 종목이 없습니다."/>:(
     <>
-     <div className="recommendations">
+     <section className="recommendations" aria-label="추천 종목 목록">
       {pagination.items.map(row=>{
        const range=Number(row.expected_selling_price)-Number(row.minimum_selling_price);
        const progress=range?100-(Number(row.expected_selling_price)-Number(row.temp_price))*100/range:0;
@@ -102,7 +102,7 @@ function RecommendationCards({rows,market,onAskAI}) {
         </article>
        );
       })}
-     </div>
+     </section>
      <Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/>
     </>
    )}
@@ -461,13 +461,13 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
    {pullDist>0&&<div className="pull-refresh-indicator"><span>{pullDist>45?'손을 떼면 새로고침합니다':'아래로 당겨서 새로고침'}</span></div>}
    {message&&<div className="notice" role="status">{message}</div>}
 
-   <section className="dashboard-hero-card">
+   <section className="dashboard-hero-card" aria-labelledby="dashboard-hero-title">
     <div className="hero-main-row">
      <div className="hero-balance-section">
-      <div className="hero-label">
+      <h2 className="hero-label" id="dashboard-hero-title">
        <span>{incomplete?'확인된 총 평가금액':'총 평가금액'}</span>
        <span className="hero-badge">포트폴리오</span>
-      </div>
+      </h2>
       <div className="hero-valuation">{formatKrw(snapshot?.total_valuation)}</div>
       {todayChange!=null?(
        <div className={`hero-pnl-pill ${todayChange>0?'up':todayChange<0?'down':'neutral'}`}>
@@ -505,11 +505,11 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     </div>
    </section>
 
-   <section className="safety-bar-card">
+   <section className="safety-bar-card" aria-labelledby="safety-bar-title">
     <div className="safety-bar-left">
      <div className={`safety-dot ${safetyLevel}`} />
      <div className="safety-statement">
-      <h4>
+      <h2 id="safety-bar-title">
        {!keyRegistered
         ?'Upbit API 키 미등록 상태'
         :!autoOn
@@ -517,7 +517,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
         :!safety?.price_healthy
         ?'가격 갱신 지연으로 신규 매수가 제한될 수 있습니다'
         :'자동매매 정상 가동 중'}
-      </h4>
+      </h2>
       <span>
        {autoOn
         ?`다음 자동 판단 약 ${countdown}초 후 · 마지막 가격 확인 ${display('updated_at',safety?.price_updated_at)}`
@@ -540,7 +540,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
    </section>
 
    {notifications.length>0&&(
-    <section className="dashboard-alerts-tray">
+    <section className="dashboard-alerts-tray" aria-label="중요 알림">
      {notifications.map(item=>(
       <div key={item.id} className={`dashboard-alert-pill ${item.level}`}>
        <div><b>{item.title}</b> — <span>{item.message}</span></div>
@@ -555,9 +555,9 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     </section>
    )}
 
-   <section className="dashboard-holdings">
+   <section className="dashboard-holdings" aria-labelledby="holdings-title">
     <div className="holdings-header">
-     <h2>보유 자산 <span className="badge-count">{assets.length}</span></h2>
+     <h2 id="holdings-title">보유 자산 <span className="badge-count">{assets.length}</span></h2>
      <div className="holdings-filter-tabs">
       <button className={filter==='all'?'active':''} onClick={()=>setFilter('all')}>전체 ({assets.length})</button>
       <button className={filter==='coins'?'active':''} onClick={()=>setFilter('coins')}>코인 ({coinAssets.length})</button>
@@ -687,9 +687,9 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     )}
    </section>
 
-   <section className="today-orders-card">
+   <section className="today-orders-card" aria-labelledby="today-orders-title">
     <div className="today-orders-top">
-     <h3>오늘 체결된 주문 ({todayOrders.length}건)</h3>
+     <h2 id="today-orders-title">오늘 체결된 주문 ({todayOrders.length}건)</h2>
      {onNavigate&&(
       <button className="quiet compact" onClick={()=>onNavigate('orders')}>
        전체 내역 보기 →
