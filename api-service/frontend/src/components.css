@@ -785,20 +785,22 @@ tbody tr:last-child td {
 
   td {
     display: grid;
-    grid-template-columns: minmax(90px, 36%) minmax(0, 1fr);
+    grid-template-columns: minmax(105px, 40%) minmax(0, 1fr);
     gap: 10px;
     padding: 9px 0;
     border-bottom: 1px solid var(--border-subtle);
     text-align: right;
     white-space: normal;
-    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
   }
 
   td:before {
     content: attr(data-label);
-    color: var(--accent);
+    color: var(--text-tertiary);
+    font-weight: 600;
     text-align: left;
     font-size: var(--text-xs);
+    word-break: keep-all;
   }
 
   tbody tr td:last-child {
