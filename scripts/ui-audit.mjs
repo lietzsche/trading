@@ -92,8 +92,8 @@ export async function runAudit() {
     .join('\n');
   const tokensCss = cssContents['tokens.css'] || '';
 
-  // Read all JSX files
-  const jsxFiles = readdirSync(SRC).filter(f => f.endsWith('.jsx'));
+  // Read all application JSX files
+  const jsxFiles = readdirSync(SRC).filter(f => f.endsWith('.jsx') && !f.includes('.test.'));
   const jsxContents = {};
   for (const file of jsxFiles) {
     jsxContents[file] = readFileSync(join(SRC, file), 'utf-8');
@@ -271,7 +271,7 @@ export async function runAudit() {
   // AUTO-15: window.alert / window.confirm / prompt( 0건 (installPrompt.prompt 제외)
   const alertCount = (jsxAll.match(/\b(window\.)?alert\s*\(/g) || []).length;
   const confirmCount = (jsxAll.match(/\b(window\.)?confirm\s*\(/g) || []).length;
-  const promptCount = (jsxAll.match(/\b(window\.)?prompt\s*\(/g) || []).length;
+  const promptCount = (jsxAll.replace(/installPrompt\.prompt\s*\(/g, '').match(/(?:window\.)?prompt\s*\(/g) || []).length;
   const totalDialogs = alertCount + confirmCount + promptCount;
   results['AUTO-15'] = {
     pass: totalDialogs === 0,

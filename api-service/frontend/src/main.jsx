@@ -788,7 +788,54 @@ function Profile({user,onSaved,setError}){const [name,setName]=useState(user.use
 function Settings({rows,onChange,onSave,pending}) {
  if(!rows?.length)return <Empty/>;
  const fields=[['expected_high_percentage','목표 상승률','기준 가격에서 목표 매도가까지의 비율','%',1,1000],['expected_low_percentage','허용 하락률','목표 상승률보다 작아야 합니다.','%',-99,999],['highest_price_reference_days','분석 기간','조회 가능한 범위: 3~200일','일',3,200]];
- return <div className="settings-grid">{rows.map((row,index)=><form className="card form" key={row.name} onSubmit={e=>{e.preventDefault();onSave(row)}}><div className="setting-title"><span className={`market ${row.name}`}>{row.name==='upbit'?'UPBIT':'STOCK'}</span><h3>{row.name==='upbit'?'Upbit 계산 기준':'주식 계산 기준'}</h3></div>{fields.map(([key,label,help,unit,min,max])=><label key={key}>{label}<small>{help}</small><div className="input-unit"><input type="number" value={row[key]} required step="1" min={min} max={key==='expected_low_percentage'?Math.min(max,Number(row.expected_high_percentage)-1):max} onChange={e=>onChange(index,key,e.target.value)}/><span>{unit}</span></div></label>)}<label className="check"><input type="checkbox" checked={row.volume_check} onChange={e=>onChange(index,'volume_check',e.target.checked)}/><span><b>거래량 조건 사용</b><small>추천 계산에 거래량 증가 여부를 반영합니다.</small></span></label><button className="primary" disabled={pending.includes(`settings-${row.name}`)}>{pending.includes(`settings-${row.name}`)?'저장 중…':'설정 저장'}</button></form>)}</div>
+  return <div className="settings-grid">{rows.map((row,index)=><form className="card form" key={row.name} onSubmit={e=>{e.preventDefault();onSave(row)}}><div className="setting-title"><span className={`market ${row.name}`}>{row.name==='upbit'?'UPBIT':'STOCK'}</span><h3>{row.name==='upbit'?'Upbit 계산 기준':'주식 계산 기준'}</h3></div>{fields.map(([key,label,help,unit,min,max])=><label key={key}>{label}<small>{help}</small><div className="input-unit"><input type="number" value={row[key]} required step="1" min={min} max={key==='expected_low_percentage'?Math.min(max,Number(row.expected_high_percentage)-1):max} onChange={e=>onChange(index,key,e.target.value)}/><span>{unit}</span></div></label>)}<label className="check"><input type="checkbox" checked={row.volume_check} onChange={e=>onChange(index,'volume_check',e.target.checked)}/><span><b>거래량 조건 사용</b><small>추천 계산에 거래량 증가 여부를 반영합니다.</small></span></label><button className="primary" disabled={pending.includes(`settings-${row.name}`)}>{pending.includes(`settings-${row.name}`)?'저장 중…':'설정 저장'}</button></form>)}</div>;
+}
+
+function MailTargets({rows, pending, onAdd}) {
+  const [adding, setAdding] = useState(false);
+  const [email, setEmail] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    onAdd(email.trim());
+    setEmail('');
+    setAdding(false);
+  }
+
+  return (
+    <>
+      <Table rows={rows}/>
+      {adding ? (
+        <form className="card form narrow add-button" onSubmit={handleSubmit}>
+          <h3>메일 수신자 추가</h3>
+          <label>
+            추가할 이메일 주소
+            <input
+              type="email"
+              required
+              autoFocus
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="user@example.com"
+            />
+          </label>
+          <div style={{display:'flex', gap:'8px'}}>
+            <button className="primary" type="submit" disabled={pending.includes('mail')}>추가하기</button>
+            <button type="button" className="quiet" onClick={()=>{setAdding(false); setEmail('');}}>취소</button>
+          </div>
+        </form>
+      ) : (
+        <button
+          className="primary add-button"
+          disabled={pending.includes('mail')}
+          onClick={()=>setAdding(true)}
+        >
+          메일 수신자 추가
+        </button>
+      )}
+    </>
+  );
 }
 
 function ThemeToggle() {
@@ -894,7 +941,7 @@ function App() {
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
  {data&&tab==='users'&&<Table rows={data}/>}
- {data&&tab==='mail'&&<><Table rows={data}/><button className="primary add-button" disabled={pending.includes('mail')} onClick={()=>{const email=prompt('추가할 이메일 주소');if(email?.trim())mutate('mail',()=>api('/admin/mail-targets',{method:'POST',body:JSON.stringify({email:email.trim()})}),{refresh:true})}}>메일 수신자 추가</button></>}
+ {data&&tab==='mail'&&<MailTargets rows={data} pending={pending} onAdd={email=>mutate('mail',()=>api('/admin/mail-targets',{method:'POST',body:JSON.stringify({email})}),{refresh:true})}/>}
  </main></div>
 }
 createRoot(document.getElementById('root')).render(<App/>);

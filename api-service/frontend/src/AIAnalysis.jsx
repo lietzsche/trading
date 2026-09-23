@@ -175,11 +175,72 @@ export function SettingRecommendation({candidates, baselineSettings, master, pen
   );
 }
 
+function ConfirmModal({ title, message, confirmText = '확인', cancelText = '취소', onConfirm, onClose }) {
+  const cancelBtnRef = useRef(null);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const prev = document.activeElement;
+    cancelBtnRef.current?.focus();
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const focusable = modalRef.current?.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      prev?.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="safe-sell-overlay" onClick={onClose}>
+      <div
+        className="safe-sell-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        ref={modalRef}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="safe-sell-header">
+          <h3 id="confirm-dialog-title">{title}</h3>
+          <button className="safe-sell-close-btn" aria-label="닫기" onClick={onClose}>✕</button>
+        </div>
+        <p style={{ margin: '14px 0 20px', color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'keep-all' }}>{message}</p>
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+          <button ref={cancelBtnRef} className="quiet" onClick={onClose}>{cancelText}</button>
+          <button className="danger" onClick={async () => { await onConfirm(); onClose(); }}>{confirmText}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate, initialSymbol = ''}) {
   const [config, setConfig] = useState(null), [configDraft, setConfigDraft] = useState(defaults), [apiKey, setApiKey] = useState('');
   const [history, setHistory] = useState({items: [], total: 0, page: 0, page_size: 10}), [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState(null), [selected, setSelected] = useState(null), [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true), [pending, setPending] = useState(''), [notice, setNotice] = useState(''), [localError, setLocalError] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null);
   const [market, setMarket] = useState('upbit'), [prompt, setPrompt] = useState('현재 전략과 설정을 점검하고, 과거 데이터로 비교한 설정 후보의 장단점과 위험을 설명해 주세요.');
   const [symbols, setSymbols] = useState(''), [includeAccount, setIncludeAccount] = useState(false), [feeBps, setFeeBps] = useState(5), [slippageBps, setSlippageBps] = useState(10);
   const [recommendations, setRecommendations] = useState([]), [chatQuestion, setChatQuestion] = useState(''), [includePortfolio, setIncludePortfolio] = useState(false);
@@ -336,29 +397,33 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       : (history.items || []).find(it => String(it.id) === String(targetId)) || selected;
 
     if (targetItem?.applied_candidate_id) {
-      window.alert('실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다.');
+      setLocalError('실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다.');
       return;
     }
     if (targetItem?.status === 'RUNNING' || targetItem?.status === 'PENDING') {
-      window.alert('현재 분석이 진행 중인 대화는 완료 전까지 삭제할 수 없습니다.');
+      setLocalError('현재 분석이 진행 중인 대화는 완료 전까지 삭제할 수 없습니다.');
       return;
     }
 
-    if (!window.confirm('이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.')) return;
-
-    await runAction(`delete-chat-${targetId}`, async () => {
-      await api(`${API}/analyses/${encodeURIComponent(targetId)}`, {method: 'DELETE'});
-      if (!mounted.current) return;
-      if (String(selectedId) === String(targetId)) {
-        detailRequests.current.cancel();
-        selectedIdRef.current = null;
-        setSelectedId(null);
-        setSelected(null);
-        setProposal(null);
-        setShowEvidence(false);
+    setConfirmDialog({
+      title: 'AI 대화 삭제',
+      message: '이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.',
+      onConfirm: async () => {
+        await runAction(`delete-chat-${targetId}`, async () => {
+          await api(`${API}/analyses/${encodeURIComponent(targetId)}`, {method: 'DELETE'});
+          if (!mounted.current) return;
+          if (String(selectedId) === String(targetId)) {
+            detailRequests.current.cancel();
+            selectedIdRef.current = null;
+            setSelectedId(null);
+            setSelected(null);
+            setProposal(null);
+            setShowEvidence(false);
+          }
+          setNotice('AI 대화를 삭제했습니다.');
+          await refresh(false);
+        });
       }
-      setNotice('AI 대화를 삭제했습니다.');
-      await refresh(false);
     });
   }
 
@@ -418,7 +483,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
         <p className="hint">내 계정의 키와 분석 기록만 사용합니다. 키는 서버에 암호화해 저장하며 다시 표시하지 않습니다. Upbit 비밀키·로그인 비밀번호는 AI에 보내지 않습니다.</p>
         <label>DeepSeek API 키<input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} autoComplete="new-password" maxLength={255} placeholder={config?.configured ? '변경할 때만 새 키 입력' : 'DeepSeek API 키 입력'} required={!config?.configured}/>{config?.key_hint && <small>등록된 키: {config.key_hint}</small>}</label>
         <div className="ai-form-grid ai-one"><label>분석 모델<select value={configDraft.model} onChange={event => setConfigDraft({...configDraft, model: event.target.value})}><option value="deepseek-flash">DeepSeek Flash</option>{configDraft.model !== 'deepseek-flash' && <option value={configDraft.model}>{configDraft.model}</option>}</select></label></div>
-        <div className="ai-actions"><button className="primary" disabled={Boolean(pending) || loading}>{pending === 'config' ? '저장 중…' : '연결 설정 저장'}</button><button type="button" className="quiet" disabled={!config?.configured || Boolean(pending)} onClick={() => runAction('test', async () => {await api(`${API}/config/test`, {method: 'POST'}); if (mounted.current) setNotice('저장된 API 키로 연결을 확인했습니다. 분석 요청은 실행하지 않았습니다.');})}>{pending === 'test' ? '확인 중…' : '저장된 키 연결 확인'}</button><button type="button" className="danger" disabled={!config?.configured || Boolean(pending)} onClick={() => {if (window.confirm('저장된 DeepSeek API 키를 삭제할까요? 새 분석에는 키를 다시 등록해야 합니다.')) runAction('delete', async () => {await api(`${API}/config`, {method: 'DELETE'}); if (mounted.current) {setApiKey(''); setNotice('DeepSeek API 키를 삭제했습니다.'); await refresh(true);}});}}>키 삭제</button></div>
+        <div className="ai-actions"><button className="primary" disabled={Boolean(pending) || loading}>{pending === 'config' ? '저장 중…' : '연결 설정 저장'}</button><button type="button" className="quiet" disabled={!config?.configured || Boolean(pending)} onClick={() => runAction('test', async () => {await api(`${API}/config/test`, {method: 'POST'}); if (mounted.current) setNotice('저장된 API 키로 연결을 확인했습니다. 분석 요청은 실행하지 않았습니다.');})}>{pending === 'test' ? '확인 중…' : '저장된 키 연결 확인'}</button><button type="button" className="danger" disabled={!config?.configured || Boolean(pending)} onClick={() => {setConfirmDialog({title: 'DeepSeek API 키 삭제', message: '저장된 DeepSeek API 키를 삭제할까요? 새 분석에는 키를 다시 등록해야 합니다.', onConfirm: async () => {await runAction('delete', async () => {await api(`${API}/config`, {method: 'DELETE'}); if (mounted.current) {setApiKey(''); setNotice('DeepSeek API 키를 삭제했습니다.'); await refresh(true);}});}});}}>키 삭제</button></div>
       </form>
     </details>
 
@@ -539,5 +604,14 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     </section>}
     {selectedId === null && <section className="ai-chat-empty"><b>새 분석 대화를 준비하고 있습니다.</b><span>위에서 시장과 종목을 고른 뒤 첫 메시지를 보내세요.</span></section>}
     </div></div>
+    {confirmDialog && (
+      <ConfirmModal
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="삭제"
+        onConfirm={confirmDialog.onConfirm}
+        onClose={() => setConfirmDialog(null)}
+      />
+    )}
   </div>;
 }

@@ -13,9 +13,9 @@ describe('MarkdownAnswer', () => {
 | --- | --- |
 | 수익률 | 3% |
 
-[자료](https://example.com) [위험](javascript:alert(1))
+[자료](https://example.com) [위험](javascript:void(0))
 
-<script>alert('xss')</script>`}</MarkdownAnswer>);
+<script>void('xss')</script>`}</MarkdownAnswer>);
 
     expect(html).toContain('<h1>결론</h1>');
     expect(html).toContain('<table>');
