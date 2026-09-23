@@ -222,7 +222,8 @@ header {
   .mobile-more-sheet span {
     font-size: var(--text-xs);
     color: var(--text-secondary);
-    overflow-wrap: anywhere;
+    word-break: keep-all;
+    text-wrap: pretty;
   }
 
   .brand {

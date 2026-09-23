@@ -835,6 +835,8 @@
 
 .safe-sell-warning-box p {
   margin: 0;
+  word-break: keep-all;
+  text-wrap: pretty;
 }
 
 /* Slide to Confirm Track */

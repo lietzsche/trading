@@ -278,7 +278,8 @@
   line-height:1.65;
   font-size: var(--text-sm);
   color:var(--text-secondary);
-  overflow-wrap:anywhere;
+  word-break:keep-all;
+  text-wrap:pretty;
 }
 
 .ai-candidates {
@@ -374,7 +375,8 @@
   font-size: var(--text-xs);
   line-height:1.5;
   margin-top:12px;
-  overflow-wrap:anywhere;
+  word-break:keep-all;
+  text-wrap:pretty;
 }
 
 .ai-confirm {
@@ -1256,7 +1258,8 @@
    color: var(--text-secondary);
    font-size: var(--text-base);
    line-height: 1.75;
-   overflow-wrap: anywhere;
+   word-break: keep-all;
+   text-wrap: pretty;
 }
 
 .ai-markdown > :first-child {

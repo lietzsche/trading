@@ -638,7 +638,7 @@ tbody tr:last-child td {
 
   .progress-label span {
     max-width: 31%;
-    overflow-wrap: anywhere;
+    word-break: keep-all;
   }
 
   .meta {
