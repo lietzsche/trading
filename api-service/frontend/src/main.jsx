@@ -634,23 +634,31 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
          </div>
 
          {row.target_price&&(
-          <div className="targets-section">
-           <div className="targets-header-line">
-            <span className="stop-text">
-             손절 {formatPrice(row.stop_loss_price)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
+          <details className="holding-targets-details">
+           <summary className="holding-targets-summary">
+            <span className="holding-targets-summary-title">목표·손절 기준</span>
+            <span className="holding-targets-summary-val">
+             목표 {formatPrice(row.target_price)} · 손절 {formatPrice(row.stop_loss_price)}
             </span>
-            <span className="target-text">
-             목표 {formatPrice(row.target_price)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
-            </span>
+           </summary>
+           <div className="targets-section">
+            <div className="targets-header-line">
+             <span className="stop-text">
+              손절 {formatPrice(row.stop_loss_price)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
+             </span>
+             <span className="target-text">
+              목표 {formatPrice(row.target_price)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
+             </span>
+            </div>
+            <div className="targets-track">
+             <div className="targets-fill" style={{width:`${Math.max(0,Math.min(100,row.target_progress||0))}%`}} />
+            </div>
+            <div className="targets-footer-line">
+             <span>목표 도달 {number(row.target_progress||0,0)}%</span>
+             {row.renewal_cnt!=null&&<span>추천 갱신 {row.renewal_cnt}단계</span>}
+            </div>
            </div>
-           <div className="targets-track">
-            <div className="targets-fill" style={{width:`${Math.max(0,Math.min(100,row.target_progress||0))}%`}} />
-           </div>
-           <div className="targets-footer-line">
-            <span>목표 도달 {number(row.target_progress||0,0)}%</span>
-            {row.renewal_cnt!=null&&<span>추천 갱신 {row.renewal_cnt}단계</span>}
-           </div>
-          </div>
+          </details>
          )}
 
          {row.ai_action&&(

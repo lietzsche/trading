@@ -510,7 +510,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       <button className="primary" disabled={!config?.configured || Boolean(pending) || running || !prompt.trim()}>{pending === 'analysis' ? '대화 만드는 중…' : running ? '진행 중인 분석을 기다려 주세요' : !config?.configured ? '먼저 DeepSeek 키를 등록해 주세요' : '새 분석 대화 시작'}</button>
     </form></section>}
 
-    <div className={`ai-chat-workspace ai-view-${viewMode}`}>
+    <div className="ai-chat-workspace" data-view={viewMode}>
     <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span></div> : <div className="ai-history-list">{history.items.map(item => {
       const isSelected = String(item.id) === String(selectedId);
       const isApplied = Boolean(item.applied_candidate_id);

@@ -1226,35 +1226,34 @@
     color: var(--accent);
     cursor: default;
 }
-
-.ai-view-summary {
-   grid-template-columns: minmax(0, 1fr);
-   height: auto;
-   min-height: 360px;
+.ai-chat-workspace[data-view="summary"] {
+  grid-template-columns: minmax(0, 1fr);
+  height: auto;
+  min-height: 360px;
 }
 
-.ai-view-summary > .ai-conversation-list {
-   display: none;
+.ai-chat-workspace[data-view="summary"] > .ai-conversation-list {
+  display: none;
 }
 
-.ai-view-summary .ai-conversation-panel {
-   overflow: visible;
+.ai-chat-workspace[data-view="summary"] .ai-conversation-panel {
+  overflow: visible;
 }
 
-.ai-view-summary .ai-first-question, .ai-view-summary .ai-first-answer, .ai-view-summary .ai-chat,.ai-view-summary .ai-notes, .ai-view-summary .ai-dataset, .ai-view-summary .ai-candidates,.ai-view-summary .ai-details, .ai-view-summary .ai-result > .hint {
-   display: none;
+.ai-chat-workspace[data-view="summary"] :is(.ai-first-question, .ai-first-answer, .ai-chat, .ai-notes, .ai-dataset, .ai-candidates, .ai-details, .ai-result > .hint) {
+  display: none;
 }
 
-.ai-view-chat .ai-decision-section, .ai-view-chat .ai-setting-recommendation,.ai-view-chat .ai-result > .ai-notes, .ai-view-chat .ai-result > .info-note,.ai-view-chat .ai-dataset, .ai-view-chat .ai-candidates, .ai-view-chat .ai-confirm,.ai-view-chat .ai-details, .ai-view-chat .ai-result > .hint {
-   display: none;
+.ai-chat-workspace[data-view="chat"] :is(.ai-decision-section, .ai-setting-recommendation, .ai-result > .ai-notes, .ai-result > .info-note, .ai-dataset, .ai-candidates, .ai-confirm, .ai-details, .ai-result > .hint) {
+  display: none;
 }
 
-.ai-view-evidence .ai-chat, .ai-view-evidence .ai-first-question {
-   display: none;
+.ai-chat-workspace[data-view="evidence"] :is(.ai-chat, .ai-first-question) {
+  display: none;
 }
 
-.ai-view-evidence .ai-first-answer {
-   margin-bottom: 8px;
+.ai-chat-workspace[data-view="evidence"] .ai-first-answer {
+  margin-bottom: 8px;
 }
 
 .ai-markdown {
@@ -1404,10 +1403,10 @@
     .ai-setting-verdict {
      justify-self: start;
   }
-    .ai-view-summary .ai-conversation-panel {
+    .ai-chat-workspace[data-view="summary"] .ai-conversation-panel {
      padding: 14px;
   }
-    .ai-view-summary {
+    .ai-chat-workspace[data-view="summary"] {
      min-height: 260px;
   }
     .ai-markdown table {
