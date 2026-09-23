@@ -4,7 +4,6 @@ import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
 import './tokens.css';
 import './style.css';
-import './sell.css';
 import './pwa.css';
 import './pagination.css';
 import './review.css';
