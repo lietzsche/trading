@@ -324,6 +324,7 @@
 .ai-setting-list dd {
   margin:0;
   font-weight:600;
+  font-variant-numeric: tabular-nums;
   overflow-wrap:anywhere;
 }
 
@@ -337,7 +338,7 @@
   min-width:0;
   padding:13px 11px;
   background:var(--surface-sunken);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-md);
   border:1px solid var(--surface-sunken);
 }
 
@@ -366,6 +367,7 @@
   margin:0;
   font-size: var(--text-lg);
   font-weight:700;
+  font-variant-numeric: tabular-nums;
   overflow-wrap:anywhere;
 }
 
@@ -413,6 +415,7 @@
 
 .ai-comparison>div>*:not(:first-child) {
   text-align:right;
+  font-variant-numeric: tabular-nums;
 }
 
 .ai-comparison-heading {
@@ -945,6 +948,7 @@
    margin-top: 5px;
    font-size: var(--text-xl);
    color: var(--text-primary);
+   font-variant-numeric: tabular-nums;
 }
 
 .ai-cockpit-stats .sell {
