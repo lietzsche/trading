@@ -3,12 +3,9 @@ import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
 import './tokens.css';
-import './style.css';
-import './pwa.css';
-import './pagination.css';
-import './review.css';
-import './theme.css';
-import './mobile-improvements.css';
+import './base.css';
+import './layout.css';
+import './components.css';
 import './dashboard.css';
 
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

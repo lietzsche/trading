@@ -1,0 +1,277 @@
+/* ==========================================================================
+   Layout Styles — Shell, Aside, Navigation, Headers, Mobile Bottom Sheet
+   ========================================================================== */
+
+/* Main App Shell */
+.layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+aside {
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-subtle);
+  padding: 26px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: max(24px, env(safe-area-inset-top));
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+
+aside nav {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+aside nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+aside nav button small {
+  display: none;
+}
+
+aside nav button.active {
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand img {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+}
+
+.brand h2,
+.brand p {
+  margin: 0;
+}
+
+.brand h2 {
+  color: var(--accent);
+}
+
+.brand p {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.logout {
+  margin-top: auto;
+}
+
+main {
+  padding: 34px clamp(20px, 4vw, 58px);
+  overflow: auto;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  display: block;
+  color: var(--accent);
+  letter-spacing: 0.16em;
+  font-size: var(--text-xs);
+  margin-bottom: 5px;
+}
+
+.header-actions,
+.section-head,
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-head {
+  justify-content: space-between;
+}
+
+.section-head h2 {
+  margin: 0;
+}
+
+/* Mobile Responsive Navigation & Sheet */
+@media (max-width: 760px) {
+  .layout {
+    display: block;
+    padding-bottom: 78px;
+  }
+
+  aside {
+    display: block;
+    padding: 13px 14px 8px;
+  }
+
+  aside .desktop-nav {
+    display: none;
+  }
+
+  aside .mobile-nav {
+    position: fixed;
+    z-index: var(--z-nav);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(55px, 1fr));
+    overflow: visible;
+    gap: 4px;
+    margin: 0;
+    padding: 7px 7px max(7px, env(safe-area-inset-bottom));
+    background: var(--surface-page);
+    border-top: 1px solid var(--border-subtle);
+    backdrop-filter: blur(18px);
+  }
+
+  aside .mobile-nav button {
+    min-width: 0;
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    text-align: center;
+    font-size: var(--text-xs);
+    padding: 8px 3px;
+  }
+
+  aside .mobile-nav button span {
+    display: none;
+  }
+
+  aside .mobile-nav button small {
+    display: block;
+    font-size: var(--text-xs);
+  }
+
+  .mobile-more-backdrop {
+    position: fixed;
+    z-index: var(--z-overlay);
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .mobile-more-sheet {
+    width: 100%;
+    max-height: 78dvh;
+    padding: 20px 14px max(22px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-overlay);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.4);
+  }
+
+  .mobile-more-sheet h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+  }
+
+  .mobile-more-sheet > div:last-child {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 18px;
+  }
+
+  .mobile-more-sheet > div:last-child button {
+    display: grid;
+    justify-items: start;
+    gap: 5px;
+    min-width: 0;
+    padding: 13px 11px;
+    text-align: left;
+    background: var(--surface-overlay);
+    border: 1px solid var(--surface-overlay);
+    border-radius: var(--radius-md);
+  }
+
+  .mobile-more-sheet > div:last-child button.active {
+    border-color: var(--accent);
+    background: var(--border-subtle);
+  }
+
+  .mobile-more-sheet b {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+  }
+
+  .mobile-more-sheet span {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .brand {
+    margin-bottom: 9px;
+  }
+
+  .brand img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .brand p {
+    font-size: var(--text-xs);
+  }
+
+  .install {
+    width: 100%;
+    margin-bottom: 7px;
+  }
+
+  .logout {
+    position: absolute;
+    right: 14px;
+    top: max(18px, env(safe-area-inset-top));
+    padding: 8px 10px;
+    font-size: var(--text-xs);
+  }
+
+  main {
+    width: 100%;
+    padding: 22px 14px;
+    overflow: visible;
+  }
+
+  header {
+    align-items: flex-start;
+    margin-bottom: 22px;
+  }
+
+  header h1 {
+    font-size: var(--text-2xl);
+  }
+
+  .badge {
+    display: none;
+  }
+
+  .refresh {
+    padding: 8px 10px;
+    font-size: var(--text-xs);
+  }
+}

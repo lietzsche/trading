@@ -1,5 +1,4 @@
-/* ==========================================================================
-   Trading Desk - Today's Dashboard & Asset Management Styles
+/* ==========================================================================   Trading Desk - Today's Dashboard & Asset Management Styles
    Theme: Refined Dark Slate Fintech (Eye-friendly, calm contrast, no harsh glows)
    ========================================================================== */
 
@@ -23,9 +22,9 @@
   padding: 9px 16px;
   background: var(--surface-raised);
   border: 1px dashed var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   color: var(--accent);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -35,7 +34,7 @@
 .dashboard-hero-card {
   background: linear-gradient(180deg, var(--surface-raised) 0%, var(--surface-raised) 100%);
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 22px 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   display: grid;
@@ -69,7 +68,7 @@
   padding: 2px 7px;
   background: rgba(141, 162, 251, 0.12);
   color: var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -89,7 +88,7 @@
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  border-radius: 99px;
+  border-radius: var(--radius-full);
   font-size: var(--text-sm);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -134,7 +133,7 @@
 
 .submetric-item strong {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: var(--text-md);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -160,7 +159,7 @@
 .safety-bar-card {
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 14px 18px;
   display: flex;
   align-items: center;
@@ -209,13 +208,13 @@
 
 .safety-statement h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .safety-statement span {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
 }
 
@@ -231,8 +230,8 @@
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -286,8 +285,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  font-size: var(--text-sm);
 }
 
 .dashboard-alert-pill.caution {
@@ -310,10 +309,10 @@
 
 .dashboard-alert-pill button {
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.12);
   color: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   border: none;
   cursor: pointer;
@@ -333,7 +332,7 @@
 
 .holdings-header h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
@@ -342,10 +341,10 @@
 }
 
 .badge-count {
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 99px;
+  border-radius: var(--radius-full);
   background: var(--surface-overlay);
   color: var(--accent);
 }
@@ -358,8 +357,8 @@
 
 .holdings-filter-tabs button {
   padding: 5px 11px;
-  border-radius: 7px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
   background: var(--surface-raised);
   color: var(--text-tertiary);
@@ -384,7 +383,7 @@
 .holding-card {
   background: var(--surface-raised);
   border: 1px solid var(--surface-overlay);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 16px 18px;
   display: grid;
   gap: 12px;
@@ -416,13 +415,13 @@
 .coin-badge {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--accent);
 }
 
@@ -433,7 +432,7 @@
 
 .coin-names h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md);
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -575,8 +574,8 @@
   display: grid;
   gap: 5px;
   padding: 9px 12px;
-  border-radius: 9px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
   border-left: 3px solid var(--state-success);
 }
 
@@ -606,7 +605,7 @@
   font-size: var(--text-xs);
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .ai-tag.sell {
@@ -651,9 +650,9 @@
   color: var(--accent);
   border: 1px solid var(--border-subtle);
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -674,9 +673,9 @@
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -694,9 +693,9 @@
 }
 
 .krw-badge {
-  background: var(--surface-raised) !important;
-  color: var(--accent) !important;
-  border-color: var(--border-strong) !important;
+  background: var(--surface-raised);
+  color: var(--accent);
+  border-color: var(--border-strong);
 }
 
 /* --------------------------------------------------------------------------
@@ -718,7 +717,7 @@
   width: min(460px, 100%);
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 22px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   display: grid;
@@ -750,13 +749,13 @@
   background: rgba(141, 162, 251, 0.12);
   border: 1px solid rgba(141, 162, 251, 0.25);
   padding: 2px 8px;
-  border-radius: 99px;
+  border-radius: var(--radius-full);
   width: max-content;
 }
 
 .safe-sell-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -772,7 +771,7 @@
   color: var(--text-secondary);
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: var(--text-md);
   padding: 0;
   cursor: pointer;
   flex-shrink: 0;
@@ -788,9 +787,9 @@
   gap: 9px;
   background: var(--surface-sunken);
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   border: 1px solid var(--surface-raised);
-  font-size: 13px;
+  font-size: var(--text-sm);
   margin: 0;
 }
 
@@ -812,17 +811,17 @@
 }
 
 .highlight-krw {
-  font-size: 15px !important;
-  font-weight: 700 !important;
-  color: var(--accent) !important;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--accent);
 }
 
 .safe-sell-warning-box {
   background: rgba(224, 108, 117, 0.08);
   border: 1px solid rgba(224, 108, 117, 0.2);
-  border-radius: 10px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding: 12px 14px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--price-up-surface);
   line-height: 1.5;
   display: grid;
@@ -831,7 +830,7 @@
 
 .safe-sell-warning-box b {
   color: var(--price-up);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .safe-sell-warning-box p {
@@ -848,7 +847,7 @@
   height: 52px;
   background: var(--surface-sunken);
   border: 1px solid var(--border-subtle);
-  border-radius: 99px;
+  border-radius: var(--radius-full);
   position: relative;
   overflow: hidden;
   user-select: none;
@@ -873,7 +872,7 @@
   top: 0;
   bottom: 0;
   background: linear-gradient(90deg, var(--surface-overlay) 0%, var(--state-danger-surface) 100%);
-  border-radius: 99px;
+  border-radius: var(--radius-full);
   pointer-events: none;
 }
 
@@ -881,7 +880,7 @@
   position: relative;
   z-index: 2;
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   pointer-events: none;
   letter-spacing: 0.01em;
@@ -910,7 +909,7 @@
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--text-md);
   box-shadow: 0 2px 8px rgba(217, 83, 79, 0.4);
   z-index: 3;
   pointer-events: none;
@@ -933,8 +932,8 @@
   background: var(--surface-raised);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -947,169 +946,163 @@
 }
 
 /* --------------------------------------------------------------------------
-   6. Today's Executed Orders Section
-   -------------------------------------------------------------------------- */
-.today-orders-card {
-  background: var(--surface-raised);
-  border: 1px solid var(--surface-overlay);
-  border-radius: 16px;
-  padding: 18px 20px;
-  display: grid;
-  gap: 14px;
+   6. Today's Executed Orders Section   -------------------------------------------------------------------------- */.today-orders-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-overlay);
+    border-radius: var(--radius-xl);
+    padding: 18px 20px;
+    display: grid;
+    gap: 14px;
 }
 
 .today-orders-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .today-orders-top h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .today-orders-table {
-  display: grid;
-  gap: 8px;
+    display: grid;
+    gap: 8px;
 }
 
 .today-order-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  background: var(--surface-sunken);
-  border: 1px solid var(--surface-raised);
-  border-radius: 10px;
-  font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--surface-raised);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    font-size: var(--text-sm);
 }
 
 .today-order-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
 .order-badge-side {
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: var(--text-xs);
-  font-weight: 700;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 700;
 }
 
 .order-badge-side.bid {
-  background: rgba(224, 108, 117, 0.14);
-  color: var(--price-up);
+    background: rgba(224, 108, 117, 0.14);
+    color: var(--price-up);
 }
 
 .order-badge-side.ask {
-  background: rgba(98, 157, 235, 0.14);
-  color: var(--price-down);
+    background: rgba(98, 157, 235, 0.14);
+    color: var(--price-down);
 }
 
 .today-order-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  color: var(--text-tertiary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
 }
 
-/* --------------------------------------------------------------------------
-   7. Mobile & Touch Optimizations
-   -------------------------------------------------------------------------- */
-@media (max-width: 768px) {
-  .dashboard-hero-card {
-    padding: 18px 16px;
+/* --------------------------------------------------------------------------   7. Mobile & Touch Optimizations   -------------------------------------------------------------------------- */@media (max-width: 768px) {
+    .dashboard-hero-card {
+        padding: 18px 16px;
   }
-  .safety-bar-card {
-    flex-direction: column;
-    align-items: flex-start;
+    .safety-bar-card {
+        flex-direction: column;
+        align-items: flex-start;
   }
-  .safety-bar-right {
-    width: 100%;
-    justify-content: flex-end;
+    .safety-bar-right {
+        width: 100%;
+        justify-content: flex-end;
   }
-  .safety-bar-right button {
-    width: 100%;
+    .safety-bar-right button {
+        width: 100%;
   }
-  .holdings-header {
-    flex-direction: column;
-    align-items: flex-start;
+    .holdings-header {
+        flex-direction: column;
+        align-items: flex-start;
   }
-  .holdings-filter-tabs {
-    width: 100%;
-    overflow-x: auto;
+    .holdings-filter-tabs {
+        width: 100%;
+        overflow-x: auto;
   }
-  .today-order-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    .today-order-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
   }
-  .today-order-right {
-    width: 100%;
-    justify-content: space-between;
+    .today-order-right {
+        width: 100%;
+        justify-content: space-between;
   }
 }
 
-/* Recommendation Cards AI Action */
-.rec-card-action {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--surface-overlay);
+/* Recommendation Cards AI Action */.rec-card-action {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--surface-overlay);
 }
 
 .btn-rec-ask-ai {
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--surface-overlay);
-  color: var(--accent);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--surface-overlay);
+    color: var(--accent);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
 }
 
 .btn-rec-ask-ai:hover {
-  background: var(--surface-overlay);
-  color: var(--accent);
-  border-color: var(--border-strong);
+    background: var(--surface-overlay);
+    color: var(--accent);
+    border-color: var(--border-strong);
 }
 
-/* Mobile Narrow Screens (<480px) Tweaks */
-@media (max-width: 480px) {
-  .holding-prices-grid {
-    padding: 8px 10px;
-    gap: 6px;
+/* Mobile Narrow Screens (<480px) Tweaks */@media (max-width: 480px) {
+    .holding-prices-grid {
+        padding: 8px 10px;
+        gap: 6px;
   }
-  .holding-prices-grid small {
-    font-size: var(--text-xs);
+    .holding-prices-grid small {
+        font-size: var(--text-xs);
   }
-  .holding-prices-grid strong {
-    font-size: var(--text-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    .holding-prices-grid strong {
+        font-size: var(--text-xs);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
   }
-  .hero-submetrics {
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    .hero-submetrics {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
   }
-  .hero-valuation {
-    font-size: 30px;
+    .hero-valuation {
+        font-size: var(--text-3xl);
   }
 }
+

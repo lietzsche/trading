@@ -4,8 +4,6 @@ import remarkGfm from 'remark-gfm';
 import {api, createRequestGate} from './api';
 import {AI_SETTING_FIELDS, AI_STATUS_LABELS, candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 import './ai.css';
-import './ai-chat.css';
-import './ai-redesign.css';
 
 const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
