@@ -480,7 +480,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
         <span>({todayChangeRate!=null&&todayChangeRate>0?'+':''}{number(todayChangeRate??0)}%)</span>
        </div>
       ):(
-       <small style={{color:'#7b95ae'}}>당일 기준 자산 변동 집계 중</small>
+       <small className="hero-pending-label">당일 기준 자산 변동 집계 중</small>
       )}
      </div>
     </div>
@@ -488,13 +488,13 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     <div className="hero-submetrics">
      <div className="submetric-item">
       <small>미실현 손익</small>
-      <strong style={{color:(unrealized??0)>=0?'#ff7e8e':'#72b2ff'}}>
+      <strong className={(unrealized??0)>=0?'price-up':'price-down'}>
        {unrealized!=null?`${unrealized>0?'+':''}${number(unrealized)}원`:'—'}
       </strong>
      </div>
      <div className="submetric-item">
       <small>평가 수익률</small>
-      <strong style={{color:(unrealizedRate??0)>=0?'#ff7e8e':'#72b2ff'}}>
+      <strong className={(unrealizedRate??0)>=0?'price-up':'price-down'}>
        {unrealizedRate!=null?signed(unrealizedRate):'—'}
       </strong>
      </div>

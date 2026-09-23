@@ -11,10 +11,10 @@
 }
 
 .pager span {
-  color: #8397ab;
+  color: var(--text-tertiary);
   font-size: 13px;
 }
 
 .pager span b {
-  color: #63dfbd;
+  color: var(--accent);
 }
