@@ -893,10 +893,48 @@ function ThemeToggle() {
  );
 }
 
+function useDelayedLoading(loading, delay = 400) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let timer;
+    if (loading) {
+      timer = setTimeout(() => setShow(true), delay);
+    } else {
+      setShow(false);
+    }
+    return () => clearTimeout(timer);
+  }, [loading, delay]);
+  return show;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="skeleton-container" aria-hidden="true" style={{display:'grid', gap:'16px'}}>
+      <div className="skeleton skeleton-card" style={{height:'170px'}}/>
+      <div className="skeleton skeleton-card" style={{height:'70px'}}/>
+      <div className="skeleton-grid">
+        <div className="skeleton skeleton-card"/>
+        <div className="skeleton skeleton-card"/>
+      </div>
+    </div>
+  );
+}
+
+function CardsSkeleton() {
+  return (
+    <div className="skeleton-grid" aria-hidden="true">
+      <div className="skeleton skeleton-card"/>
+      <div className="skeleton skeleton-card"/>
+      <div className="skeleton skeleton-card"/>
+    </div>
+  );
+}
+
 function App() {
  const [aiRefresh,setAiRefresh]=useState(0);
  const [aiInitialSymbol,setAiInitialSymbol]=useState('');
  const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('account'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]),[mobileMore,setMobileMore]=useState(false);
+ const showSkeleton = useDelayedLoading(loading && !data, 400);
  const requests=useRef(createRequestGate()),authRequests=useRef(createRequestGate()),activeTab=useRef('account'),view=useRef(0),actions=useRef(new Set());
  const expireSession=useCallback(()=>{requests.current.cancel();view.current++;setData(null);setUser(null);setAuthMessage('로그인이 만료되었습니다. 다시 로그인해 주세요.')},[]);
  const handleError=useCallback(e=>{if(e?.status===401){expireSession();return}setError(typeof e==='string'?e:e?.message||'요청을 처리하지 못했습니다.')},[expireSession]);
@@ -929,7 +967,13 @@ function App() {
  const scopedError=e=>{if(view.current===currentView)handleError(e)};
  const statusLabel=loading?'조회 중':error?'조회 실패':data?'조회 완료':'대기 중';
  return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav">{visible.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><span>{label}</span><small>{short}</small></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><span>나머지 메뉴</span><small>더보기</small></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<div className="mobile-more-backdrop" onClick={()=>setMobileMore(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="전체 메뉴" onClick={event=>event.stopPropagation()}><div className="section-head"><h2>전체 메뉴</h2><button className="quiet compact" onClick={()=>setMobileMore(false)}>닫기</button></div><div>{mobileSecondary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><b>{short}</b><span>{label}</span></button>)}</div></section></div>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><ThemeToggle /><span className={`badge ${error?'failed':''}`} role="status">{statusLabel}</span><button className="refresh quiet" onClick={load} disabled={loading}>{error?'다시 시도':'새로고침'}</button></div></header>
- {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}{loading&&<div className="loading-row" role="status"><div className="loader"/>데이터를 불러오는 중입니다.</div>}
+ {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}
+ {loading&&!data&&showSkeleton&&(
+  <>
+   <span className="sr-only" role="status">데이터를 불러오는 중입니다…</span>
+   {tab==='account'?<DashboardSkeleton/>:<CardsSkeleton/>}
+  </>
+ )}
  {data&&tab==='system'&&<section className="status-grid">{Object.entries(data).map(([key,value])=><article className="card status-card" key={key}><small>{labels[key]||key}</small><strong>{display(key,value)}</strong></article>)}</section>}
  {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab} onAskAI={handleAskAI}/></>}
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
