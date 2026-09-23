@@ -45,6 +45,29 @@ aside nav button.active {
   font-weight: 700;
 }
 
+.nav-group {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.nav-group:first-child {
+  margin-top: 0;
+}
+
+.nav-group-title {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+}
+
+.nav-group-items {
+  display: grid;
+  gap: 3px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -190,14 +213,34 @@ header {
     font-size: var(--text-xl);
   }
 
-  .mobile-more-sheet > div:last-child {
+  .mobile-sheet-content {
+    display: grid;
+    gap: 14px;
+    margin-top: 16px;
+    max-height: 65vh;
+    overflow-y: auto;
+  }
+
+  .mobile-sheet-group {
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobile-sheet-group-title {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    font-weight: 700;
+    margin: 0 0 2px 4px;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-sheet-group-items {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 9px;
-    margin-top: 18px;
   }
 
-  .mobile-more-sheet > div:last-child button {
+  .mobile-sheet-group-items button {
     display: grid;
     justify-items: start;
     gap: 5px;
@@ -209,7 +252,7 @@ header {
     border-radius: var(--radius-md);
   }
 
-  .mobile-more-sheet > div:last-child button.active {
+  .mobile-sheet-group-items button.active {
     border-color: var(--accent);
     background: var(--border-subtle);
   }
