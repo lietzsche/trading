@@ -24,7 +24,7 @@ function display(key,value){if(value===null||value===undefined||value==='')retur
 const tabs=[['account','오늘의 대시보드','홈'],['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['ai','AI 분석','AI'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
 
 function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[joining,setJoining]=useState(false),[name,setName]=useState('');async function submit(event){event.preventDefault();setError('');try{if(joining){await api('/auth/join',{method:'POST',body:JSON.stringify({login_id:loginId,password,name})});setJoining(false);setPassword('');return}await api('/auth/login',{method:'POST',body:JSON.stringify({login_id:loginId,password})});onLogin()}catch(e){setError(e.message)}}return <main className="login"><div style={{position:'absolute',top:'1rem',right:'1rem'}}><ThemeToggle /></div><section className="login-shell"><div className="login-intro"><img src="/icons/icon-192.png" alt="Trading"/><small className="eyebrow">PERSONAL TRADING DESK</small><h1>내 투자 흐름을<br/>한눈에 확인하세요.</h1><p>추천 종목, 보유 자산과 자동매매 상태를 안전하게 관리합니다.</p></div><form className="login-form" onSubmit={submit}><div><h2>{joining?'새 계정 만들기':'로그인'}</h2><p>{joining?'필요한 정보만 입력해 시작하세요.':'계속하려면 계정 정보를 입력하세요.'}</p></div>{joining&&<label>이름<input value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></label>}<label>아이디<input autoFocus value={loginId} onChange={e=>setLoginId(e.target.value)} required autoComplete="username"/></label><label>비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={joining?'new-password':'current-password'}/></label>{(error||message)&&<div className="error" role="alert">{error||message}</div>}<button className="primary">{joining?'계정 만들기':'로그인'}</button><button type="button" className="text-button" onClick={()=>{setJoining(!joining);setError('')}}>{joining?'이미 계정이 있나요? 로그인':'처음이신가요? 계정 만들기'}</button></form></section></main>}
-function Empty({text='표시할 데이터가 없습니다.'}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span></div>}
+function Empty({text='표시할 데이터가 없습니다.',action}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span>{action&&<button type="button" className="empty-action-btn" onClick={action.onClick}>{action.label}</button>}</div>}
 function usePagination(rows,size){const [page,setPage]=useState(0),pages=Math.max(1,Math.ceil((rows?.length||0)/size));useEffect(()=>setPage(value=>Math.min(value,pages-1)),[pages]);return {page,setPage,pages,items:(rows||[]).slice(page*size,(page+1)*size)}}
 function Pager({page,pages,onChange}){if(pages<=1)return null;return <nav className="pager" aria-label="페이지 이동"><button className="quiet" disabled={page===0} onClick={()=>onChange(page-1)}>이전</button><span><b>{page+1}</b> / {pages}</span><button className="quiet" disabled={page+1===pages} onClick={()=>onChange(page+1)}>다음</button></nav>}
 function Table({rows,columns}){if(!Array.isArray(rows)||!rows.length)return <Empty/>;const keys=columns||Object.keys(rows[0]);return <div className="table-wrap"><table><thead><tr>{keys.map(key=><th key={key}>{labels[key]||key}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id??row.uuid??row.code??index}>{keys.map(key=><td data-label={labels[key]||key} key={key}>{display(key,row[key])}</td>)}</tr>)}</tbody></table></div>}
@@ -571,7 +571,10 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     </div>
 
     {!visibleAssets.length?(
-     <Empty text="표시할 보유 자산이 없습니다." />
+     <Empty
+      text="표시할 보유 자산이 없습니다."
+      action={onNavigate?{label:'추천 종목 둘러보기 →',onClick:()=>onNavigate('upbit')}:undefined}
+     />
     ):(
      <div className="holdings-grid">
       {visibleAssets.map(row=>{
