@@ -172,6 +172,33 @@ function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매
   }
  }
 
+ function handleKeyDown(e){
+  if(disabled||confirmed)return;
+  if(e.key==='ArrowRight'){
+   e.preventDefault();
+   setDragPct(prev=>Math.min(100,prev+5));
+  }else if(e.key==='ArrowLeft'){
+   e.preventDefault();
+   setDragPct(prev=>Math.max(0,prev-5));
+  }else if(e.key==='Home'){
+   e.preventDefault();
+   setDragPct(0);
+  }else if(e.key==='End'){
+   e.preventDefault();
+   setDragPct(100);
+  }else if(e.key==='Enter'||e.key===' '){
+   e.preventDefault();
+   if(dragPct>=90&&!confirmed){
+    setConfirmed(true);
+    setDragPct(100);
+    if(typeof window!=='undefined'&&window.navigator?.vibrate){
+     try{window.navigator.vibrate(50)}catch(_){}
+    }
+    onConfirm();
+   }
+  }
+ }
+
  const trackWidth=trackRef.current?trackRef.current.getBoundingClientRect().width:320;
  const maxOffset=Math.max(0,trackWidth-54);
  const handleOffset=(dragPct/100)*maxOffset;
@@ -184,10 +211,13 @@ function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매
    onPointerMove={handlePointerMove}
    onPointerUp={handlePointerUp}
    onPointerCancel={handlePointerUp}
+   onKeyDown={handleKeyDown}
+   tabIndex={disabled?-1:0}
    role="slider"
    aria-valuemin={0}
    aria-valuemax={100}
    aria-valuenow={Math.round(dragPct)}
+   aria-valuetext={confirmed?'주문 전송 중':`${Math.round(dragPct)}퍼센트 — ${dragPct>=90?'Enter 또는 Space 키를 눌러 매도를 확정하세요':'오른쪽 방향키로 끝까지 밀어주세요'}`}
    aria-label="안전 매도 확인 슬라이더"
   >
    <div className="slide-fill" style={{width:`${Math.max(handleOffset+27,0)}px`}} />
