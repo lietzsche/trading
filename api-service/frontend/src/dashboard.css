@@ -742,15 +742,17 @@
 }
 
 .safe-sell-close-btn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
   background: #18202d;
   border: 1px solid #263246;
   color: #8fa0b5;
   display: grid;
   place-items: center;
-  font-size: 14px;
+  font-size: 16px;
   padding: 0;
   cursor: pointer;
   flex-shrink: 0;
@@ -903,6 +905,10 @@
 
 .btn-safe-sell-cancel {
   width: 100%;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 11px;
   background: #141822;
   color: #8a96a8;
