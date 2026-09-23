@@ -27,7 +27,7 @@ function display(key,value){if(value===null||value===undefined||value==='')retur
 
 const tabs=[['account','오늘의 대시보드','홈'],['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['ai','AI 분석','AI'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
 
-function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[joining,setJoining]=useState(false),[name,setName]=useState('');async function submit(event){event.preventDefault();setError('');try{if(joining){await api('/auth/join',{method:'POST',body:JSON.stringify({login_id:loginId,password,name})});setJoining(false);setPassword('');return}await api('/auth/login',{method:'POST',body:JSON.stringify({login_id:loginId,password})});onLogin()}catch(e){setError(e.message)}}return <main className="login"><section className="login-shell"><div className="login-intro"><img src="/icons/icon-192.png" alt="Trading"/><small className="eyebrow">PERSONAL TRADING DESK</small><h1>내 투자 흐름을<br/>한눈에 확인하세요.</h1><p>추천 종목, 보유 자산과 자동매매 상태를 안전하게 관리합니다.</p></div><form className="login-form" onSubmit={submit}><div><h2>{joining?'새 계정 만들기':'로그인'}</h2><p>{joining?'필요한 정보만 입력해 시작하세요.':'계속하려면 계정 정보를 입력하세요.'}</p></div>{joining&&<label>이름<input value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></label>}<label>아이디<input autoFocus value={loginId} onChange={e=>setLoginId(e.target.value)} required autoComplete="username"/></label><label>비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={joining?'new-password':'current-password'}/></label>{(error||message)&&<div className="error" role="alert">{error||message}</div>}<button className="primary">{joining?'계정 만들기':'로그인'}</button><button type="button" className="text-button" onClick={()=>{setJoining(!joining);setError('')}}>{joining?'이미 계정이 있나요? 로그인':'처음이신가요? 계정 만들기'}</button></form></section></main>}
+function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[joining,setJoining]=useState(false),[name,setName]=useState('');async function submit(event){event.preventDefault();setError('');try{if(joining){await api('/auth/join',{method:'POST',body:JSON.stringify({login_id:loginId,password,name})});setJoining(false);setPassword('');return}await api('/auth/login',{method:'POST',body:JSON.stringify({login_id:loginId,password})});onLogin()}catch(e){setError(e.message)}}return <main className="login"><div style={{position:'absolute',top:'1rem',right:'1rem'}}><ThemeToggle /></div><section className="login-shell"><div className="login-intro"><img src="/icons/icon-192.png" alt="Trading"/><small className="eyebrow">PERSONAL TRADING DESK</small><h1>내 투자 흐름을<br/>한눈에 확인하세요.</h1><p>추천 종목, 보유 자산과 자동매매 상태를 안전하게 관리합니다.</p></div><form className="login-form" onSubmit={submit}><div><h2>{joining?'새 계정 만들기':'로그인'}</h2><p>{joining?'필요한 정보만 입력해 시작하세요.':'계속하려면 계정 정보를 입력하세요.'}</p></div>{joining&&<label>이름<input value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></label>}<label>아이디<input autoFocus value={loginId} onChange={e=>setLoginId(e.target.value)} required autoComplete="username"/></label><label>비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete={joining?'new-password':'current-password'}/></label>{(error||message)&&<div className="error" role="alert">{error||message}</div>}<button className="primary">{joining?'계정 만들기':'로그인'}</button><button type="button" className="text-button" onClick={()=>{setJoining(!joining);setError('')}}>{joining?'이미 계정이 있나요? 로그인':'처음이신가요? 계정 만들기'}</button></form></section></main>}
 function Empty({text='표시할 데이터가 없습니다.'}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span></div>}
 function usePagination(rows,size){const [page,setPage]=useState(0),pages=Math.max(1,Math.ceil((rows?.length||0)/size));useEffect(()=>setPage(value=>Math.min(value,pages-1)),[pages]);return {page,setPage,pages,items:(rows||[]).slice(page*size,(page+1)*size)}}
 function Pager({page,pages,onChange}){if(pages<=1)return null;return <nav className="pager" aria-label="페이지 이동"><button className="quiet" disabled={page===0} onClick={()=>onChange(page-1)}>이전</button><span><b>{page+1}</b> / {pages}</span><button className="quiet" disabled={page+1===pages} onClick={()=>onChange(page+1)}>다음</button></nav>}
@@ -682,6 +682,61 @@ function Settings({rows,onChange,onSave,pending}) {
  return <div className="settings-grid">{rows.map((row,index)=><form className="card form" key={row.name} onSubmit={e=>{e.preventDefault();onSave(row)}}><div className="setting-title"><span className={`market ${row.name}`}>{row.name==='upbit'?'UPBIT':'STOCK'}</span><h3>{row.name==='upbit'?'Upbit 계산 기준':'주식 계산 기준'}</h3></div>{fields.map(([key,label,help,unit,min,max])=><label key={key}>{label}<small>{help}</small><div className="input-unit"><input type="number" value={row[key]} required step="1" min={min} max={key==='expected_low_percentage'?Math.min(max,Number(row.expected_high_percentage)-1):max} onChange={e=>onChange(index,key,e.target.value)}/><span>{unit}</span></div></label>)}<label className="check"><input type="checkbox" checked={row.volume_check} onChange={e=>onChange(index,'volume_check',e.target.checked)}/><span><b>거래량 조건 사용</b><small>추천 계산에 거래량 증가 여부를 반영합니다.</small></span></label><button className="primary" disabled={pending.includes(`settings-${row.name}`)}>{pending.includes(`settings-${row.name}`)?'저장 중…':'설정 저장'}</button></form>)}</div>
 }
 
+function ThemeToggle() {
+ const [theme, setTheme] = useState(() => {
+  try {
+   return localStorage.getItem('theme') || 'system';
+  } catch (_) {
+   return 'system';
+  }
+ });
+
+ const changeTheme = (next) => {
+  setTheme(next);
+  try {
+   if (next === 'system') {
+    localStorage.removeItem('theme');
+    delete document.documentElement.dataset.theme;
+   } else {
+    localStorage.setItem('theme', next);
+    document.documentElement.dataset.theme = next;
+   }
+  } catch (_) {}
+ };
+
+ return (
+  <div className="theme-toggle-group" role="group" aria-label="화면 테마">
+   <button
+    type="button"
+    className={`theme-toggle-btn ${theme === 'light' ? 'active' : ''}`}
+    aria-pressed={theme === 'light'}
+    onClick={() => changeTheme('light')}
+    title="라이트 모드로 전환"
+   >
+    ☀️ 라이트
+   </button>
+   <button
+    type="button"
+    className={`theme-toggle-btn ${theme === 'system' ? 'active' : ''}`}
+    aria-pressed={theme === 'system'}
+    onClick={() => changeTheme('system')}
+    title="시스템 테마 따르기"
+   >
+    💻 시스템
+   </button>
+   <button
+    type="button"
+    className={`theme-toggle-btn ${theme === 'dark' ? 'active' : ''}`}
+    aria-pressed={theme === 'dark'}
+    onClick={() => changeTheme('dark')}
+    title="다크 모드로 전환"
+   >
+    🌙 다크
+   </button>
+  </div>
+ );
+}
+
 function App() {
  const [aiRefresh,setAiRefresh]=useState(0);
  const [aiInitialSymbol,setAiInitialSymbol]=useState('');
@@ -717,7 +772,7 @@ function App() {
  const primaryKeys=['upbit','stock','account','ai'],mobilePrimary=visible.filter(([key])=>primaryKeys.includes(key)),mobileSecondary=visible.filter(([key])=>!primaryKeys.includes(key));
  const scopedError=e=>{if(view.current===currentView)handleError(e)};
  const statusLabel=loading?'조회 중':error?'조회 실패':data?'조회 완료':'대기 중';
- return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav">{visible.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><span>{label}</span><small>{short}</small></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><span>나머지 메뉴</span><small>더보기</small></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<div className="mobile-more-backdrop" onClick={()=>setMobileMore(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="전체 메뉴" onClick={event=>event.stopPropagation()}><div className="section-head"><h2>전체 메뉴</h2><button className="quiet compact" onClick={()=>setMobileMore(false)}>닫기</button></div><div>{mobileSecondary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><b>{short}</b><span>{label}</span></button>)}</div></section></div>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><span className={`badge ${error?'failed':''}`} role="status">{statusLabel}</span><button className="refresh quiet" onClick={load} disabled={loading}>{error?'다시 시도':'새로고침'}</button></div></header>
+ return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav">{visible.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><span>{label}</span><small>{short}</small></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><span>나머지 메뉴</span><small>더보기</small></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<div className="mobile-more-backdrop" onClick={()=>setMobileMore(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="전체 메뉴" onClick={event=>event.stopPropagation()}><div className="section-head"><h2>전체 메뉴</h2><button className="quiet compact" onClick={()=>setMobileMore(false)}>닫기</button></div><div>{mobileSecondary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><b>{short}</b><span>{label}</span></button>)}</div></section></div>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><ThemeToggle /><span className={`badge ${error?'failed':''}`} role="status">{statusLabel}</span><button className="refresh quiet" onClick={load} disabled={loading}>{error?'다시 시도':'새로고침'}</button></div></header>
  {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}{loading&&<div className="loading-row" role="status"><div className="loader"/>데이터를 불러오는 중입니다.</div>}
  {data&&tab==='system'&&<section className="status-grid">{Object.entries(data).map(([key,value])=><article className="card status-card" key={key}><small>{labels[key]||key}</small><strong>{display(key,value)}</strong></article>)}</section>}
  {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab} onAskAI={handleAskAI}/></>}
