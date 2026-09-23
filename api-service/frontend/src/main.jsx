@@ -76,9 +76,9 @@ function RecommendationCards({rows,market,onAskAI}) {
            <h3>{row.name}</h3>
            <small>{row.code}</small>
           </div>
-          <div className={`change ${change>=0?'up':'down'}`}>
+          <div className={`change ${change>0?'up':change<0?'down':'neutral'}`}>
            <small>기준가 대비</small>
-           <strong>{signed(change)}</strong>
+           <strong>{change>0?'▲ ':change<0?'▼ ':''}{signed(change)}</strong>
           </div>
          </div>
          <div className="price-main">
@@ -476,7 +476,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
       {todayChange!=null?(
        <div className={`hero-pnl-pill ${todayChange>0?'up':todayChange<0?'down':'neutral'}`}>
         <span>오늘 변동</span>
-        <strong>{todayChange>0?'+':''}{number(todayChange)}원</strong>
+        <strong>{todayChange>0?'▲ +':todayChange<0?'▼ ':''}{number(todayChange)}원</strong>
         <span>({todayChangeRate!=null&&todayChangeRate>0?'+':''}{number(todayChangeRate??0)}%)</span>
        </div>
       ):(
@@ -488,14 +488,14 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     <div className="hero-submetrics">
      <div className="submetric-item">
       <small>미실현 손익</small>
-      <strong className={(unrealized??0)>=0?'price-up':'price-down'}>
-       {unrealized!=null?`${unrealized>0?'+':''}${number(unrealized)}원`:'—'}
+      <strong className={(unrealized??0)>0?'price-up':(unrealized??0)<0?'price-down':'neutral'}>
+       {unrealized!=null?`${unrealized>0?'▲ +':unrealized<0?'▼ ':''}${number(unrealized)}원`:'—'}
       </strong>
      </div>
      <div className="submetric-item">
       <small>평가 수익률</small>
-      <strong className={(unrealizedRate??0)>=0?'price-up':'price-down'}>
-       {unrealizedRate!=null?signed(unrealizedRate):'—'}
+      <strong className={(unrealizedRate??0)>0?'price-up':(unrealizedRate??0)<0?'price-down':'neutral'}>
+       {unrealizedRate!=null?`${unrealizedRate>0?'▲ ':unrealizedRate<0?'▼ ':''}${signed(unrealizedRate)}`:'—'}
       </strong>
      </div>
      <div className="submetric-item">
@@ -619,8 +619,8 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
           <div className="coin-valuation-block">
            <span className="coin-valuation-amount">{formatKrw(row.valuation)}</span>
            {row.profit_rate!=null&&(
-            <span className={`coin-return-badge ${Number(row.profit_rate)>=0?'up':'down'}`}>
-             {Number(row.profit_rate)>=0?'+':''}{number(row.profit_rate)}%
+            <span className={`coin-return-badge ${Number(row.profit_rate)>0?'up':Number(row.profit_rate)<0?'down':'neutral'}`}>
+             {Number(row.profit_rate)>0?'▲ +':Number(row.profit_rate)<0?'▼ ':''}{number(row.profit_rate)}%
             </span>
            )}
           </div>

@@ -483,6 +483,11 @@
   color: var(--price-down);
 }
 
+.coin-return-badge.neutral {
+  background: var(--surface-overlay);
+  color: var(--text-secondary);
+}
+
 /* Prices Row */
 .holding-prices-grid {
   display: grid;
