@@ -293,6 +293,11 @@
     transition-duration: 0.01ms;
     scroll-behavior: auto;
   }
+
+  .loader {
+    animation-duration: 2.5s;
+    animation-iteration-count: infinite;
+  }
 }
 
 /* --------------------------------------------------------------------------

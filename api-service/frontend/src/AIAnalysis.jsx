@@ -464,7 +464,8 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
 
   useEffect(() => {
     if (!selected || !chatBottomRef.current) return;
-    chatBottomRef.current.scrollIntoView({behavior: conversations.length ? 'smooth' : 'auto', block: 'end'});
+    const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    chatBottomRef.current.scrollIntoView({behavior: (!reducedMotion && conversations.length) ? 'smooth' : 'auto', block: 'end'});
   }, [selectedId, selected?.status, conversations.length, conversations.at(-1)?.status]);
 
   const decisions = Array.isArray(result.portfolio_actions) ? result.portfolio_actions : [];
