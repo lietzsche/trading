@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
+import './tokens.css';
 import './style.css';
 import './sell.css';
 import './pwa.css';

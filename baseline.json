@@ -1,0 +1,405 @@
+{
+  "timestamp": "2026-09-23T06:25:42.293Z",
+  "summary": {
+    "total": 21,
+    "passed": 5,
+    "failed": 16
+  },
+  "results": {
+    "AUTO-1": {
+      "pass": true,
+      "value": "빌드 성공 (오류 0)",
+      "detail": "0 errors"
+    },
+    "AUTO-2": {
+      "pass": true,
+      "value": "테스트 통과 (3)",
+      "detail": "0 failed"
+    },
+    "AUTO-3": {
+      "pass": false,
+      "value": 298,
+      "target": "<= 10",
+      "detail": "#25405a, #9ce4d1, #28435a, #0b1928, #43e2b1, #143b37, #86efd2, #8fa6ba, #153c3a, #0a1725, #20384d, #294159, #73dfc2, #20364b, #091522..."
+    },
+    "AUTO-4": {
+      "pass": false,
+      "value": 0,
+      "target": "<= 60 (> 0)",
+      "detail": "0 primitive tokens"
+    },
+    "AUTO-5": {
+      "pass": false,
+      "value": 25,
+      "target": "<= 5",
+      "detail": "12px}\n.ai-symbol-picker legend{padding:0 7px, 13px, 18px, 99px}\n.ai-conversation-panel .ai-result{max-width:860px, 14px, 10px, 11px, 8px, 7px, 9px, 4px, 6px, 5px, 12px, 16px, 20px 20px 0 0, 14px}tbody tr:hover{background:#101d2de8}td{display:grid, 18px}.login-intro{padding:24px 24px 20px}.login-intro img{width:52px, 10px}\n.market-sell-confirm dt{font-size:11px, 13px}.brand h2,.brand p{margin:0}.brand h2{color:#59e3bd}.brand p{margin-top:3px, inherit}.meta{display:grid, 18px}.account-summary small,.account-summary span{color:#9eb1c2}.account-summary strong{font-size:clamp(28px,5vw,42px)}.account-summary span{font-size:12px}.asset{display:grid, 10px}.check input{width:18px, 16px}.empty b{color:#cbd7e3}.loading-row,.center{display:flex, 22px"
+    },
+    "AUTO-6": {
+      "pass": false,
+      "value": 60,
+      "target": "<= 8",
+      "detail": "12px}\n.ai-symbol-picker>div{display:flex, 10px}\n.ai-symbol-picker>small{display:block, 12px}\n.ai-news-source>span{color:#8fa6ba}\n.ai-news-source a{display:grid, 10px}.ai-message-composer .ai-chat-consent{padding:9px 10px, 11px}.ai-decision p{margin:0, 12px, 26px, 10px, 20px, 13px, 11px, 14px, 17px, 15px, .9em, 14px}.ai-mode{display:inline-block, 18px, 12px}.ai-config summary{display:flex, 11px}.ai-page .form input,.ai-page .form textarea,.ai-page .form select{max-width:100%, 13px}.ai-history-item time,.ai-history-item small{font-size:11px, 13px}.ai-setting-list div{min-width:0, 12px}.ai-setting-list dd{margin:0, 13px}.ai-comparison{display:grid, 13px}.ai-comparison>div{display:grid, 11px}.ai-comparison strong{color:#70e3c3}.ai-source{font-size:12px, 25px}.ai-intro p{font-size:13px}.ai-intro>.ai-mode{justify-self:start}.ai-page .card{padding:17px}.ai-form-grid,.ai-form-grid.ai-two{grid-template-columns:minmax(0,1fr), 10px}.ai-actions>button{flex:1 1 140px, 12px}.ai-usage{gap:10px 20px}.ai-usage span{flex-wrap:wrap}.ai-history-list{grid-template-columns:minmax(0,1fr)}.ai-candidates{grid-template-columns:minmax(0,1fr)}.ai-candidate .ai-section-head h3{font-size:16px}.ai-prose{font-size:13px}.ai-page .info-note{font-size:12px, 12px}.ai-comparison>div{grid-template-columns:1.1fr 1fr 1fr, 13px}}\n\n/* ==========================================================================\n   Trading Desk - Today's Dashboard & Asset Management Styles\n   Theme: Refined Dark Slate Fintech (Eye-friendly, calm contrast, no harsh glows)\n   ========================================================================== */\n\n.dashboard-stack {\n  display: grid, 16px, 15px !important, 30px, 0, 19px, 12px}.install{width:100%, 0}aside nav button small{display:block, 11px}.logout{position:absolute, 12px}main{width:100%, 26px}.badge{display:none}.refresh{padding:8px 10px, 12px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr)), 10px}.price-main strong{font-size:25px, 12px}tbody tr td:last-child{border-bottom:0}.login{padding:14px}.login-shell{display:block, 27px, 13px}\n.error-filters label:nth-child(2){flex:1, 30px}.eyebrow{display:block, 12px}.danger{background:#55242c, 22px, 21px}.recommendation-head small,.meta small,.price-main small{color:#8499af}.market{padding:4px 8px, 19px}.change.up,.asset-return.up{color:#ff7582}.change.down,.asset-return.down{color:#62a9ff}.price-main{margin:22px 0}.price-main small{display:block}.price-main strong{font-size:28px}.progress-label{display:flex, 12px}.meta span{min-width:0, 13px}.info-note b{color:#66e1bf}.dividend-grid,.auto-grid,.settings-grid,.asset-grid{display:grid, 24px}.account-summary{display:grid, 13px}.asset-prices small{display:block, 13px}.key-form{order:3}.order-list{display:grid, 13px}.order-values small{display:block, 12px}.order-foot details{text-align:right, 14px}th,td{padding:13px 14px, 18px}.setting-title{display:flex, 36px"
+    },
+    "AUTO-7": {
+      "pass": false,
+      "value": 44,
+      "target": "0",
+      "detail": "font-size:10px, font-size:10px, font-size:11px, font-size: 10px, font-size: 11px"
+    },
+    "AUTO-8": {
+      "pass": false,
+      "value": 0,
+      "target": ">= 1 (전역 버튼 커버)",
+      "detail": ":focus-visible count: 0"
+    },
+    "AUTO-9": {
+      "pass": false,
+      "value": 2,
+      "target": "0",
+      "detail": "2 instances"
+    },
+    "AUTO-10": {
+      "pass": false,
+      "value": 0,
+      "target": ">= 1",
+      "detail": "prefers-reduced-motion matches: 0"
+    },
+    "AUTO-11": {
+      "pass": false,
+      "value": "root:false, prefers-dark:false, data-dark:false, data-light:false",
+      "target": "4개 전부 존재"
+    },
+    "AUTO-12": {
+      "pass": false,
+      "value": 14,
+      "target": "<= 3",
+      "detail": "14 !important"
+    },
+    "AUTO-13": {
+      "pass": true,
+      "value": 0,
+      "target": "0",
+      "detail": ""
+    },
+    "AUTO-14": {
+      "pass": true,
+      "value": 0,
+      "target": "<= 5",
+      "detail": "Unreferenced classes: 0"
+    },
+    "AUTO-15": {
+      "pass": false,
+      "value": 8,
+      "target": "0",
+      "detail": "alert: 4, confirm: 2, prompt: 2"
+    },
+    "AUTO-16": {
+      "pass": true,
+      "value": "index: #07111f, manifest: #07111f, surface-page: undefined",
+      "target": "일치"
+    },
+    "AUTO-17": {
+      "pass": false,
+      "value": "다크 실패: 0쌍, 라이트 실패: 미설정",
+      "target": "0쌍 실패"
+    },
+    "AUTO-18": {
+      "pass": false,
+      "value": "다크 경계 실패: 1, 라이트: 미설정",
+      "target": "0건"
+    },
+    "AUTO-19": {
+      "pass": false,
+      "value": "다크 미달: 19쌍 / 25쌍, 라이트 미달: 미설정",
+      "target": "0쌍 미달 (핵심 게이트)"
+    },
+    "AUTO-20": {
+      "pass": false,
+      "value": "다크 단계 미달: 2, 라이트: 미설정",
+      "target": ">= 1.25:1"
+    },
+    "AUTO-21": {
+      "pass": false,
+      "value": "라이트 또는 다크 미통과",
+      "target": "양쪽 모두 통과"
+    }
+  },
+  "darkTestsDetails": [
+    {
+      "id": "1. targets-footer",
+      "txt": "#7b8798",
+      "bg": "#141824",
+      "wcag": "4.86",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "36.5",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "2. delete-btn",
+      "txt": "#7b8798",
+      "bg": "#141824",
+      "wcag": "4.86",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "36.5",
+      "reqLc": 95,
+      "passApca": false
+    },
+    {
+      "id": "3. coin-names small",
+      "txt": "#8a96a8",
+      "bg": "#141824",
+      "wcag": "5.91",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.0",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "4. prices-grid small",
+      "txt": "#7b8798",
+      "bg": "#0f131c",
+      "wcag": "5.10",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "36.9",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "5. submetric small",
+      "txt": "#8a96a8",
+      "bg": "#141824",
+      "wcag": "5.91",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.0",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "6. safety-statement",
+      "txt": "#8a96a8",
+      "bg": "#141824",
+      "wcag": "5.91",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.0",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "7. slide-label",
+      "txt": "#8a96a8",
+      "bg": "#0f131c",
+      "wcag": "6.20",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.5",
+      "reqLc": 95,
+      "passApca": false
+    },
+    {
+      "id": "8. badge-up",
+      "txt": "#e06c75",
+      "bg": "#141824",
+      "wcag": "5.54",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "41.9",
+      "reqLc": 60,
+      "passApca": false
+    },
+    {
+      "id": "9. hint",
+      "txt": "#7b8798",
+      "bg": "#0b0d12",
+      "wcag": "5.33",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "37.3",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "10. hero-label",
+      "txt": "#8a96a8",
+      "bg": "#141824",
+      "wcag": "5.91",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.0",
+      "reqLc": 95,
+      "passApca": false
+    },
+    {
+      "id": "11. body-page",
+      "txt": "#edf0f5",
+      "bg": "#0b0d12",
+      "wcag": "17.01",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "97.6",
+      "reqLc": 90,
+      "passApca": true
+    },
+    {
+      "id": "12. body-card",
+      "txt": "#edf0f5",
+      "bg": "#141824",
+      "wcag": "15.50",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "96.7",
+      "reqLc": 90,
+      "passApca": true
+    },
+    {
+      "id": "13. hero-val",
+      "txt": "#edf0f5",
+      "bg": "#141824",
+      "wcag": "15.50",
+      "reqWcag": 3,
+      "passWcag": true,
+      "apca": "96.7",
+      "reqLc": 60,
+      "passApca": true
+    },
+    {
+      "id": "14. coin-val",
+      "txt": "#edf0f5",
+      "bg": "#141824",
+      "wcag": "15.50",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "96.7",
+      "reqLc": 75,
+      "passApca": true
+    },
+    {
+      "id": "15. today-order",
+      "txt": "#8a96a8",
+      "bg": "#0f131c",
+      "wcag": "6.20",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.5",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "16. badge-bid",
+      "txt": "#e06c75",
+      "bg": "#0f131c",
+      "wcag": "5.81",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "42.4",
+      "reqLc": 60,
+      "passApca": false
+    },
+    {
+      "id": "17. badge-ask",
+      "txt": "#72b0f5",
+      "bg": "#0f131c",
+      "wcag": "8.18",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "56.8",
+      "reqLc": 60,
+      "passApca": false
+    },
+    {
+      "id": "18. ai-meta",
+      "txt": "#7b8798",
+      "bg": "#141824",
+      "wcag": "4.86",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "36.5",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "19. ai-reason",
+      "txt": "#edf0f5",
+      "bg": "#141824",
+      "wcag": "15.50",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "96.7",
+      "reqLc": 90,
+      "passApca": true
+    },
+    {
+      "id": "20. cockpit-stat",
+      "txt": "#7b8798",
+      "bg": "#141824",
+      "wcag": "4.86",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "36.5",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "21. eyebrow",
+      "txt": "#8a96a8",
+      "bg": "#0b0d12",
+      "wcag": "6.49",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.9",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "22. freshness",
+      "txt": "#8a96a8",
+      "bg": "#141824",
+      "wcag": "5.91",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "44.0",
+      "reqLc": 100,
+      "passApca": false
+    },
+    {
+      "id": "23. prices-strong",
+      "txt": "#edf0f5",
+      "bg": "#0f131c",
+      "wcag": "16.27",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "97.2",
+      "reqLc": 90,
+      "passApca": true
+    },
+    {
+      "id": "24. targets-stop",
+      "txt": "#72b0f5",
+      "bg": "#141824",
+      "wcag": "7.80",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "56.3",
+      "reqLc": 60,
+      "passApca": false
+    },
+    {
+      "id": "25. targets-target",
+      "txt": "#e06c75",
+      "bg": "#141824",
+      "wcag": "5.54",
+      "reqWcag": 4.5,
+      "passWcag": true,
+      "apca": "41.9",
+      "reqLc": 60,
+      "passApca": false
+    }
+  ],
+  "lightTestsDetails": []
+}
