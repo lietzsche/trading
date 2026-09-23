@@ -242,6 +242,114 @@ function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매
  );
 }
 
+function SafeSellModal({ target, selling, onClose, onConfirm }) {
+ const modalRef = useRef(null);
+
+ useEffect(() => {
+  const originalOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+
+  const timer = setTimeout(() => {
+   if (modalRef.current) {
+    const focusable = modalRef.current.querySelector('button:not([disabled]), [tabindex="0"]');
+    focusable?.focus();
+   }
+  }, 30);
+
+  return () => {
+   clearTimeout(timer);
+   document.body.style.overflow = originalOverflow;
+  };
+ }, []);
+
+ const handleKeyDown = useCallback((e) => {
+  if (e.key === 'Escape') {
+   if (!selling) {
+    e.preventDefault();
+    onClose();
+   }
+   return;
+  }
+  if (e.key === 'Tab' && modalRef.current) {
+   const focusables = Array.from(modalRef.current.querySelectorAll(
+    'button:not([disabled]), [tabindex="0"], a[href], input:not([disabled])'
+   ));
+   if (focusables.length === 0) return;
+   const first = focusables[0];
+   const last = focusables[focusables.length - 1];
+   if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+   } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+   }
+  }
+ }, [selling, onClose]);
+
+ return (
+  <div className="safe-sell-overlay" onClick={() => !selling && onClose()}>
+   <div
+    className="safe-sell-modal"
+    ref={modalRef}
+    onClick={e => e.stopPropagation()}
+    onKeyDown={handleKeyDown}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="safe-sell-modal-title"
+   >
+    <div className="safe-sell-header">
+     <div className="safe-sell-title-wrap">
+      <span className="safe-sell-shield-badge">🛡️ 오작동 방지 2단계 잠금</span>
+      <h3 id="safe-sell-modal-title">KRW-{target.currency} 시장가 매도</h3>
+     </div>
+     <button
+      className="safe-sell-close-btn"
+      disabled={selling}
+      onClick={onClose}
+      aria-label="닫기"
+     >
+      ✕
+     </button>
+    </div>
+
+    <dl className="safe-sell-details">
+     <div><dt>매도 종목</dt><dd>KRW-{target.currency}</dd></div>
+     <div><dt>주문 수량</dt><dd>{formatQty(target.balance, target.currency)} (전량)</dd></div>
+     <div><dt>현재가 환산액</dt><dd className="highlight-krw">{formatKrw(Number(target.balance||0)*Number(target.current_price||0))}</dd></div>
+     {target.avg_buy_price && (
+      <div><dt>평균 매수가</dt><dd>{formatPrice(target.avg_buy_price)}</dd></div>
+     )}
+    </dl>
+
+    <div className="safe-sell-warning-box">
+     <b>실수 방지 안전 안내</b>
+     <p>화면 실수 터치로 인한 오작동을 막기 위해 단일 탭으로는 주문이 실행되지 않습니다.</p>
+     <p>아래 슬라이더의 핸들을 <strong>오른쪽 끝까지 밀어야</strong> 매도 주문이 접수되며, 체결 후 해당 종목은 10분간 자동 재매수에서 제외됩니다.</p>
+    </div>
+
+    <div className="slide-track-container">
+     <SlideToConfirm
+      key={target.currency}
+      onConfirm={onConfirm}
+      disabled={selling}
+      label={selling ? "주문 처리 중…" : "오른쪽으로 밀어서 매도 실행"}
+     />
+    </div>
+
+    <button
+     type="button"
+     className="btn-safe-sell-cancel"
+     disabled={selling}
+     onClick={onClose}
+    >
+     취소하고 돌아가기
+    </button>
+   </div>
+  </div>
+ );
+}
+
 function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const [access,setAccess]=useState(''),[secret,setSecret]=useState(''),[saving,setSaving]=useState(false),[showKeys,setShowKeys]=useState(false);
  const [sellTarget,setSellTarget]=useState(null),[selling,setSelling]=useState(false),[message,setMessage]=useState('');
@@ -251,6 +359,21 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const [countdown,setCountdown]=useState(snapshot?.safety?.next_decision_seconds??30);
  const touchStart=useRef(0);
  const saveLock=useRef(false),sellLock=useRef(false);
+ const sellTriggerRef=useRef(null);
+
+ const openSell=(row,e)=>{
+  sellTriggerRef.current=e?.currentTarget||document.activeElement;
+  setSellTarget(row);
+  setMessage('');
+ };
+
+ const closeSell=()=>{
+  setSellTarget(null);
+  if(sellTriggerRef.current){
+   try{sellTriggerRef.current.focus?.()}catch(_){}
+   sellTriggerRef.current=null;
+  }
+ };
 
  useEffect(()=>{
   setCountdown(snapshot?.safety?.next_decision_seconds??30);
@@ -295,7 +418,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
      keep_auto:true
     })
    });
-   setSellTarget(null);
+   closeSell();
    setMessage(`${result.market} 시장가 매도 주문을 접수했습니다. 자동매매는 유지되며 이 종목만 10분간 재매수하지 않습니다. 주문 내역에서 체결 상태를 확인하세요.`);
    await reload();
   }catch(e){setError(e)}finally{sellLock.current=false;setSelling(false)}
@@ -554,7 +677,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
           {user?.user_role==='MASTER'&&available>0&&(
            <button
             className="btn-safe-sell-open"
-            onClick={()=>{setSellTarget(row);setMessage('');}}
+            onClick={e=>openSell(row,e)}
             title="안전 매도 주문 창 열기"
            >
             <span>🛡️ 매도 검토</span>
@@ -599,52 +722,12 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
    </section>
 
    {sellTarget&&(
-    <div className="safe-sell-overlay" onClick={()=>!selling&&setSellTarget(null)}>
-     <div className="safe-sell-modal" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="오작동 방지 안전 매도">
-      <div className="safe-sell-header">
-       <div className="safe-sell-title-wrap">
-        <span className="safe-sell-shield-badge">🛡️ 오작동 방지 2단계 잠금</span>
-        <h3>KRW-{sellTarget.currency} 시장가 매도</h3>
-       </div>
-       <button className="safe-sell-close-btn" disabled={selling} onClick={()=>setSellTarget(null)} aria-label="닫기">
-        ✕
-       </button>
-      </div>
-
-      <dl className="safe-sell-details">
-       <div><dt>매도 종목</dt><dd>KRW-{sellTarget.currency}</dd></div>
-       <div><dt>주문 수량</dt><dd>{formatQty(sellTarget.balance, sellTarget.currency)} (전량)</dd></div>
-       <div><dt>현재가 환산액</dt><dd className="highlight-krw">{formatKrw(Number(sellTarget.balance||0)*Number(sellTarget.current_price||0))}</dd></div>
-       {sellTarget.avg_buy_price&&(
-        <div><dt>평균 매수가</dt><dd>{formatPrice(sellTarget.avg_buy_price)}</dd></div>
-       )}
-      </dl>
-
-      <div className="safe-sell-warning-box">
-       <b>실수 방지 안전 안내</b>
-       <p>화면 실수 터치로 인한 오작동을 막기 위해 단일 탭으로는 주문이 실행되지 않습니다.</p>
-       <p>아래 슬라이더의 핸들을 <strong>오른쪽 끝까지 밀어야</strong> 매도 주문이 접수되며, 체결 후 해당 종목은 10분간 자동 재매수에서 제외됩니다.</p>
-      </div>
-
-      <div className="slide-track-container">
-       <SlideToConfirm
-        key={sellTarget.currency}
-        onConfirm={sell}
-        disabled={selling}
-        label={selling?"주문 처리 중…":"오른쪽으로 밀어서 매도 실행"}
-       />
-      </div>
-
-      <button
-       type="button"
-       className="btn-safe-sell-cancel"
-       disabled={selling}
-       onClick={()=>setSellTarget(null)}
-      >
-       취소하고 돌아가기
-      </button>
-     </div>
-    </div>
+    <SafeSellModal
+     target={sellTarget}
+     selling={selling}
+     onClose={closeSell}
+     onConfirm={sell}
+    />
    )}
 
    {showKeys&&(
