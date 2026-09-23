@@ -79,9 +79,6 @@
   cursor: pointer;
   color: inherit;
 }
-.ai-history-item-btn:focus {
-  outline: none;
-}
 .ai-history-item-info {
   display: grid;
   gap: 3px;

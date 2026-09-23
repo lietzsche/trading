@@ -273,7 +273,16 @@
 }
 
 /* --------------------------------------------------------------------------
-   5. Motion Accessibility (WCAG 2.3.3)
+   5. Focus Visible Accessibility (WCAG 2.4.7)
+   -------------------------------------------------------------------------- */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   6. Motion Accessibility (WCAG 2.3.3)
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -287,7 +296,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   6. Theme Toggle Component
+   7. Theme Toggle Component
    -------------------------------------------------------------------------- */
 .theme-toggle-group {
   display: inline-flex;
