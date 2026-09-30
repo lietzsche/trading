@@ -38,7 +38,7 @@ class TradingEngine:
             (self.collect_upbit, "interval", {"minutes": 15}),
             (self.update_upbit, "interval", {"minutes": 1}),
             (self.auto_order, "interval", {"seconds": 30}),
-            (self.collect_stock, "cron", {"day_of_week": "mon-fri", "hour": "8-16", "minute": "*/15"}),
+            (self.collect_stock, "cron", {"day_of_week": "mon-fri", "hour": 8, "minute": 10}),
             (self.update_stock, "cron", {"day_of_week": "mon-fri", "hour": "8-15", "minute": "*"}),
             (self.save_stock_history, "cron", {"day_of_week": "mon-fri", "hour": 17, "minute": 30}),
             (self.save_upbit_history, "cron", {"hour": 17, "minute": 30}),
@@ -73,8 +73,12 @@ class TradingEngine:
                 message = "Sensitive error details were redacted"
                 break
         self.db.execute(
-            "INSERT INTO trade_error_log(source,operation,error_type,message,created_at) VALUES(%s,%s,%s,%s,%s)",
-            (source[:20], operation[:100], type(error).__name__[:255], message, self.now()),
+            """INSERT INTO trade_error_log(source,operation,error_type,message,created_at)
+               SELECT %s,%s,%s,%s,%s WHERE NOT EXISTS (
+                 SELECT 1 FROM trade_error_log WHERE source=%s AND operation=%s AND error_type=%s
+                   AND created_at::timestamp > now()-interval '5 minutes')""",
+            (source[:20], operation[:100], type(error).__name__[:255], message, self.now(),
+             source[:20], operation[:100], type(error).__name__[:255]),
         )
 
     @staticmethod
@@ -164,17 +168,27 @@ class TradingEngine:
 
     @staticmethod
     def stock_prices(code, count):
-        pages = max(1, min(20, (count + 9) // 10)); prices = []
-        for page in range(1, pages + 1):
-            response = httpx.get("https://finance.naver.com/item/sise_day.nhn",
-                                 params={"code": code, "page": page},
-                                 headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-            response.raise_for_status(); soup = BeautifulSoup(response.text, "html.parser")
-            for row in soup.select("table.type2 tr"):
-                cells = [cell.get_text(strip=True).replace(",", "") for cell in row.select("td")]
-                if len(cells) < 7 or not cells[0]: continue
-                prices.append({"close": float(cells[1]), "diff": 0, "open": float(cells[3]),
-                               "high": float(cells[4]), "low": float(cells[5]), "volume": float(cells[6])})
+        prices, cursor = [], None
+        while len(prices) < min(count, 200):
+            params = {"size": min(100, count - len(prices))}
+            if cursor:
+                params["cursor"] = cursor
+            response = httpx.get(f"https://stock.naver.com/api/stockSecurity/items/v2/domestic/{code}/daily-prices",
+                                 params=params, headers={"User-Agent": "Mozilla/5.0",
+                                 "Referer": "https://stock.naver.com/"}, timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+            rows = payload.get("items", []) if isinstance(payload, dict) else []
+            for row in rows:
+                try:
+                    prices.append({"close": float(row["closingPrice"]), "diff": float(row.get("changePrice") or 0),
+                                   "open": float(row["openingPrice"]), "high": float(row["highPrice"]),
+                                   "low": float(row["lowPrice"]), "volume": float(row["tradingVolume"])})
+                except (KeyError, TypeError, ValueError):
+                    continue
+            cursor = payload.get("cursor") if isinstance(payload, dict) and payload.get("hasNext") else None
+            if not rows or not cursor:
+                break
         return prices[:count]
 
     def collect_stock(self):
@@ -258,11 +272,20 @@ class TradingEngine:
         return self.run("STOCK", "SCHEDULE_SAVE_DIVIDEND_STOCKS", self._collect_dividends)
 
     def _collect_dividends(self):
-        response = httpx.get("https://finance.naver.com/sise/dividend_list.naver",
-                             headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        response = httpx.get("https://stock.naver.com/api/domestic/market/stock/dividend",
+                             params={"tradeType": "KRX", "marketType": "ALL", "dividend": "dividendRate",
+                                     "startIdx": 0, "pageSize": 100},
+                             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://stock.naver.com/"}, timeout=30)
         response.raise_for_status()
-        response.encoding = "euc-kr"
-        items = self.parse_dividend_page(response.text)
+        payload = response.json()
+        items = []
+        for row in payload if isinstance(payload, list) else []:
+            try:
+                code, name, rate = str(row["itemcode"]), str(row["itemname"]).strip(), float(row["dividendRate"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if re.fullmatch(r"\d{6}", code) and name and rate > 0:
+                items.append({"code": code, "name": name, "dividend_rate": rate})
         if not items:
             raise RuntimeError("배당주 목록이 비어 있습니다.")
         now = self.now()

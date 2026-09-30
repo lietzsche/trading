@@ -485,9 +485,10 @@ class AIService:
                 self._settle(cursor, row, status, used, result, error_message)
 
     def history(self, user_id, page):
-        total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s", (user_id,))["count"]
-        items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens,automation_run
-            FROM ai_analyses WHERE user_id=%s ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
+        total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s AND hidden_at IS NULL", (user_id,))["count"]
+        items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens,
+            automation_run,applied_candidate_id FROM ai_analyses
+            WHERE user_id=%s AND hidden_at IS NULL ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
         return {"items": items, "total": total, "page": page, "page_size": 10}
 
     def recommendations(self, market):
@@ -497,7 +498,7 @@ class AIService:
     def detail(self, user_id, analysis_id):
         row = self.db.one("""SELECT id,market,status,prompt,include_account,settings_snapshot,result,error_message,
             model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at,automation_run,automation_note
-            FROM ai_analyses WHERE id=%s AND user_id=%s""", (analysis_id, user_id))
+            FROM ai_analyses WHERE id=%s AND user_id=%s AND hidden_at IS NULL""", (analysis_id, user_id))
         if not row:
             raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
         row["conversations"] = self.db.all("""SELECT id,status,question,answer,research,error_message,usage_tokens,
@@ -515,8 +516,9 @@ class AIService:
             if row["status"] in {"PENDING", "RUNNING"}:
                 raise HTTPException(409, "진행 중인 대화는 삭제할 수 없습니다.")
             if row["applied_candidate_id"]:
-                raise HTTPException(409, "실제 설정을 적용한 분석은 감사 기록 보존을 위해 삭제할 수 없습니다.")
-            cursor.execute("DELETE FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+                cursor.execute("UPDATE ai_analyses SET hidden_at=now() WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+            else:
+                cursor.execute("DELETE FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
 
     def enqueue_conversation(self, user_id, analysis_id, payload):
         today = self.today()

@@ -396,18 +396,16 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       ? itemOrId
       : (history.items || []).find(it => String(it.id) === String(targetId)) || selected;
 
-    if (targetItem?.applied_candidate_id) {
-      setLocalError('실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다.');
-      return;
-    }
     if (targetItem?.status === 'RUNNING' || targetItem?.status === 'PENDING') {
       setLocalError('현재 분석이 진행 중인 대화는 완료 전까지 삭제할 수 없습니다.');
       return;
     }
 
     setConfirmDialog({
-      title: 'AI 대화 삭제',
-      message: '이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.',
+      title: targetItem?.applied_candidate_id ? '감사 기록 숨기기' : 'AI 대화 삭제',
+      message: targetItem?.applied_candidate_id
+        ? '설정을 적용한 기록은 안전 감사를 위해 서버에 보존됩니다. 내 대화 목록에서 숨길까요?'
+        : '이 AI 대화와 모든 메시지를 삭제할까요? 복구할 수 없습니다.',
       onConfirm: async () => {
         await runAction(`delete-chat-${targetId}`, async () => {
           await api(`${API}/analyses/${encodeURIComponent(targetId)}`, {method: 'DELETE'});
@@ -420,7 +418,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
             setProposal(null);
             setShowEvidence(false);
           }
-          setNotice('AI 대화를 삭제했습니다.');
+          setNotice(targetItem?.applied_candidate_id ? '감사 기록을 대화 목록에서 숨겼습니다.' : 'AI 대화를 삭제했습니다.');
           await refresh(false);
         });
       }
@@ -531,16 +529,16 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
           </button>
           <button
             type="button"
-            className={`ai-item-delete-btn ${isApplied ? 'disabled-tag' : ''}`}
-            title={isApplied ? '실제 설정을 적용한 분석은 삭제할 수 없습니다' : isRunning ? '진행 중인 분석은 삭제할 수 없습니다' : '대화 삭제'}
-            disabled={Boolean(pending) || isApplied || isRunning}
+            className="ai-item-delete-btn"
+            title={isApplied ? '감사 기록은 보존하고 목록에서 숨기기' : isRunning ? '진행 중인 분석은 삭제할 수 없습니다' : '대화 삭제'}
+            disabled={Boolean(pending) || isRunning}
             onClick={(e) => {
               e.stopPropagation();
               deleteTargetConversation(item);
             }}
             aria-label={`${item.prompt || '대화'} 삭제`}
           >
-            {isDeleting ? '…' : isApplied ? '🔒' : '✕'}
+            {isDeleting ? '…' : isApplied ? '숨김' : '✕'}
           </button>
         </div>
       );
@@ -551,27 +549,15 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       <div className="section-head ai-section-head">
         <h3>{selected ? `${marketName(selected.market)} 분석` : '분석 불러오는 중'}</h3>
         <div className="ai-header-actions">
-          {selected && !running && !chatRunning && (
-            selected.applied_candidate_id ? (
-              <button
-                type="button"
-                className="quiet compact disabled-applied"
-                disabled
-                title="실제 계산 설정을 적용한 분석 기록은 감사 및 안전 보존을 위해 삭제할 수 없습니다."
-              >
-                🔒 설정 적용 보존됨
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="danger compact"
-                disabled={Boolean(pending?.startsWith('delete-chat'))}
-                onClick={() => deleteTargetConversation(selected)}
-              >
-                {pending?.startsWith('delete-chat') ? '삭제 중…' : '대화 삭제'}
-              </button>
-            )
-          )}
+          {selected && !running && !chatRunning && <button
+            type="button"
+            className={selected.applied_candidate_id ? 'quiet compact' : 'danger compact'}
+            disabled={Boolean(pending?.startsWith('delete-chat'))}
+            onClick={() => deleteTargetConversation(selected)}
+            title={selected.applied_candidate_id ? '설정 적용 이력은 보존하고 목록에서만 숨깁니다.' : '대화와 후속 메시지를 삭제합니다.'}
+          >
+            {pending?.startsWith('delete-chat') ? '처리 중…' : selected.applied_candidate_id ? '목록에서 숨기기' : '대화 삭제'}
+          </button>}
           <button className="quiet compact" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion(''); setShowEvidence(false); setViewMode('chat');}}>새 분석</button>
         </div>
       </div>

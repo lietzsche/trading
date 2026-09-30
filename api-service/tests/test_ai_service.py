@@ -152,6 +152,8 @@ class DeleteCursor:
             self.result = self.database.row
         elif query.startswith("DELETE FROM ai_analyses"):
             self.database.deleted = params
+        elif query.startswith("UPDATE ai_analyses SET hidden_at"):
+            self.database.hidden = params
 
     def fetchone(self): return self.result
 
@@ -163,7 +165,7 @@ class DeleteConnection:
 
 class DeleteDatabase:
     def __init__(self, row):
-        self.row, self.deleted, self.queries = row, None, []
+        self.row, self.deleted, self.hidden, self.queries = row, None, None, []
 
     @contextmanager
     def connection(self):
@@ -172,7 +174,6 @@ class DeleteDatabase:
 
 @pytest.mark.parametrize("row,message", [
     ({"status": "RUNNING", "applied_candidate_id": None}, "진행 중"),
-    ({"status": "COMPLETED", "applied_candidate_id": "candidate-1"}, "감사 기록"),
     (None, "찾을 수"),
 ])
 def test_conversation_delete_protects_active_applied_and_foreign_records(row, message):
@@ -186,3 +187,10 @@ def test_completed_unapplied_conversation_can_be_deleted_by_owner():
     database = DeleteDatabase({"status": "COMPLETED", "applied_candidate_id": None})
     service(database).delete_analysis(7, 11)
     assert database.deleted == (11, 7)
+
+
+def test_applied_conversation_is_hidden_but_preserved_for_audit():
+    database = DeleteDatabase({"status": "COMPLETED", "applied_candidate_id": "candidate-1"})
+    service(database).delete_analysis(7, 11)
+    assert database.hidden == (11, 7)
+    assert database.deleted is None

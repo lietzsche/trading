@@ -72,11 +72,13 @@ def test_scheduler_is_off_until_explicitly_enabled():
 
 
 def test_stock_parser_skips_invalid_rows(monkeypatch):
-    body = """<table class='type2'><tr><td>2026.09.09</td><td>10,000</td><td>0</td>
-    <td>9,000</td><td>11,000</td><td>8,000</td><td>123,456</td></tr></table>"""
-    response = type("Response", (), {"text": body, "raise_for_status": lambda self: None})()
+    payload = {"hasNext": False, "items": [{"closingPrice": "10000", "changePrice": "100",
+        "openingPrice": "9000", "highPrice": "11000", "lowPrice": "8000", "tradingVolume": "123456"},
+        {"closingPrice": None}]}
+    response = type("Response", (), {"json": lambda self: payload, "raise_for_status": lambda self: None})()
     monkeypatch.setattr("app.trading.httpx.get", lambda *args, **kwargs: response)
-    assert TradingEngine.stock_prices("000000", 1)[0]["close"] == 10000
+    assert TradingEngine.stock_prices("000000", 2) == [{"close": 10000, "diff": 100, "open": 9000,
+        "high": 11000, "low": 8000, "volume": 123456}]
 
 
 def test_stock_universe_uses_named_columns(monkeypatch):
