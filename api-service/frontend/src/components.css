@@ -259,6 +259,51 @@
   margin-bottom: 18px;
 }
 
+.success-toast {position:fixed;z-index:var(--z-toast);bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-md);margin:0}
+.success-toast span {flex:1;min-width:0}
+.expandable-value {min-width:0;overflow-wrap:anywhere;word-break:normal}
+.clamped-value {display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.changed-badge {font-size:var(--text-xs);color:var(--state-warning);background:var(--state-warning-surface);padding:2px 6px;border-radius:var(--radius-sm)}
+.setting-change-list>div {padding:8px 0;border-bottom:1px solid var(--border-subtle)}
+.setting-change-list dd {margin:0;color:var(--text-secondary)}
+button.quiet {border:1px solid var(--border-strong);min-height:44px}
+.recommendation-rank {color:var(--accent);font-variant-numeric:tabular-nums}
+.priority-badge {font-size:var(--text-xs);color:var(--state-warning)}
+.recommendation-details summary {min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--text-secondary)}
+.admin-actions {display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.stock-filter-row {display:flex;align-items:center;justify-content:space-between;gap:8px}
+
+@media(max-width:760px){
+ .recommendation.compact-recommendation {position:relative;padding:6px 12px;gap:2px;display:flex;flex-direction:column;min-height:0}
+ .compact-recommendation .recommendation-head {gap:8px}
+ .compact-recommendation .tag-row {gap:6px;margin:0;flex-wrap:nowrap}
+ .compact-recommendation .tag-row .market {display:none}
+ .compact-recommendation h3 {margin:0;font-size:var(--text-base);line-height:1.4;display:inline}
+ .compact-recommendation .recommendation-head>div:first-child>small {display:inline;margin-left:6px}
+ .compact-recommendation .recommendation-head small {font-size:var(--text-xs)}
+ .compact-recommendation .change {gap:0;min-width:0}
+ .compact-recommendation .price-main {padding:0;margin:0;gap:8px;display:flex;align-items:baseline;justify-content:space-between;background:transparent;border:0}
+ .compact-recommendation .price-main strong {font-size:var(--text-lg)}
+ .compact-recommendation .progress-label {font-size:var(--text-xs);gap:4px;margin:0;flex-wrap:nowrap}
+ .compact-recommendation .progress-label b {display:none}
+ .compact-recommendation .progress-label span {max-width:none;white-space:nowrap}
+ .compact-recommendation .progress {height:4px;margin:0}
+ .compact-recommendation .recommendation-details {padding-right:105px}
+ .compact-recommendation .rec-card-action {position:absolute;right:12px;bottom:10px;padding:0;border:0;margin:0}
+ .compact-recommendation .btn-rec-ask-ai {width:auto;min-height:44px;padding:0 12px}
+ .compact-recommendation:has(details[open]) .rec-card-action {position:static;align-self:flex-end}
+ .compact-recommendation:has(details[open]) .recommendation-details {padding-right:0}
+ .recommendations {gap:8px}
+ .recommendation-toolbar {margin-bottom:8px;gap:8px}
+ .recommendation-toolbar .summary {font-size:var(--text-xs)}
+ .recommendation-toolbar .filter-chips {flex-shrink:0}
+ .recommendation-toolbar .filter-chips button {white-space:nowrap;padding:0 8px}
+ .price-freshness {display:flex;align-items:center;justify-content:space-between;gap:8px}
+ .price-freshness>span {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs)}
+ .table-wrap td {min-width:0;overflow-wrap:anywhere}
+ .table-wrap td .expandable-value {min-width:0;width:100%}
+}
+
 .error {
   background: var(--state-danger-surface);
   color: var(--price-up);
@@ -266,7 +311,7 @@
 
 .notice {
   background: var(--state-success-surface);
-  color: var(--accent-surface);
+  color: var(--state-success);
 }
 
 /* Dividend & Auto Grids */

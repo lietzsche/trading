@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
 import {Icon, Sheet} from './MobileUI';
+import {Toast, ExpandableText} from './Feedback';
 import {equityRegion, filterEquities, dollarPrice} from './equities';
 import './tokens.css';
 import './base.css';
@@ -36,25 +37,26 @@ function Login({onLogin,message}){const [loginId,setLoginId]=useState(''),[passw
 function Empty({text='표시할 데이터가 없습니다.',action}){return <div className="empty"><b>아직 데이터가 없습니다</b><span>{text}</span>{action&&<button type="button" className="empty-action-btn" onClick={action.onClick}>{action.label}</button>}</div>}
 function usePagination(rows,size){const [page,setPage]=useState(0),pages=Math.max(1,Math.ceil((rows?.length||0)/size));useEffect(()=>setPage(value=>Math.min(value,pages-1)),[pages]);return {page,setPage,pages,items:(rows||[]).slice(page*size,(page+1)*size)}}
 function Pager({page,pages,onChange}){if(pages<=1)return null;return <nav className="pager" aria-label="페이지 이동"><button className="quiet" disabled={page===0} onClick={()=>onChange(page-1)}>이전</button><span><b>{page+1}</b> / {pages}</span><button className="quiet" disabled={page+1===pages} onClick={()=>onChange(page+1)}>다음</button></nav>}
-function Table({rows,columns}){if(!Array.isArray(rows)||!rows.length)return <Empty/>;const keys=columns||Object.keys(rows[0]);return <div className="table-wrap"><table><thead><tr>{keys.map(key=><th key={key}>{labels[key]||key}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id??row.uuid??row.code??index}>{keys.map(key=><td data-label={labels[key]||key} key={key}>{display(key,row[key])}</td>)}</tr>)}</tbody></table></div>}
+function Table({rows,columns}){if(!Array.isArray(rows)||!rows.length)return <Empty/>;const keys=columns||Object.keys(rows[0]);return <div className="table-wrap"><table><thead><tr>{keys.map(key=><th key={key}>{labels[key]||key}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id??row.uuid??row.code??index}>{keys.map(key=><td data-label={labels[key]||key} key={key}>{['message','operation','error_type'].includes(key)?<ExpandableText>{display(key,row[key])}</ExpandableText>:display(key,row[key])}</td>)}</tr>)}</tbody></table></div>}
 
 function PriceFreshness({rows}) {
+ const [info,setInfo]=useState(false);
  const [,setTick]=useState(0);
  useEffect(()=>{const timer=setInterval(()=>setTick(value=>value+1),15000);return()=>clearInterval(timer)},[]);
  const latest=(rows||[]).map(row=>row.updated_at).filter(Boolean).sort().at(-1);
  if(!latest)return <div className="price-freshness unknown"><span>가격 갱신 시각 확인 불가</span></div>;
  const parsed=new Date(String(latest).replace(' ','T')),age=Date.now()-parsed.getTime(),healthy=Number.isFinite(age)&&age<=150000;
- return <div className={`price-freshness ${healthy?'healthy':'delayed'}`} role="status"><span><i/>{healthy?'가격 갱신 정상':'가격 갱신 지연'} · {display('updated_at',latest)}</span><details><summary aria-label="가격 갱신 주기 안내">?</summary><p>Upbit 추천 가격은 서버가 1분마다 갱신하고, 이 화면은 열려 있는 동안 30초마다 결과를 확인합니다. 자동 주문 판단은 별도로 30초마다 실행됩니다.</p></details></div>;
+ return <><div className={`price-freshness ${healthy?'healthy':'delayed'}`} role="status"><span><i/>{healthy?'가격 갱신 정상':'가격 갱신 지연'} · {display('updated_at',latest)}</span><button className="quiet" aria-label="가격 갱신 주기 안내" onClick={()=>setInfo(true)}><Icon name="info"/></button></div>{info&&<Sheet title="가격 갱신 주기" onClose={()=>setInfo(false)}><p>Upbit 추천 가격은 서버가 1분마다 갱신하고, 이 화면은 열려 있는 동안 30초마다 결과를 확인합니다. 자동 주문 판단은 별도로 30초마다 실행됩니다.</p></Sheet>}</>;
 }
 function RecommendationCards({rows,market,onAskAI}) {
- const [region,setRegion]=useState('ALL');
+ const [region,setRegion]=useState('ALL'),[stockInfo,setStockInfo]=useState(false);
  const [ownedOnly,setOwnedOnly]=useState(false),ownedRows=(rows||[]).filter(row=>row.owned===true),visibleRows=ownedOnly?ownedRows:market==='stock'?filterEquities(rows,region):rows;
  const pagination=usePagination(visibleRows,9);
  if(!rows?.length)return <Empty text="다음 수집 주기에 조건에 맞는 종목이 자동으로 추가됩니다."/>;
  return (
   <>
    {market==='upbit'&&<PriceFreshness rows={rows}/>}
-   {market==='stock'&&<><div className="filter-chips" aria-label="주식 시장">{[['ALL','전체'],['KR','국내'],['US','미국']].map(([key,label])=><button key={key} className={region===key?'active':''} aria-pressed={region===key} onClick={()=>{setRegion(key);pagination.setPage(0)}}>{label} {filterEquities(rows,key).length}</button>)}</div><p className="hint">미국은 설정된 관심 티커 대상 · USD 기준 공개 일봉 시세이며 실시간 호가가 아닙니다.</p></>}
+   {market==='stock'&&<><div className="stock-filter-row"><div className="filter-chips" aria-label="주식 시장">{[['ALL','전체'],['KR','국내'],['US','미국']].map(([key,label])=><button key={key} className={region===key?'active':''} aria-pressed={region===key} onClick={()=>{setRegion(key);pagination.setPage(0)}}>{label} {filterEquities(rows,key).length}</button>)}</div><button className="quiet" aria-label="주식 가격 안내" onClick={()=>setStockInfo(true)}><Icon name="info"/></button></div>{stockInfo&&<Sheet title="주식 가격 안내" onClose={()=>setStockInfo(false)}><p>미국은 설정된 관심 티커 대상 · USD 기준 공개 일봉 시세이며 실시간 호가가 아닙니다.</p><p>국내와 미국 모두 갱신 단계 우선, 같은 단계에서는 목표 도달률 순으로 표시합니다.</p></Sheet>}</>}
    <div className="recommendation-toolbar">
     <p className="summary">갱신 단계 우선 · 같은 단계는 목표 도달률 순</p>
     {market==='upbit'&&rows.some(row=>typeof row.owned==='boolean')&&(
@@ -68,18 +70,21 @@ function RecommendationCards({rows,market,onAskAI}) {
     <>
      <section className="recommendations" aria-label="추천 종목 목록">
       {pagination.items.map(row=>{
+       const rank=rows.findIndex(item=>item.code===row.code)+1;
        const range=Number(row.expected_selling_price)-Number(row.minimum_selling_price);
        const progress=range?100-(Number(row.expected_selling_price)-Number(row.temp_price))*100/range:0;
        const change=Number(row.setting_price)?(Number(row.temp_price)-Number(row.setting_price))*100/Number(row.setting_price):0;
        const visual=Math.max(0,Math.min(100,progress));
        const quote=value=>market==='stock'&&equityRegion(row)==='US'?dollarPrice(value):formatPrice(value);
        return (
-        <article className={`recommendation ${row.owned?'owned':''}`} key={row.code}>
+        <article className={`recommendation compact-recommendation ${row.owned?'owned':''}`} key={row.code}>
          <div className="recommendation-head">
           <div>
            <div className="tag-row">
+            <b className="recommendation-rank" aria-label={`추천 ${rank}순위`}>{rank}</b>
             <span className={`market ${market}`}>{market==='upbit'?'UPBIT':equityRegion(row)==='US'?'미국 · USD':'국내 · KRW'}</span>
-            {row.owned&&<span className="owned-badge">보유 중 · {formatQty(row.owned_quantity)}</span>}
+            {market==='upbit'&&rank===1&&<span className="priority-badge">자동매수 우선</span>}
+            {row.owned&&<span className="owned-badge">보유</span>}
            </div>
            <h3>{row.name}</h3>
            <small>{row.code}</small>
@@ -99,15 +104,15 @@ function RecommendationCards({rows,market,onAskAI}) {
           <span>목표가 {quote(row.expected_selling_price)}</span>
          </div>
          <div className="progress"><i style={{width:`${visual}%`}}/></div>
-         <div className="meta">
+         <details className="recommendation-details"><summary>상세</summary><div className="meta">
           <span><small>기준가</small>{quote(row.setting_price)}</span>
           <span><small>갱신 단계</small>{row.renewal_cnt}단계</span>
           <span><small>최근 갱신</small>{display('pricing_reference_date',row.pricing_reference_date)}</span>
-         </div>
+         </div>{market==='upbit'&&rank===1&&<p className="hint">자동매매가 켜져 있으면 이 순서대로 첫 매수 대상을 고릅니다. 잔고·거래 가능 여부·재매수 제한에 따라 다음 종목이 선택될 수 있습니다.</p>}{row.owned&&<p className="hint">보유 수량 {formatQty(row.owned_quantity)}</p>}</details>
          {market==='upbit'&&onAskAI&&(
           <div className="rec-card-action">
            <button className="btn-rec-ask-ai" onClick={()=>onAskAI(row.code)}>
-            <span>✨ AI 분석 바로가기</span>
+            <span>AI 분석</span>
            </button>
           </div>
          )}
@@ -470,7 +475,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  return (
   <div className="dashboard-stack" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
    {pullDist>0&&<div className="pull-refresh-indicator"><span>{pullDist>45?'손을 떼면 새로고침합니다':'아래로 당겨서 새로고침'}</span></div>}
-   {message&&<div className="notice" role="status">{message}</div>}
+   <Toast message={message} onClose={()=>setMessage('')}/>
 
    <section className="dashboard-hero-card" aria-labelledby="dashboard-hero-title">
     <div className="hero-main-row">
@@ -816,26 +821,37 @@ function Profile({user,onSaved,setError,onNavigate,connectionsRequest,onConnecti
  return <div className="profile-content"><section className="card connection-management" ref={connectionRef} id="connection-management"><h2>연결 관리</h2><div className="connection-row"><div><b>Upbit</b><p>{connections==null?'상태 확인 중…':connections.upbit?'키 등록됨':'키 등록 필요'}</p></div><button className="quiet" onClick={()=>setShowKeys(value=>!value)}>{showKeys?'변경 취소':'Upbit 키 변경'}</button></div>{showKeys&&<form className="form" onSubmit={event=>{event.preventDefault();saveKeys()}}><p className="hint">키는 서버에만 안전하게 저장되며 화면에 다시 노출되지 않습니다.</p><label>Access Key<input value={access} onChange={event=>setAccess(event.target.value)} autoComplete="off" required/></label><label>Secret Key<input type="password" value={secret} onChange={event=>setSecret(event.target.value)} autoComplete="new-password" required/></label><button className="primary" disabled={saving||!access.trim()||!secret.trim()}>{saving?'저장 중…':'API 키 저장'}</button></form>}{admin&&<div className="connection-row"><div><b>DeepSeek</b><p>{connections==null?'상태 확인 중…':connections.deepseek?'키 등록됨':'키 등록 필요'}</p></div><button className="quiet" onClick={()=>onNavigate('ai-settings')}>AI 연결 설정</button></div>}</section><section className="card form narrow"><h3>프로필</h3><label>이름<input value={name} onChange={e=>setName(e.target.value)}/></label><label>이메일<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>새 비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="변경할 때만 입력"/></label><button className="primary" onClick={save}>변경사항 저장</button></section></div>
 }
 function Settings({rows,onChange,onSave,pending}) {
+ const [confirmError,setConfirmError]=useState('');
+ const [saved,setSaved]=useState(()=>Object.fromEntries((rows||[]).map(row=>[row.name,{...row}]))),[confirm,setConfirm]=useState(null);
+ const fields=[['expected_high_percentage','목표 상승률','기준 가격에서 목표 매도가까지의 비율','%',1,1000],['expected_low_percentage','허용 하락률','하락 폭을 양수로 입력하세요.','%',0,99],['highest_price_reference_days','분석 기간','조회 가능한 범위: 3~200일','일',3,200]];
+ const keys=[...fields.map(([key])=>key),'volume_check'];
+ const changed=(row,key)=>key==='volume_check'?Boolean(row[key])!==Boolean(saved[row.name]?.[key]):Number(row[key])!==Number(saved[row.name]?.[key]);
+ const changedKeys=row=>keys.filter(key=>changed(row,key));
+ async function apply(){const row=confirm;if(pending.includes(`settings-${row.name}`))return;setConfirmError('');const ok=await onSave(row);if(ok){setSaved(previous=>({...previous,[row.name]:{...row}}));setConfirm(null)}else setConfirmError('저장하지 못했습니다. 창을 닫으면 오류 내용을 확인할 수 있습니다.')}
  if(!rows?.length)return <Empty/>;
- const fields=[['expected_high_percentage','목표 상승률','기준 가격에서 목표 매도가까지의 비율','%',1,1000],['expected_low_percentage','허용 하락률','목표 상승률보다 작아야 합니다.','%',-99,999],['highest_price_reference_days','분석 기간','조회 가능한 범위: 3~200일','일',3,200]];
-  return <div className="settings-grid">{rows.map((row,index)=><form className="card form" key={row.name} onSubmit={e=>{e.preventDefault();onSave(row)}}><div className="setting-title"><span className={`market ${row.name}`}>{row.name==='upbit'?'UPBIT':'STOCK'}</span><h3>{row.name==='upbit'?'Upbit 계산 기준':'주식 계산 기준'}</h3></div>{fields.map(([key,label,help,unit,min,max])=><label key={key}>{label}<small>{help}</small><div className="input-unit"><input type="number" value={row[key]} required step="1" min={min} max={key==='expected_low_percentage'?Math.min(max,Number(row.expected_high_percentage)-1):max} onChange={e=>onChange(index,key,e.target.value)}/><span>{unit}</span></div></label>)}<label className="check"><input type="checkbox" checked={row.volume_check} onChange={e=>onChange(index,'volume_check',e.target.checked)}/><span><b>거래량 조건 사용</b><small>추천 계산에 거래량 증가 여부를 반영합니다.</small></span></label><button className="primary" disabled={pending.includes(`settings-${row.name}`)}>{pending.includes(`settings-${row.name}`)?'저장 중…':'설정 저장'}</button></form>)}</div>;
+return <><div className="settings-grid">{rows.map((row,index)=><form className="card form" key={row.name} onSubmit={e=>{e.preventDefault();if(changedKeys(row).length){setConfirmError('');setConfirm({...row})}}}><div className="setting-title"><span className={`market ${row.name}`}>{row.name==='upbit'?'UPBIT':'STOCK'}</span><h3>{row.name==='upbit'?'Upbit 계산 기준':'주식 계산 기준'}</h3></div>{fields.map(([key,label,help,unit,min,max])=><label key={key}>{label} {changed(row,key)&&<span className="changed-badge">변경됨</span>}<small>{help}</small><div className="input-unit">{key==='expected_low_percentage'&&<span aria-hidden="true">−</span>}<input aria-label={label} type="number" inputMode="decimal" value={key==='expected_low_percentage'&&row[key]!==''?Math.abs(Number(row[key])):row[key]} required step="1" min={min} max={max} onChange={e=>onChange(index,key,key==='expected_low_percentage'?(e.target.value===''?'':-Math.abs(Number(e.target.value))):e.target.value)}/><span>{unit}</span></div></label>)}<label className="check"><input type="checkbox" checked={row.volume_check} onChange={e=>onChange(index,'volume_check',e.target.checked)}/><span><b>거래량 조건 사용 {changed(row,'volume_check')&&<span className="changed-badge">변경됨</span>}</b><small>추천 계산에 거래량 증가 여부를 반영합니다.</small></span></label><button className="primary" disabled={!changedKeys(row).length||pending.includes(`settings-${row.name}`)}>{pending.includes(`settings-${row.name}`)?'저장 중…':'설정 저장'}</button></form>)}</div>{confirm&&<Sheet title="계산 설정 변경 확인" busy={pending.includes(`settings-${confirm.name}`)} onClose={()=>setConfirm(null)}><p className="info-note">다음 계산부터 추천과 자동매매에 반영됩니다. 자동매매가 켜져 있으면 실제 주문에 영향을 줍니다.</p>{confirmError&&<div className="error" role="alert">{confirmError}</div>}<dl className="setting-change-list">{changedKeys(confirm).map(key=><div key={key}><dt>{fields.find(([field])=>field===key)?.[1]||'거래량 조건'}</dt><dd>{key==='volume_check'?(saved[confirm.name][key]?'사용':'미사용'):saved[confirm.name][key]} → {key==='volume_check'?(confirm[key]?'사용':'미사용'):confirm[key]}</dd></div>)}</dl><button className="primary" disabled={pending.includes(`settings-${confirm.name}`)} onClick={apply}>확인하고 저장</button></Sheet>}</>;
 }
 
-function MailTargets({rows, pending, onAdd}) {
+function Users({rows,user,pending,onUpdate}) {
+ const [confirm,setConfirm]=useState(null);
+ return <><div className="cards">{rows.map(row=><article className="card" key={row.id}><h3>{row.user_name||row.user_login_id}</h3><p>{row.user_login_id} · {row.user_email||'이메일 없음'}</p><p>{row.user_role} · {row.deleted?'비활성':'사용 중'}</p>{user.user_role==='MASTER'&&row.user_login_id!==user.user_login_id&&<div className="admin-actions"><label>권한<select aria-label={`${row.user_login_id} 권한`} value={row.user_role} disabled={pending.includes(`user-${row.id}`)} onChange={e=>setConfirm({row,user_role:e.target.value,deleted:row.deleted})}>{['USER','ADMIN','MASTER'].map(role=><option key={role}>{role}</option>)}</select></label><button className="quiet" disabled={pending.includes(`user-${row.id}`)} onClick={()=>setConfirm({row,user_role:row.user_role,deleted:!row.deleted})}>{row.deleted?'활성화':'비활성화'}</button></div>}</article>)}</div>{confirm&&<Sheet title="사용자 변경 확인" busy={pending.includes(`user-${confirm.row.id}`)} onClose={()=>setConfirm(null)}><p>{confirm.row.user_login_id} · 권한 {confirm.row.user_role} → {confirm.user_role}</p><p>계정 상태: {confirm.deleted?'비활성화 (자동매매가 꺼집니다)':'활성화'}</p><button className="primary" disabled={pending.includes(`user-${confirm.row.id}`)} onClick={async()=>{if(await onUpdate(confirm.row.id,{user_role:confirm.user_role,deleted:confirm.deleted}))setConfirm(null)}}>확인하고 변경</button></Sheet>}</>;
+}
+
+function MailTargets({rows, pending, onAdd,onDelete}) {
+  const [deleting,setDeleting]=useState(null);
   const [adding, setAdding] = useState(false);
   const [email, setEmail] = useState('');
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!email.trim()) return;
-    onAdd(email.trim());
-    setEmail('');
-    setAdding(false);
+    if(await onAdd(email.trim())){setEmail('');setAdding(false)}
   }
 
   return (
     <>
-      <Table rows={rows}/>
+      <div className="cards">{rows.map(row=><article className="card" key={row.email}><p className="expandable-value">{row.email}</p><button className="quiet" disabled={pending.includes('mail')} onClick={()=>setDeleting(row.email)}>삭제</button></article>)}</div>
+      {deleting&&<Sheet title="메일 수신자 삭제" busy={pending.includes('mail')} onClose={()=>setDeleting(null)}><p className="expandable-value">{deleting} 수신자를 삭제할까요?</p><button className="primary" disabled={pending.includes('mail')} onClick={async()=>{if(await onDelete(deleting))setDeleting(null)}}>삭제 확인</button></Sheet>}
       {adding ? (
         <form className="card form narrow add-button" onSubmit={handleSubmit}>
           <h3>메일 수신자 추가</h3>
@@ -984,7 +1000,7 @@ function App() {
  useEffect(()=>{if(user)load();return()=>requests.current.cancel()},[user,load]);
  useEffect(()=>{if(!user||tab!=='upbit')return;let active=true;const timer=setInterval(async()=>{try{const next=await api('/recommendations/upbit?include_ownership=false');if(active&&activeTab.current==='upbit')setData(current=>next.map(row=>{const previous=Array.isArray(current)&&current.find(item=>item.code===row.code);return {...row,owned:previous?.owned,owned_quantity:previous?.owned_quantity}}))}catch(e){if(active&&e?.status===401)handleError(e)}},30000);return()=>{active=false;clearInterval(timer)}},[user,tab,handleError]);
  function selectTab(key){setMobileMore(false);if(key!=='ai')setAiInitialSymbol('');if(key===activeTab.current)return;requests.current.cancel();view.current++;activeTab.current=key;setData(null);setLoading(true);setError('');setNotice('');setTab(key)}
- function handleAskAI(currency){setAiInitialSymbol(`KRW-${currency}`);selectTab('ai');}
+ function handleAskAI(currency){setAiInitialSymbol(currency.startsWith('KRW-')?currency:`KRW-${currency}`);selectTab('ai');}
  function navigate(key){
   if(key==='connections'){setConnectionsRequest(value=>value+1);selectTab('profile');return}
   if(key==='ai-settings'){setAiSettingsRequest(value=>value+1);selectTab('ai');return}
@@ -993,7 +1009,7 @@ function App() {
  async function mutate(key,action,{refresh=false,message=''}={}) {
   if(actions.current.has(key))return;
   const currentView=view.current;actions.current.add(key);setPending([...actions.current]);setError('');setNotice('');
-  try{await action();if(view.current===currentView){if(refresh)await load();else if(message)setNotice(message)}}catch(e){if(view.current===currentView)handleError(e)}finally{actions.current.delete(key);setPending([...actions.current])}
+  try{await action();if(view.current===currentView){if(refresh)await load();if(message)setNotice(message)}return true}catch(e){if(view.current===currentView)handleError(e);return false}finally{actions.current.delete(key);setPending([...actions.current])}
  }
  async function logout(){await mutate('logout',async()=>{await api('/auth/logout',{method:'POST'});requests.current.cancel();authRequests.current.cancel();view.current++;setUser(null);setData(null);setAuthMessage('')})}
  function saveSetting(row){return mutate(`settings-${row.name}`,()=>api(`/admin/settings/${row.name}`,{method:'PUT',body:JSON.stringify({expected_high_percentage:Number(row.expected_high_percentage),expected_low_percentage:Number(row.expected_low_percentage),highest_price_reference_days:Number(row.highest_price_reference_days),volume_check:!!row.volume_check})}),{message:'설정을 저장했습니다. 다음 계산부터 적용됩니다.'})}
@@ -1004,7 +1020,7 @@ function App() {
  const scopedError=e=>{if(view.current===currentView)handleError(e)};
  const statusLabel=loading?'조회 중':error?'조회 실패':data?'조회 완료':'대기 중';
 return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav" aria-label="메인 메뉴">{tabGroups.map(group=>{const groupTabs=visible.filter(([key])=>group.keys.includes(key));if(!groupTabs.length)return null;return (<div className="nav-group" key={group.title}><div className="nav-group-title">{group.title}</div><div className="nav-group-items">{groupTabs.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</div></div>);})}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><Icon name={key}/><span>{short}</span></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><Icon name="more"/><span>더보기</span></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<Sheet title="더보기" onClose={()=>setMobileMore(false)}><div className="mobile-sheet-content"><div className="mobile-sheet-group-items">{mobileSecondary.map(([key,label])=><button key={key} onClick={()=>navigate(key)}><Icon name={key}/><span>{label}</span></button>)}{isAdmin&&<button onClick={()=>navigate('ai-settings')}><Icon name="settings"/><span>AI 설정</span></button>}<button onClick={()=>navigate('connections')}><Icon name="connections"/><span>연결 관리</span></button></div><button className="quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button><div className="mobile-sheet-group"><h3>테마</h3><ThemeToggle/></div></div></Sheet>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><ThemeToggle /><span className={`badge ${error?'failed':loading?'loading':''}`} role="status">{statusLabel}</span><button className="refresh quiet" aria-label={error?'다시 시도':'새로고침'} onClick={load} disabled={loading}><Icon name="refresh"/><span>{error?'다시 시도':'새로고침'}</span></button></div></header>
- {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}
+ {error&&<div className="error" role="alert">{error}</div>}<Toast message={notice} onClose={()=>setNotice('')}/>
  {loading&&!data&&showSkeleton&&(
   <>
    <span className="sr-only" role="status">데이터를 불러오는 중입니다…</span>
@@ -1016,13 +1032,13 @@ return <div className="layout"><aside><div className="brand"><img src="/icons/ic
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
  {data&&tab==='orders'&&<Orders rows={data}/>}
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate}/>}
- {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest} onConnectionsConsumed={consumeConnections}/>}
+ {data&&tab==='profile'&&<Profile user={data} onSaved={async()=>{await loadUser();setNotice('저장했습니다')}} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest} onConnectionsConsumed={consumeConnections}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
  {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={navigate} initialSymbol={aiInitialSymbol} settingsRequest={aiSettingsRequest} onSettingsConsumed={consumeAISettings}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
- {data&&tab==='users'&&<Table rows={data}/>}
- {data&&tab==='mail'&&<MailTargets rows={data} pending={pending} onAdd={email=>mutate('mail',()=>api('/admin/mail-targets',{method:'POST',body:JSON.stringify({email})}),{refresh:true})}/>}
+ {data&&tab==='users'&&<Users rows={data} user={user} pending={pending} onUpdate={(id,payload)=>mutate(`user-${id}`,()=>api(`/admin/users/${id}`,{method:'PUT',body:JSON.stringify(payload)}),{refresh:true,message:'사용자를 변경했습니다'})}/>}
+ {data&&tab==='mail'&&<MailTargets rows={data} pending={pending} onAdd={email=>mutate('mail',()=>api('/admin/mail-targets',{method:'POST',body:JSON.stringify({email})}),{refresh:true})} onDelete={email=>mutate('mail',()=>api(`/admin/mail-targets/${encodeURIComponent(email)}`,{method:'DELETE'}),{refresh:true,message:'수신자를 삭제했습니다'})}/>}
  </main></div>
 }
 createRoot(document.getElementById('root')).render(<App/>);

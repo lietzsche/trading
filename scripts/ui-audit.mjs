@@ -137,7 +137,7 @@ export async function runAudit() {
 
   // AUTO-5: 고유 border-radius (inherit/50%/99px/999px 제외) <= 5
   const allCss = Object.values(cssContents).join('\n');
-  const radiusMatches = allCss.match(/border-radius:\s*([^;]+);/g) || [];
+  const radiusMatches = allCss.match(/border-radius:\s*([^;}]+)(?:;|(?=\}))/g) || [];
   const uniqueRadius = new Set();
   for (const m of radiusMatches) {
     const val = m.replace(/border-radius:\s*/, '').replace(';', '').trim();
@@ -153,7 +153,7 @@ export async function runAudit() {
   };
 
   // AUTO-6: 고유 font-size (clamp 제외) <= 8
-  const fontSizeMatches = allCss.match(/font-size:\s*([^;]+);/g) || [];
+  const fontSizeMatches = allCss.match(/font-size:\s*([^;}]+)(?:;|(?=\}))/g) || [];
   const uniqueFontSizes = new Set();
   for (const m of fontSizeMatches) {
     const val = m.replace(/font-size:\s*/, '').replace(';', '').trim();
@@ -500,6 +500,20 @@ export async function runAudit() {
     target: '양쪽 모두 통과'
   };
 
+  // Surface-page inversion is allowed only on solid accent/state action buttons.
+  const inversionAllowlist=['.primary','.install','.ai-page .primary'];
+  const invalidSurfaceColors=[];
+  for(const block of allCssExceptTokens.replace(/\/\*[\s\S]*?\*\//g,'').matchAll(/([^{}]+)\{([^{}]*)\}/g)){
+    const selector=block[1].trim();
+    for(const declaration of block[2].matchAll(/(?:^|;)\s*color\s*:\s*var\((--[\w-]+)\)/g)){
+      const token=declaration[1];
+      if(token.endsWith('-surface')||/^--surface-(sunken|raised|overlay)$/.test(token)||token==='--surface-page'){
+        if(token==='--surface-page'&&selector.split(',').every(s=>inversionAllowlist.includes(s.trim())))continue;
+        invalidSurfaceColors.push(`${selector}: ${token}`);
+      }
+    }
+  }
+  results['AUTO-22']={pass:invalidSurfaceColors.length===0,value:invalidSurfaceColors.length,target:'0',detail:invalidSurfaceColors.join('; ')};
   return { results, darkTests, lightTests };
 }
 
@@ -510,7 +524,7 @@ async function main() {
   const args = process.argv.slice(2);
   const isSaveBaseline = args.includes('--save-baseline');
 
-  console.log('🔍 Trading UI Audit (AUTO-1 ~ AUTO-21) 실행 중...\n');
+  console.log('🔍 Trading UI Audit (AUTO-1 ~ AUTO-22) 실행 중...\n');
   const { results, darkTests, lightTests } = await runAudit();
 
   let allPassed = true;
@@ -544,7 +558,7 @@ async function main() {
     console.log('\n⚠️  일부 자동 검사 항목이 기준에 미달했습니다.');
     process.exit(1);
   } else {
-    console.log('\n🎉 모든 자동 검사(AUTO-1 ~ AUTO-21)를 통과했습니다!');
+    console.log('\n🎉 모든 자동 검사(AUTO-1 ~ AUTO-22)를 통과했습니다!');
     process.exit(0);
   }
 }

@@ -5,6 +5,7 @@ import {api, createRequestGate} from './api';
 import {AI_SETTING_FIELDS, AI_STATUS_LABELS, autoApplyEligible, candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 import './ai.css';
 import {Icon, ResponsivePanel, Sheet, useMobile, useMobileChatLayout} from './MobileUI';
+import {Toast} from './Feedback';
 
 const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
@@ -272,6 +273,13 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
 
   useEffect(() => {
     if (initialSymbol) {
+      setSelectedId(null);
+      setSelected(null);
+      setProposal(null);
+      setDetailLoading(false);
+      setIncludeAccount(false);
+      selectedIdRef.current=null;
+      setViewMode('chat');
       setMarket('upbit');
       setSymbols(initialSymbol);
       setPrompt(`${initialSymbol} 종목의 현재 수익률과 손절/목표가 도달 가능성, 시장 상황에 따른 대응 전략을 분석해 주세요.`);
@@ -305,11 +313,11 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
         setAutomation(nextAutomation);
         if (resetDraft) setAutomationDraft({enabled: Boolean(nextAutomation.enabled), trigger_mode: nextAutomation.trigger_mode || 'interval', interval_minutes: Number(nextAutomation.interval_minutes || 60), auto_apply_settings: Boolean(nextAutomation.auto_apply_settings)});
       }
-      if (selectFirst && selectedIdRef.current === null && nextHistory.items?.length) setSelectedId(nextHistory.items[0].id);
+      if (selectFirst && !initialSymbol && selectedIdRef.current === null && nextHistory.items?.length) setSelectedId(nextHistory.items[0].id);
       if (resetDraft) setConfigDraft({model: nextConfig.model || defaults.model});
     } catch (error) {if (request.isCurrent()) showError(error);}
     finally {if (request.isCurrent()) setLoading(false);}
-  }, [showError, user.user_role]);
+  }, [showError, user.user_role, initialSymbol]);
 
   useEffect(() => {
     mounted.current = true;
@@ -533,7 +541,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     <section className="ai-cockpit"><div><span className="eyebrow">AI INVESTMENT DESK</span><h2>투자 판단</h2><p>{selected?.status === 'COMPLETED' ? `${timestamp(selected.completed_at || selected.created_at)} 분석 기준` : '계좌·추천·설정·과거 가격을 한곳에서 검토합니다.'}</p></div><div className="ai-cockpit-stats"><span><small>매도 검토</small><b className="sell">{decisionCounts.SELL || 0}</b></span><span><small>보유</small><b className="hold">{decisionCounts.HOLD || 0}</b></span><span><small>판단 보류</small><b className="watch">{decisionCounts.WATCH || 0}</b></span></div><button className="quiet ai-settings-button" onClick={()=>openSettings()}><Icon name="settings"/><span>AI 설정</span></button><div className="ai-state-chips"><button onClick={()=>openSettings('connection')}>{config?.configured?'키 등록됨':'키 등록 필요'}</button>{master&&<><button onClick={()=>openSettings('automation')}>{automation?.enabled?`정기 판단 켜짐 · ${automation.interval_minutes%60===0?`${automation.interval_minutes/60}시간`:`${automation.interval_minutes}분`}마다`:'정기 판단 꺼짐'}</button><button className={automation?.auto_apply_settings?'warning':''} onClick={()=>openSettings('automation')}>{automation?.auto_apply_settings?'자동 적용 켜짐':'자동 적용 꺼짐'}</button></>}</div></section>
     <nav className="ai-view-tabs" aria-label="AI 화면"><button className={viewMode==='summary'?'active':''} onClick={()=>setViewMode('summary')}>판단 요약</button><button className={viewMode==='chat'?'active':''} onClick={()=>setViewMode('chat')}>AI 대화</button><button className={viewMode==='evidence'?'active':''} onClick={()=>setViewMode('evidence')}>근거·설정</button></nav>
     {localError && <div className="error" role="alert">{localError}<button className="quiet compact" onClick={() => {setLocalError(''); refresh(false); setDetailVersion(value => value + 1);}}>다시 조회</button></div>}
-    {notice && <div className="notice" role="status">{notice}</div>}
+    <Toast message={notice} onClose={()=>setNotice('')}/>
     {viewMode === 'summary' && <button className="quiet compact" disabled={Boolean(pending) || loading} onClick={() => {setViewMode('chat'); setListOpen(true); setSelectionMode(true); setCheckedIds([]);}}>대화 선택</button>}
     {!compactChat && <details className="ai-disclaimer" open={disclaimerOpen} onToggle={event=>{const open=event.currentTarget.open;setDisclaimerOpen(open);try{localStorage.setItem('ai-disclaimer-closed',String(!open))}catch{}}}><summary>과거 데이터 검증 안내 · 자세히</summary><div className="info-note"><b>수익 예측이 아닌 과거 데이터 검증입니다.</b><span>종목별 독립·동일 비중으로 계산하는 단순 시뮬레이션이며 실제 자동매매 전체를 재현하지 않습니다. 수수료와 가격 차이를 반영해도 미체결·유동성·미래 시장 변동은 보장할 수 없습니다. 실제 수익을 약속하지 않습니다.</span></div></details>}
     {compactChat && <div className="ai-chat-toolbar">

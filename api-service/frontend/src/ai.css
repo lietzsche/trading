@@ -254,7 +254,7 @@
 .ai-details summary {
   cursor:pointer;
   font-size: var(--text-sm);
-  color:var(--accent-surface);
+  color:var(--accent);
 }
 
 .ai-details[open] summary {
@@ -507,7 +507,7 @@
 
 .ai-symbol-picker legend {
   padding:0 7px;
-  color:var(--accent-surface);
+  color:var(--accent);
   font-size: var(--text-xs);
 }
 
@@ -1074,7 +1074,7 @@
 
 .ai-page .primary {
    background: var(--accent);
-   color: var(--surface-sunken);
+   color: var(--surface-page);
 }
 
 .ai-page .quiet {
