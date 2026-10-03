@@ -2,11 +2,13 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
+import {Icon, Sheet} from './MobileUI';
 import './tokens.css';
 import './base.css';
 import './layout.css';
 import './components.css';
 import './dashboard.css';
+import './mobile-ux.css';
 
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 
@@ -117,7 +119,7 @@ function RecommendationCards({rows,market,onAskAI}) {
 }
 function DividendCards({rows}){const pagination=usePagination(rows,12);if(!rows?.length)return <Empty text="배당 정보 수집이 끝나면 이곳에 표시됩니다."/>;return <><div className="info-note"><b>배당수익률이란?</b><span>최근 공시 기준 주당 배당금을 현재 주가로 나눈 연 환산 비율입니다. 실제 지급액과 향후 배당을 보장하는 수치는 아닙니다.</span></div><p className="summary">배당수익률 상위 <b>{rows.length}</b>개 종목 · 네이버 금융 기준</p><div className="dividend-grid">{pagination.items.map(row=><article className="card dividend" key={row.code}><div><h3>{row.name}</h3><small>{row.code}</small></div><strong>{number(row.dividend_rate)}%</strong></article>)}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>}
 
-function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매도"}) {
+function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매도",action="매도",progressLabel="주문 전송 중"}) {
  const [dragPct,setDragPct]=useState(0);
  const [confirmed,setConfirmed]=useState(false);
  const [isDragging,setIsDragging]=useState(false);
@@ -219,12 +221,12 @@ function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매
    aria-valuemin={0}
    aria-valuemax={100}
    aria-valuenow={Math.round(dragPct)}
-   aria-valuetext={confirmed?'주문 전송 중':`${Math.round(dragPct)}퍼센트 — ${dragPct>=90?'Enter 또는 Space 키를 눌러 매도를 확정하세요':'오른쪽 방향키로 끝까지 밀어주세요'}`}
-   aria-label="안전 매도 확인 슬라이더"
+   aria-valuetext={confirmed?progressLabel:`${Math.round(dragPct)}퍼센트 — ${dragPct>=90?`Enter 또는 Space 키를 눌러 ${action}를 확정하세요`:'오른쪽 방향키로 끝까지 밀어주세요'}`}
+   aria-label={`안전 ${action} 확인 슬라이더`}
   >
    <div className="slide-fill" style={{width:`${Math.max(handleOffset+27,0)}px`}} />
    <span className="slide-label">
-    {confirmed?'주문 전송 중…':(
+    {confirmed?`${progressLabel}…`:(
      <span className="slide-label-content">
       <span>{label}</span>
       <span className="slide-chevrons">›››</span>
@@ -353,14 +355,14 @@ function SafeSellModal({ target, selling, onClose, onConfirm }) {
 }
 
 function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
- const [access,setAccess]=useState(''),[secret,setSecret]=useState(''),[saving,setSaving]=useState(false),[showKeys,setShowKeys]=useState(false);
+ const [confirmAuto,setConfirmAuto]=useState(false);
  const [sellTarget,setSellTarget]=useState(null),[selling,setSelling]=useState(false),[message,setMessage]=useState('');
  const [filter,setFilter]=useState('all');
  const [togglingAuto,setTogglingAuto]=useState(false);
  const [pullDist,setPullDist]=useState(0);
  const [countdown,setCountdown]=useState(snapshot?.safety?.next_decision_seconds??30);
  const touchStart=useRef(0);
- const saveLock=useRef(false),sellLock=useRef(false);
+ const autoLock=useRef(false),sellLock=useRef(false);
  const sellTriggerRef=useRef(null);
 
  const openSell=(row,e)=>{
@@ -397,16 +399,6 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const todayOrders=snapshot?.today_orders||[];
  const money=(value,digits=0)=>value==null?'시세 확인 불가':`₩ ${number(value,digits)}`;
 
- async function save(){
-  if(saveLock.current)return;
-  saveLock.current=true;setSaving(true);setError('');
-  try{
-   await api('/upbit/key',{method:'PUT',body:JSON.stringify({access_key:access.trim(),secret_key:secret.trim()})});
-   setAccess('');setSecret('');setShowKeys(false);
-   await reload();
-  }catch(e){setError(e)}finally{saveLock.current=false;setSaving(false)}
- }
-
  async function sell(){
   if(!sellTarget||sellLock.current)return;
   sellLock.current=true;setSelling(true);setError('');setMessage('');
@@ -426,13 +418,16 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
   }catch(e){setError(e)}finally{sellLock.current=false;setSelling(false)}
  }
 
- async function toggleAuto(){
-  if(togglingAuto)return;
+ async function toggleAuto(confirmed=false){
+  if(autoLock.current)return;
+  if(!snapshot?.auto_on && !confirmed){setConfirmAuto(true);return;}
+  autoLock.current=true;
   setTogglingAuto(true);setError('');
   try{
    await api('/upbit/auto',{method:'PUT',body:JSON.stringify({auto_on:!snapshot?.auto_on})});
+   setConfirmAuto(false);
    await reload();
-  }catch(e){setError(e)}finally{setTogglingAuto(false)}
+  }catch(e){setError(e);setConfirmAuto(false)}finally{autoLock.current=false;setTogglingAuto(false)}
  }
 
  function onTouchStart(e){
@@ -532,15 +527,19 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
      </div>
     </div>
     <div className="safety-bar-right">
+     {!keyRegistered && <button className="quiet" onClick={()=>onNavigate('connections')}>연결 관리에서 키 등록</button>}
      {keyRegistered&&(
+      <div className="auto-switch-wrap"><span>{togglingAuto?'변경 중…':autoOn?'자동매매 켜짐':'자동매매 꺼짐'}</span>
       <button
-       className={`btn-auto-toggle ${autoOn?'on':'off'}`}
+       className="auto-switch"
+       role="switch"
+       aria-checked={autoOn}
+       aria-label="자동매매"
        disabled={togglingAuto}
-       onClick={toggleAuto}
+       onClick={()=>toggleAuto()}
       >
-       <span className="toggle-dot" />
-       <span>{togglingAuto?'변경 중…':autoOn?'자동매매 켜짐 (끄기)':'자동매매 꺼짐 (켜기)'}</span>
-      </button>
+       <span />
+      </button></div>
      )}
     </div>
    </section>
@@ -570,9 +569,6 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
       {krwAsset&&(
        <button className={filter==='krw'?'active':''} onClick={()=>setFilter('krw')}>원화 잔고</button>
       )}
-      <button className="quiet" onClick={()=>setShowKeys(!showKeys)}>
-       {showKeys?'닫기':'API 키'}
-      </button>
      </div>
     </div>
 
@@ -743,17 +739,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     />
    )}
 
-   {showKeys&&(
-    <section className="card form narrow key-form">
-     <h3>Upbit API 키 변경</h3>
-     <p className="hint">키는 서버에만 안전하게 저장되며 화면에 다시 노출되지 않습니다.</p>
-     <label>Access Key<input value={access} onChange={e=>setAccess(e.target.value)} autoComplete="off" /></label>
-     <label>Secret Key<input type="password" value={secret} onChange={e=>setSecret(e.target.value)} autoComplete="new-password" /></label>
-     <button className="primary" disabled={saving||!access.trim()||!secret.trim()} onClick={save}>
-      {saving?'저장 중…':'API 키 저장'}
-     </button>
-    </section>
-   )}
+   {confirmAuto && <Sheet title="자동매매를 켤까요?" busy={togglingAuto} onClose={()=>setConfirmAuto(false)}><p className="info-note">추천 1순위 종목에 원화 잔고 전액으로 시장가 매수할 수 있습니다.</p><p>자동매매가 켜지면 설정에 따라 실제 주문이 실행됩니다. 슬라이더를 끝까지 밀어 확인해 주세요.</p><SlideToConfirm disabled={togglingAuto} onConfirm={()=>toggleAuto(true)} label="밀어서 자동매매 켜기" action="자동매매 켜기" progressLabel="설정 변경 중"/><button className="quiet" disabled={togglingAuto} onClick={()=>setConfirmAuto(false)}>취소</button></Sheet>}
   </div>
  );
 }
@@ -801,7 +787,24 @@ function ErrorLog({initial,setError}) {
  async function move(page,filters=applied.current){const request=requests.current.begin();setLoading(true);setError('');try{const query=new URLSearchParams({page:String(page),...filters});const next=await api(`/admin/errors?${query}`,{signal:request.signal});if(request.isCurrent()){applied.current=filters;setResult(next)}}catch(e){if(request.isCurrent())setError(e)}finally{if(request.isCurrent())setLoading(false)}}
  return <><form className="error-filters" onSubmit={e=>{e.preventDefault();move(0,{source,keyword:keyword.trim()})}}><label>오류 구분<select value={source} onChange={e=>setSource(e.target.value)}><option value="">전체</option><option value="UPBIT">Upbit</option><option value="STOCK">주식</option><option value="SYSTEM">시스템</option></select></label><label>작업·종류·내용 검색<input value={keyword} maxLength={100} onChange={e=>setKeyword(e.target.value)} placeholder="예: 429, FETCH_PRICE"/></label><button className="primary" type="submit">검색</button></form><p className="summary">조회된 오류 <b>{result.total}</b>건 · 페이지당 50건</p>{loading?<div className="loading-row" role="status"><div className="loader"/>불러오는 중입니다.</div>:<Table rows={result.items} columns={['created_at','source','operation','error_type','message']}/>}<Pager page={result.page} pages={pages} onChange={move}/></>
 }
-function Profile({user,onSaved,setError}){const [name,setName]=useState(user.user_name||''),[email,setEmail]=useState(user.user_email||''),[password,setPassword]=useState('');async function save(){setError('');try{await api('/profile',{method:'PUT',body:JSON.stringify({name,email:email||null,password:password||null})});setPassword('');await onSaved()}catch(e){setError(e)}}return <div className="card form narrow"><h3>프로필</h3><label>이름<input value={name} onChange={e=>setName(e.target.value)}/></label><label>이메일<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>새 비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="변경할 때만 입력"/></label><button className="primary" onClick={save}>변경사항 저장</button></div>}
+function Profile({user,onSaved,setError,onNavigate,connectionsRequest}) {
+ const [name,setName]=useState(user.user_name||''),[email,setEmail]=useState(user.user_email||''),[password,setPassword]=useState('');
+ const [connections,setConnections]=useState(null),[showKeys,setShowKeys]=useState(false),[access,setAccess]=useState(''),[secret,setSecret]=useState(''),[saving,setSaving]=useState(false);
+ const connectionRef=useRef(null),saveLock=useRef(false);
+ const admin=['ADMIN','MASTER'].includes(user.user_role);
+ const loadConnections=useCallback(async(signal)=>{
+  const [dashboard,deepseek]=await Promise.all([api('/dashboard',{signal}),admin?api('/admin/ai/config',{signal}):Promise.resolve(null)]);
+  if(!signal?.aborted)setConnections({upbit:dashboard.key_registered,deepseek:deepseek?.configured});
+ },[admin]);
+ useEffect(()=>{const controller=new AbortController();loadConnections(controller.signal).catch(error=>{if(error.name!=='AbortError')setError(error)});return()=>controller.abort()},[loadConnections]);
+ useEffect(()=>{if(connectionsRequest)connectionRef.current?.scrollIntoView({block:'start'})},[connectionsRequest]);
+ async function save(){setError('');try{await api('/profile',{method:'PUT',body:JSON.stringify({name,email:email||null,password:password||null})});setPassword('');await onSaved()}catch(e){setError(e)}}
+ async function saveKeys(){
+  if(saveLock.current)return;saveLock.current=true;setSaving(true);setError('');
+  try{await api('/upbit/key',{method:'PUT',body:JSON.stringify({access_key:access.trim(),secret_key:secret.trim()})});setAccess('');setSecret('');setShowKeys(false);await loadConnections()}catch(e){setError(e)}finally{saveLock.current=false;setSaving(false)}
+ }
+ return <div className="profile-content"><section className="card connection-management" ref={connectionRef} id="connection-management"><h2>연결 관리</h2><div className="connection-row"><div><b>Upbit</b><p>{connections==null?'상태 확인 중…':connections.upbit?'키 등록됨':'키 등록 필요'}</p></div><button className="quiet" onClick={()=>setShowKeys(value=>!value)}>{showKeys?'변경 취소':'Upbit 키 변경'}</button></div>{showKeys&&<form className="form" onSubmit={event=>{event.preventDefault();saveKeys()}}><p className="hint">키는 서버에만 안전하게 저장되며 화면에 다시 노출되지 않습니다.</p><label>Access Key<input value={access} onChange={event=>setAccess(event.target.value)} autoComplete="off" required/></label><label>Secret Key<input type="password" value={secret} onChange={event=>setSecret(event.target.value)} autoComplete="new-password" required/></label><button className="primary" disabled={saving||!access.trim()||!secret.trim()}>{saving?'저장 중…':'API 키 저장'}</button></form>}{admin&&<div className="connection-row"><div><b>DeepSeek</b><p>{connections==null?'상태 확인 중…':connections.deepseek?'키 등록됨':'키 등록 필요'}</p></div><button className="quiet" onClick={()=>onNavigate('ai-settings')}>AI 연결 설정</button></div>}</section><section className="card form narrow"><h3>프로필</h3><label>이름<input value={name} onChange={e=>setName(e.target.value)}/></label><label>이메일<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>새 비밀번호<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="변경할 때만 입력"/></label><button className="primary" onClick={save}>변경사항 저장</button></section></div>
+}
 function Settings({rows,onChange,onSave,pending}) {
  if(!rows?.length)return <Empty/>;
  const fields=[['expected_high_percentage','목표 상승률','기준 가격에서 목표 매도가까지의 비율','%',1,1000],['expected_low_percentage','허용 하락률','목표 상승률보다 작아야 합니다.','%',-99,999],['highest_price_reference_days','분석 기간','조회 가능한 범위: 3~200일','일',3,200]];
@@ -948,6 +951,7 @@ function CardsSkeleton() {
 }
 
 function App() {
+ const [aiSettingsRequest,setAiSettingsRequest]=useState(0),[connectionsRequest,setConnectionsRequest]=useState(0);
  const [aiRefresh,setAiRefresh]=useState(0);
  const [aiInitialSymbol,setAiInitialSymbol]=useState('');
  const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('account'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]),[mobileMore,setMobileMore]=useState(false);
@@ -970,6 +974,11 @@ function App() {
  useEffect(()=>{if(!user||tab!=='upbit')return;let active=true;const timer=setInterval(async()=>{try{const next=await api('/recommendations/upbit?include_ownership=false');if(active&&activeTab.current==='upbit')setData(current=>next.map(row=>{const previous=Array.isArray(current)&&current.find(item=>item.code===row.code);return {...row,owned:previous?.owned,owned_quantity:previous?.owned_quantity}}))}catch(e){if(active&&e?.status===401)handleError(e)}},30000);return()=>{active=false;clearInterval(timer)}},[user,tab,handleError]);
  function selectTab(key){setMobileMore(false);if(key!=='ai')setAiInitialSymbol('');if(key===activeTab.current)return;requests.current.cancel();view.current++;activeTab.current=key;setData(null);setLoading(true);setError('');setNotice('');setTab(key)}
  function handleAskAI(currency){setAiInitialSymbol(`KRW-${currency}`);selectTab('ai');}
+ function navigate(key){
+  if(key==='connections'){setConnectionsRequest(value=>value+1);selectTab('profile');return}
+  if(key==='ai-settings'){setAiSettingsRequest(value=>value+1);selectTab('ai');return}
+  selectTab(key);
+ }
  async function mutate(key,action,{refresh=false,message=''}={}) {
   if(actions.current.has(key))return;
   const currentView=view.current;actions.current.add(key);setPending([...actions.current]);setError('');setNotice('');
@@ -983,7 +992,7 @@ function App() {
  const primaryKeys=['upbit','stock','account','ai'],mobilePrimary=visible.filter(([key])=>primaryKeys.includes(key)),mobileSecondary=visible.filter(([key])=>!primaryKeys.includes(key));
  const scopedError=e=>{if(view.current===currentView)handleError(e)};
  const statusLabel=loading?'조회 중':error?'조회 실패':data?'조회 완료':'대기 중';
- return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav" aria-label="메인 메뉴">{tabGroups.map(group=>{const groupTabs=visible.filter(([key])=>group.keys.includes(key));if(!groupTabs.length)return null;return (<div className="nav-group" key={group.title}><div className="nav-group-title">{group.title}</div><div className="nav-group-items">{groupTabs.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</div></div>);})}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><span>{label}</span><small>{short}</small></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><span>나머지 메뉴</span><small>더보기</small></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<div className="mobile-more-backdrop" onClick={()=>setMobileMore(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="전체 메뉴" onClick={event=>event.stopPropagation()}><div className="section-head"><h2>전체 메뉴</h2><button className="quiet compact" onClick={()=>setMobileMore(false)}>닫기</button></div><div className="mobile-sheet-content">{tabGroups.map(group=>{const gTabs=mobileSecondary.filter(([key])=>group.keys.includes(key));if(!gTabs.length)return null;return (<div className="mobile-sheet-group" key={group.title}><div className="mobile-sheet-group-title">{group.title}</div><div className="mobile-sheet-group-items">{gTabs.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><b>{short}</b><span>{label}</span></button>)}</div></div>);})}</div></section></div>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><ThemeToggle /><span className={`badge ${error?'failed':''}`} role="status">{statusLabel}</span><button className="refresh quiet" onClick={load} disabled={loading}>{error?'다시 시도':'새로고침'}</button></div></header>
+return <div className="layout"><aside><div className="brand"><img src="/icons/icon-192.png" alt=""/><div><h2>Trading</h2><p>{user.user_name} · {user.user_role}</p></div></div>{installPrompt&&<button className="install" onClick={async()=>{try{await installPrompt.prompt();setInstallPrompt(null)}catch(e){handleError(e)}}}>앱으로 설치</button>}<nav className="desktop-nav" aria-label="메인 메뉴">{tabGroups.map(group=>{const groupTabs=visible.filter(([key])=>group.keys.includes(key));if(!groupTabs.length)return null;return (<div className="nav-group" key={group.title}><div className="nav-group-title">{group.title}</div><div className="nav-group-items">{groupTabs.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key}><span>{label}</span><small>{short}</small></button>)}</div></div>);})}</nav><nav className="mobile-nav" aria-label="주요 메뉴">{mobilePrimary.map(([key,label,short])=><button className={tab===key?'active':''} onClick={()=>selectTab(key)} key={key} title={label}><Icon name={key}/><span>{short}</span></button>)}<button className={mobileMore||mobileSecondary.some(([key])=>key===tab)?'active':''} onClick={()=>setMobileMore(value=>!value)} aria-expanded={mobileMore}><Icon name="more"/><span>더보기</span></button></nav><button className="logout quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button></aside>{mobileMore&&<Sheet title="더보기" onClose={()=>setMobileMore(false)}><div className="mobile-sheet-content"><div className="mobile-sheet-group-items">{mobileSecondary.map(([key,label])=><button key={key} onClick={()=>navigate(key)}><Icon name={key}/><span>{label}</span></button>)}{isAdmin&&<button onClick={()=>navigate('ai-settings')}><Icon name="settings"/><span>AI 설정</span></button>}<button onClick={()=>navigate('connections')}><Icon name="connections"/><span>연결 관리</span></button></div><button className="quiet" disabled={pending.includes('logout')} onClick={logout}>로그아웃</button><div className="mobile-sheet-group"><h3>테마</h3><ThemeToggle/></div></div></Sheet>}<main><header><div><small className="eyebrow">PERSONAL TRADING DESK</small><h1>{current?.[1]}</h1></div><div className="header-actions"><ThemeToggle /><span className={`badge ${error?'failed':loading?'loading':''}`} role="status">{statusLabel}</span><button className="refresh quiet" aria-label={error?'다시 시도':'새로고침'} onClick={load} disabled={loading}><Icon name="refresh"/><span>{error?'다시 시도':'새로고침'}</span></button></div></header>
  {error&&<div className="error" role="alert">{error}</div>}{notice&&<div className="notice" role="status">{notice}</div>}
  {loading&&!data&&showSkeleton&&(
   <>
@@ -995,10 +1004,10 @@ function App() {
  {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab} onAskAI={handleAskAI}/></>}
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
  {data&&tab==='orders'&&<Orders rows={data}/>}
- {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={selectTab}/>}
- {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError}/>}
+ {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate}/>}
+ {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
- {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={selectTab} initialSymbol={aiInitialSymbol}/>}
+ {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={navigate} initialSymbol={aiInitialSymbol} settingsRequest={aiSettingsRequest}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
  {data&&tab==='users'&&<Table rows={data}/>}

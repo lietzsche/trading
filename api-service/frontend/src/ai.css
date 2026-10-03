@@ -1458,7 +1458,7 @@
 }
 
 .ai-setting-comparison-table .col-cur {
-    color: var(--accent-surface);
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1488,7 +1488,7 @@
 .ai-history-check input {width:20px;height:20px}
 .ai-history-filter {grid-column:1 / -1;justify-self:start;min-height:44px}
 .ai-select-all {min-height:44px;margin-bottom:8px;width:100%}
-.ai-bulk-bar {position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:12px;box-shadow:0 4px 24px #0004;max-width:calc(100vw - 24px)}
+.ai-bulk-bar {position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-md);box-shadow:var(--shadow-md);max-width:calc(100vw - 24px)}
 .ai-bulk-bar button {min-height:44px}
 @media(max-width:760px){
  .ai-selection-mode .ai-message-composer {display:none}
