@@ -20,7 +20,14 @@
 ./up.sh
 ```
 
-React/FastAPI용 Cloudflare Quick Tunnel 하나를 시작하고 URL을 `.quick-tunnels/urls.env`에 저장합니다. 기존 URL을 유지하면서 재배포하려면 다음을 실행합니다.
+React/FastAPI는 Cloudflare Named Tunnel을 통해 고정 주소 `https://trade.lietzsche.org`로 공개합니다. 최초 1회 Cloudflare 대시보드의 **Networking(네트워킹) > Tunnels(터널)**에서 터널을 생성하고, 게시된 애플리케이션 경로를 `trade.lietzsche.org`에서 `http://localhost:8001`로 연결하세요. 대시보드가 보여주는 실행 명령의 토큰 값만 저장소 루트의 `.cloudflare-tunnel-token`에 저장한 뒤 권한을 제한합니다.
+
+```bash
+chmod 600 .cloudflare-tunnel-token
+./up.sh
+```
+
+토큰 파일과 런타임 상태는 Git에서 제외됩니다. 기존 URL을 유지하면서 재배포하려면 다음을 실행합니다.
 
 ```bash
 ./reup.sh
@@ -73,4 +80,4 @@ GitHub push/PR에서도 같은 Python·프런트엔드 테스트를 실행합니
 ./down.sh
 ```
 
-`down.sh`는 컨테이너, 네트워크, Quick Tunnel과 PostgreSQL 데이터 볼륨 `001_postgres_data`를 삭제합니다. 데이터는 복구할 수 없습니다.
+`down.sh`는 컨테이너, 네트워크, 로컬 Cloudflare Tunnel 연결과 PostgreSQL 데이터 볼륨 `001_postgres_data`를 삭제합니다. 데이터는 복구할 수 없습니다. Cloudflare에 등록된 Named Tunnel과 `trade.lietzsche.org` DNS 설정은 다음 배포에서도 같은 URL을 쓰도록 보존됩니다.

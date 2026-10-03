@@ -15,7 +15,7 @@ stop_tunnel() {
   if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
     args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
     if [[ "$args" == *cloudflared* && "$args" == *tunnel* ]]; then
-      echo "$service Quick Tunnel을 종료합니다..."
+      echo "$service Cloudflare Tunnel 연결을 종료합니다..."
       kill "$pid"
       for _ in {1..10}; do
         kill -0 "$pid" 2>/dev/null || break
@@ -49,4 +49,5 @@ fi
 rm -rf -- "$STATE_DIR"
 rm -f -- "$ROOT_DIR/.runtime.env"
 
-echo "정리가 완료되었습니다. 컨테이너, 네트워크, Quick Tunnel, 관련 볼륨을 모두 삭제했습니다."
+echo "정리가 완료되었습니다. 컨테이너, 네트워크, 로컬 Tunnel 연결, 관련 볼륨을 모두 삭제했습니다."
+echo "Cloudflare의 Named Tunnel과 trade.lietzsche.org DNS 설정은 다음 배포를 위해 보존됩니다."

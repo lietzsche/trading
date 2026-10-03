@@ -10,5 +10,6 @@
 .quick-tunnels/
 .env
 .runtime.env
+.cloudflare-tunnel-token
 __pycache__/
 *.pyc
