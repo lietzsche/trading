@@ -33,6 +33,13 @@ R-1 매도 확인·슬라이더 게이트, R-2 MASTER 권한, R-3 동의 기본 
 
 원시 수치: [metrics.json](screenshots/mobile-ui-second-2026-10-03/metrics.json).
 
+## 배포 확인
+
+- 구현 커밋 `0ad3b17` 후 `./reup.sh` 정상 종료. 기존 Cloudflare Named Tunnel과 `https://trade.lietzsche.org`를 유지했다.
+- API·계산 서비스·PostgreSQL 모두 healthy. 로컬 및 공개 `/api/health` 응답은 `status/database/calculation` 모두 `UP`이다.
+- 마이그레이션 정상 종료. 최근 시작 로그에 ERROR/FATAL/Traceback 없음. 기존 테이블·인덱스가 존재한다는 NOTICE는 멱등 실행의 정상 메시지다.
+- 푸시는 실행하지 않았다. 임시 Vite 검수 서버만 종료했고 운영 리소스는 유지했다.
+
 ## 375×812 스크린샷
 
 | 화면 | 라이트 | 다크 |
