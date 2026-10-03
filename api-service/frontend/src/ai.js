@@ -60,3 +60,12 @@ export function candidateEligible(candidate) {
     && candidate.can_apply !== false && Number(candidate.validation?.trades || 0) > 0
     && Number(candidate.validation?.days || 0) >= 10);
 }
+
+export function autoApplyEligible(candidate, baseline) {
+  if (!candidate || ['current', 'baseline'].includes(candidate.id) || candidate.can_apply === false) return false;
+  const metrics = candidate.validation, base = baseline?.validation;
+  const raw = [metrics?.days, metrics?.trades, metrics?.return_pct, metrics?.max_drawdown_pct, base?.return_pct, base?.max_drawdown_pct];
+  if (raw.some(value => value == null || value === '' || !Number.isFinite(Number(value)))) return false;
+  const [days, trades, returns, drawdown, baseReturn, baseDrawdown] = raw.map(Number);
+  return days >= 20 && trades >= 3 && returns > baseReturn && baseDrawdown >= 0 && drawdown >= 0 && drawdown <= baseDrawdown + 2;
+}

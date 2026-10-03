@@ -1,5 +1,18 @@
 import {describe, expect, it} from 'vitest';
-import {candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
+import {autoApplyEligible, candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
+
+describe('automatic settings safety', () => {
+  it.each([[8.42,11,false],[7.90,11,true],[2,11,true],[2,10,false],[2,9,false]])('drawdown %s and return %s eligibility is %s', (drawdown, returns, expected) => {
+    const baseline = {validation:{return_pct:10,max_drawdown_pct:5.93}};
+    const candidate = {id:'candidate-1',validation:{days:20,trades:3,return_pct:returns,max_drawdown_pct:drawdown}};
+    expect(autoApplyEligible(candidate,baseline)).toBe(expected);
+  });
+  it('rejects missing nonfinite and negative metrics', () => {
+    for(const drawdown of [null,undefined,NaN,Infinity,-1]) {
+      expect(autoApplyEligible({id:'candidate-1',validation:{days:20,trades:3,return_pct:11,max_drawdown_pct:drawdown}}, {validation:{return_pct:10,max_drawdown_pct:5.93}})).toBe(false);
+    }
+  });
+});
 
 describe('AI analysis input', () => {
   it('normalizes and deduplicates symbols without altering stock leading zeros', () => {

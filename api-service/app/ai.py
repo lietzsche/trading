@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import threading
 import time
@@ -28,6 +29,26 @@ SETTING_KEYS = ("expected_high_percentage", "expected_low_percentage", "highest_
 DEFAULT_MODEL = "deepseek-flash"
 RUN_TOKEN_BUDGET = 200000
 REALIZED_PNL_ORDER_LIMIT = 20
+AUTO_APPLY_COOLDOWN_HOURS = max(0, float(os.getenv("AUTO_APPLY_COOLDOWN_HOURS", "72")))
+
+
+def auto_apply_eligible(candidate, baseline):
+    if not candidate or candidate.get("id") in {"current", "baseline"} or candidate.get("can_apply") is False:
+        return False
+    try:
+        metrics, base = candidate["validation"], baseline["validation"]
+        values = [float(metrics[key]) for key in ("days", "trades", "return_pct", "max_drawdown_pct")]
+        base_return, base_drawdown = float(base["return_pct"]), float(base["max_drawdown_pct"])
+        days, trades, returns, drawdown = values
+        return (all(math.isfinite(value) for value in [*values, base_return, base_drawdown])
+                and days >= 20 and trades >= 3 and 0 <= drawdown <= base_drawdown + 2
+                and base_drawdown >= 0 and returns > base_return)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def auto_apply_next_at(last_applied_at):
+    return last_applied_at + timedelta(hours=AUTO_APPLY_COOLDOWN_HOURS) if last_applied_at else None
 
 
 class ConfigUpdate(BaseModel):
@@ -255,9 +276,10 @@ class AIService:
 
     def _automation_fingerprint(self):
         settings = self.db.one(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name='upbit' AND deleted_at IS NULL")
-        recommendations = self.db.all("""SELECT code,renewal_cnt,temp_price,minimum_selling_price,
-            expected_selling_price,pricing_reference_date FROM upbit WHERE deleted_at IS NULL
+        recommendations = self.db.all("""SELECT code,renewal_cnt,minimum_selling_price,
+            expected_selling_price FROM upbit WHERE deleted_at IS NULL
             ORDER BY code""")
+        recommendations = [{key: row[key] for key in ("code", "renewal_cnt", "minimum_selling_price", "expected_selling_price")} for row in recommendations]
         raw = json.dumps({"settings": settings, "recommendations": recommendations}, ensure_ascii=False,
                          sort_keys=True, default=str).encode()
         return hashlib.sha256(raw).hexdigest()
@@ -287,6 +309,8 @@ class AIService:
               AND (c.trigger_mode='recommendation_change' OR c.next_run_at IS NULL OR c.next_run_at<=now())""")
         for config in configs:
             try:
+                if config.get("last_started_at") and datetime.now(timezone.utc) < config["last_started_at"] + timedelta(minutes=config["interval_minutes"]):
+                    continue
                 self._launch_automation(config)
             except HTTPException as error:
                 if error.status_code not in (409, 429):
@@ -432,26 +456,7 @@ class AIService:
     def _auto_apply_verified_settings(self, analysis_id, result):
         candidates = result.get("candidates", []) if isinstance(result, dict) else []
         baseline = next((item for item in candidates if item.get("id") in {"current", "baseline"}), None)
-        baseline_validation = (baseline or {}).get("validation") or {}
-        try:
-            baseline_return = float(baseline_validation["return_pct"])
-            baseline_drawdown = float(baseline_validation["max_drawdown_pct"])
-        except (KeyError, TypeError, ValueError):
-            self.db.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
-                            ("기존 설정의 검증 지표가 없어 자동 적용하지 않았습니다.", analysis_id))
-            return
-        eligible = []
-        for candidate in candidates:
-            metrics = candidate.get("validation") or {}
-            try:
-                candidate_return = float(metrics["return_pct"])
-                candidate_drawdown = float(metrics["max_drawdown_pct"])
-                days, trades = int(metrics["days"]), int(metrics["trades"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if (candidate.get("id") not in {"current", "baseline"} and days >= 20 and trades >= 3
-                    and candidate_return > baseline_return and candidate_drawdown >= baseline_drawdown - 2):
-                eligible.append((candidate_return, candidate))
+        eligible = [(float(candidate["validation"]["return_pct"]), candidate) for candidate in candidates if auto_apply_eligible(candidate, baseline)]
         if not eligible:
             self.db.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
                             ("검증 20일·청산 3건·기존 대비 수익 개선·낙폭 악화 2%p 이내 조건을 통과한 설정이 없어 유지했습니다.", analysis_id))
@@ -463,13 +468,20 @@ class AIService:
                 JOIN ai_automation_config c ON c.user_id=a.user_id
                 WHERE a.id=%s FOR UPDATE""", (analysis_id,))
             analysis = cursor.fetchone()
-            if not analysis or not analysis["auto_apply_settings"]:
+            if not analysis or analysis.get("applied_candidate_id") or analysis.get("reverted_at"):
+                return
+            if not analysis["auto_apply_settings"]:
                 cursor.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
                                ("자동 설정 적용이 꺼져 있어 분석 결과만 저장했습니다.", analysis_id))
                 return
             cursor.execute(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name=%s AND deleted_at IS NULL FOR UPDATE",
                            (analysis["market"],))
             current = cursor.fetchone()
+            cursor.execute("SELECT max(applied_at) AS last_applied_at FROM ai_analyses WHERE market=%s AND automation_run=true AND applied_at IS NOT NULL", (analysis["market"],))
+            next_at = auto_apply_next_at(cursor.fetchone()["last_applied_at"])
+            if next_at and datetime.now(timezone.utc) < next_at:
+                cursor.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s", (f"최근 자동 적용 후 대기 시간이라 유지했습니다(다음 가능: {next_at.astimezone(ZoneInfo('Asia/Seoul')).isoformat()})", analysis_id))
+                return
             if not current or settings_dict(current) != analysis["settings_snapshot"]:
                 cursor.execute("UPDATE ai_analyses SET automation_note=%s WHERE id=%s",
                                ("분석 중 설정이 변경되어 자동 적용하지 않았습니다.", analysis_id))
@@ -512,7 +524,7 @@ class AIService:
 
     def detail(self, user_id, analysis_id):
         row = self.db.one("""SELECT id,market,status,prompt,include_account,settings_snapshot,result,error_message,
-            model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at,automation_run,automation_note
+            model,usage_tokens,created_at,completed_at,applied_candidate_id,applied_at,automation_run,automation_note,reverted_at,reverted_by
             FROM ai_analyses WHERE id=%s AND user_id=%s AND hidden_at IS NULL""", (analysis_id, user_id))
         if not row:
             raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
@@ -769,6 +781,29 @@ class AIService:
             cursor.execute("UPDATE ai_analyses SET applied_candidate_id=%s,applied_at=now(),applied_by=%s WHERE id=%s", (payload.candidate_id, user_id, analysis_id))
         return {"ok": True, "settings": proposed, "note": "승인한 설정을 저장했습니다. 다음 계산부터 적용되며 지금 주문을 실행하지는 않습니다."}
 
+    def revert(self, user_id, analysis_id):
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM ai_analyses WHERE id=%s AND user_id=%s FOR UPDATE", (analysis_id, user_id))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
+            if not row["applied_candidate_id"] or row.get("reverted_at"):
+                raise HTTPException(409, "적용된 미복원 분석만 되돌릴 수 있습니다.")
+            candidate = next((item for item in (row["result"] or {}).get("candidates", []) if item.get("id") == row["applied_candidate_id"]), None)
+            if not candidate:
+                raise HTTPException(409, "적용한 후보 설정을 확인할 수 없습니다.")
+            proposed = self.setting_schema.model_validate(candidate["settings"]).model_dump()
+            restored = self.setting_schema.model_validate(row["settings_snapshot"]).model_dump()
+            cursor.execute(f"SELECT {SETTING_COLUMNS} FROM deal_settings WHERE name=%s AND deleted_at IS NULL FOR UPDATE", (row["market"],))
+            current = cursor.fetchone()
+            if not current or settings_dict(current) != proposed:
+                raise HTTPException(409, "이후 설정이 바뀌어 되돌릴 수 없습니다")
+            cursor.execute("""UPDATE deal_settings SET expected_high_percentage=%s,expected_low_percentage=%s,
+                highest_price_reference_days=%s,is_volume_check=%s,updated_at=to_char(clock_timestamp(),'YYYY-MM-DD HH24:MI:SS.US')
+                WHERE name=%s AND deleted_at IS NULL""", (*[restored[key] for key in SETTING_KEYS], row["market"]))
+            cursor.execute("UPDATE ai_analyses SET reverted_at=now(),reverted_by=%s WHERE id=%s", (user_id, analysis_id))
+        return {"ok": True, "settings": restored}
+
 
 def create_router(service, admin_dependency, master_dependency):
     router = APIRouter(prefix="/api/admin/ai", tags=["AI analysis"])
@@ -829,6 +864,10 @@ def create_router(service, admin_dependency, master_dependency):
     @router.post("/analyses/{analysis_id}/apply")
     def apply_analysis(analysis_id: int, payload: ApplyRequest, user: dict = Depends(master_dependency)):
         return service.apply(user["id"], analysis_id, payload)
+
+    @router.post("/analyses/{analysis_id}/revert")
+    def revert_analysis(analysis_id: int, user: dict = Depends(master_dependency)):
+        return service.revert(user["id"], analysis_id)
 
     @router.post("/analyses/{analysis_id}/messages", status_code=202)
     def continue_conversation(analysis_id: int, payload: ConversationRequest,

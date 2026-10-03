@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 
 import httpx
@@ -12,6 +13,117 @@ os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 
 from app.ai import AIService, AnalysisRequest, AutomationUpdate, ConfigUpdate, account_for_ai, candidate_verified, key_cipher
 from app.main import SettingUpdate
+
+
+@pytest.mark.parametrize("drawdown,returns,expected", [(8.42, 11, False), (7.90, 11, True), (2.00, 11, True), (2.00, 10, False), (2.00, 9, False)])
+def test_auto_apply_drawdown_and_return_gate(drawdown, returns, expected):
+    from app.ai import auto_apply_eligible
+    baseline = {"id": "current", "validation": {"return_pct": 10, "max_drawdown_pct": 5.93}}
+    candidate = {"id": "candidate-1", "validation": {"days": 20, "trades": 3, "return_pct": returns, "max_drawdown_pct": drawdown}}
+    assert auto_apply_eligible(candidate, baseline) is expected
+
+
+def test_auto_apply_rejects_missing_nonfinite_and_negative_metrics():
+    from app.ai import auto_apply_eligible
+    baseline = {"validation": {"return_pct": 10, "max_drawdown_pct": 5.93}}
+    for drawdown in (None, float("nan"), float("inf"), -1):
+        assert not auto_apply_eligible({"id": "candidate-1", "validation": {"days": 20, "trades": 3, "return_pct": 11, "max_drawdown_pct": drawdown}}, baseline)
+
+
+SETTINGS_BEFORE = {"expected_high_percentage": 20, "expected_low_percentage": -10, "highest_price_reference_days": 30, "volume_check": False}
+SETTINGS_AFTER = {**SETTINGS_BEFORE, "expected_high_percentage": 25}
+
+
+class SafetyCursor:
+    def __init__(self, database): self.database, self.result = database, None
+    def __enter__(self): return self
+    def __exit__(self, *_): return False
+    def execute(self, query, params=()):
+        self.database.writes.append((query, params))
+        if "SELECT a.*" in query or query.startswith("SELECT * FROM ai_analyses"):
+            self.result = self.database.analysis
+        elif "FROM deal_settings" in query:
+            self.result = self.database.current
+        elif "max(applied_at)" in query:
+            self.result = {"last_applied_at": self.database.last_applied}
+    def fetchone(self): return self.result
+
+
+class SafetyDatabase:
+    def __init__(self, last_applied=None, current=None):
+        self.writes, self.last_applied = [], last_applied
+        self.current = current or SETTINGS_BEFORE
+        self.analysis = {"id": 11, "user_id": 7, "market": "upbit", "auto_apply_settings": True,
+                         "settings_snapshot": SETTINGS_BEFORE, "applied_candidate_id": None, "reverted_at": None}
+    @contextmanager
+    def connection(self): yield self
+    def cursor(self): return SafetyCursor(self)
+    def execute(self, query, params=()): self.writes.append((query, params))
+
+
+@pytest.mark.parametrize("hours,allowed", [(1, False), (73, True)])
+def test_auto_apply_cooldown_blocks_recent_and_allows_elapsed(hours, allowed):
+    database = SafetyDatabase(last_applied=datetime.now(timezone.utc)-timedelta(hours=hours))
+    result = {"candidates": [
+        {"id": "current", "validation": {"return_pct": 10, "max_drawdown_pct": 5.93}},
+        {"id": "candidate-1", "settings": SETTINGS_AFTER, "validation": {"days": 20, "trades": 3, "return_pct": 11, "max_drawdown_pct": 7.90}}]}
+    service(database)._auto_apply_verified_settings(11, result)
+    assert any(query.startswith("UPDATE deal_settings") for query, _ in database.writes) is allowed
+    if not allowed:
+        assert any("최근 자동 적용 후 대기 시간" in str(params) for _, params in database.writes)
+    assert any("FOR UPDATE" in query and "deal_settings" in query for query, _ in database.writes)
+
+
+def test_automation_fingerprint_ignores_live_price_changes():
+    class Database:
+        price = 100
+        def one(self, *_): return SETTINGS_BEFORE
+        def all(self, *_): return [{"code": "KRW-BTC", "renewal_cnt": 1, "temp_price": self.price, "minimum_selling_price": 90, "expected_selling_price": 120}]
+    database = Database()
+    instance = service(database)
+    before = instance._automation_fingerprint()
+    database.price = 110
+    assert instance._automation_fingerprint() == before
+
+
+@pytest.mark.parametrize("minutes,expected_launches", [(0, 0), (61, 1)])
+def test_recommendation_change_respects_minimum_interval(minutes, expected_launches):
+    class Database:
+        def all(self, *_): return [{"user_id": 7, "trigger_mode": "recommendation_change", "last_started_at": datetime.now(timezone.utc)-timedelta(minutes=minutes), "interval_minutes": 60}]
+    instance = service(Database())
+    launched = []
+    instance._launch_automation = lambda config: launched.append(config)
+    instance.automation_tick()
+    assert len(launched) == expected_launches
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_revert_restores_snapshot_only_when_current_matches_applied(changed):
+    database = SafetyDatabase(current=SETTINGS_BEFORE if changed else SETTINGS_AFTER)
+    database.analysis.update(applied_candidate_id="candidate-1", result={"candidates": [{"id": "candidate-1", "settings": SETTINGS_AFTER}]})
+    if changed:
+        with pytest.raises(HTTPException) as error:
+            service(database).revert(7, 11)
+        assert error.value.status_code == 409
+        assert not any(query.startswith("UPDATE") for query, _ in database.writes)
+    else:
+        assert service(database).revert(7, 11)["settings"] == SETTINGS_BEFORE
+        updates = [(query, params) for query, params in database.writes if query.startswith("UPDATE")]
+        assert updates[0][1] == (*SETTINGS_BEFORE.values(), "upbit")
+        assert "reverted_at=now()" in updates[1][0]
+    assert any("deal_settings" in query and "FOR UPDATE" in query for query, _ in database.writes)
+
+
+def test_revert_rejects_repeated_and_foreign_analysis():
+    database = SafetyDatabase()
+    database.analysis = None
+    with pytest.raises(HTTPException) as error:
+        service(database).revert(7, 11)
+    assert error.value.status_code == 404
+    database.analysis = {"applied_candidate_id": "candidate-1", "reverted_at": datetime.now(timezone.utc)}
+    with pytest.raises(HTTPException) as error:
+        service(database).revert(7, 11)
+    assert error.value.status_code == 409
 
 
 class CaptureDatabase:
