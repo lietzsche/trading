@@ -268,6 +268,7 @@
 .setting-change-list dd {margin:0;color:var(--text-secondary)}
 button.quiet {border:1px solid var(--border-strong);min-height:44px}
 .recommendation-rank {color:var(--accent);font-variant-numeric:tabular-nums}
+.recommendation-level {color:var(--accent);font-variant-numeric:tabular-nums;white-space:nowrap}
 .priority-badge {font-size:var(--text-xs);color:var(--state-warning)}
 .recommendation-details summary {min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--text-secondary)}
 .admin-actions {display:flex;align-items:end;gap:12px;flex-wrap:wrap}

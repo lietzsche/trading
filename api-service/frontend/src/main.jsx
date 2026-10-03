@@ -95,7 +95,7 @@ function RecommendationCards({rows,market,onAskAI}) {
           </div>
          </div>
          <div className="price-main">
-          <small>현재가</small>
+          <small>현재가 · <b className="recommendation-level">갱신 {row.renewal_cnt??0}단계</b></small>
           <strong>{quote(row.temp_price)}</strong>
          </div>
          <div className="progress-label">
