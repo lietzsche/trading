@@ -149,7 +149,9 @@ class DeleteCursor:
     def execute(self, query, params=()):
         self.database.queries.append((query, params))
         if query.startswith("SELECT status"):
-            self.result = self.database.row
+            self.result = self.database.rows.get(params[0]) if self.database.rows is not None else self.database.row
+        elif query.startswith("SELECT 1 FROM ai_conversation_messages"):
+            self.result = {"exists": 1} if params[0] in self.database.running_messages else None
         elif query.startswith("DELETE FROM ai_analyses"):
             self.database.deleted = params
         elif query.startswith("UPDATE ai_analyses SET hidden_at"):
@@ -164,8 +166,9 @@ class DeleteConnection:
 
 
 class DeleteDatabase:
-    def __init__(self, row):
+    def __init__(self, row, running_messages=(), rows=None):
         self.row, self.deleted, self.hidden, self.queries = row, None, None, []
+        self.running_messages, self.rows = set(running_messages), rows
 
     @contextmanager
     def connection(self):
@@ -194,3 +197,34 @@ def test_applied_conversation_is_hidden_but_preserved_for_audit():
     service(database).delete_analysis(7, 11)
     assert database.hidden == (11, 7)
     assert database.deleted is None
+
+
+def test_conversation_with_running_followup_cannot_be_deleted():
+    database = DeleteDatabase({"status": "COMPLETED", "applied_candidate_id": None}, running_messages=[11])
+    with pytest.raises(HTTPException) as error:
+        service(database).delete_analysis(7, 11)
+    assert error.value.status_code == 409
+    assert error.value.detail == "후속 답변이 진행 중인 대화는 삭제할 수 없습니다."
+    assert database.deleted is None and database.hidden is None
+
+
+def test_bulk_delete_mixed_owner_scoped_records():
+    database = DeleteDatabase(None, running_messages=[4], rows={
+        1: {"status": "COMPLETED", "applied_candidate_id": None},
+        2: {"status": "COMPLETED", "applied_candidate_id": "candidate-1"},
+        3: {"status": "RUNNING", "applied_candidate_id": None},
+        4: {"status": "COMPLETED", "applied_candidate_id": None},
+        # 5 belongs to another user and is excluded by the owner query.
+    })
+    result = service(database).bulk_delete_analyses(7, [1, 2, 3, 4, 5, 1])
+    assert result == {"deleted": 1, "hidden": 1, "skipped": [{"id": 3, "reason": "running"}, {"id": 4, "reason": "running"}]}
+    assert database.deleted == (1, 7) and database.hidden == (2, 7)
+    assert all(params[1] == 7 and "user_id=%s" in query and "FOR UPDATE" in query
+               for query, params in database.queries if query.startswith("SELECT status"))
+
+
+def test_bulk_delete_rejects_empty_oversized_or_invalid_ids():
+    from app.ai import BulkDeleteRequest
+    for ids in ([], list(range(1, 52)), [0], [-1]):
+        with pytest.raises(ValidationError):
+            BulkDeleteRequest(ids=ids)

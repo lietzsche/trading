@@ -241,6 +241,8 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
   const [selectedId, setSelectedId] = useState(null), [selected, setSelected] = useState(null), [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true), [pending, setPending] = useState(''), [notice, setNotice] = useState(''), [localError, setLocalError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(false), [checkedIds, setCheckedIds] = useState([]);
+  const [automationOnly, setAutomationOnly] = useState(false);
   const [market, setMarket] = useState('upbit'), [prompt, setPrompt] = useState('현재 전략과 설정을 점검하고, 과거 데이터로 비교한 설정 후보의 장단점과 위험을 설명해 주세요.');
   const [symbols, setSymbols] = useState(''), [includeAccount, setIncludeAccount] = useState(false), [feeBps, setFeeBps] = useState(5), [slippageBps, setSlippageBps] = useState(10);
   const [recommendations, setRecommendations] = useState([]), [chatQuestion, setChatQuestion] = useState(''), [includePortfolio, setIncludePortfolio] = useState(false);
@@ -265,26 +267,32 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     setLocalError(error?.message || String(error));
   }, []);
 
-  const refresh = useCallback(async (resetDraft = false) => {
+  const refresh = useCallback(async (resetDraft = false, selectFirst = true) => {
     const request = listRequests.current.begin();
     setLoading(true);
     try {
       const [nextConfig, nextHistory, nextAutomation] = await Promise.all([
         api(`${API}/config`, {signal: request.signal}),
-        api(`${API}/analyses?page=${pageRef.current}`, {signal: request.signal}),
+        api(`${API}/analyses?page=${pageRef.current}&automation_only=${automationOnly}`, {signal: request.signal}),
         user.user_role === 'MASTER' ? api(`${API}/automation`, {signal: request.signal}) : Promise.resolve(null),
       ]);
       if (!request.isCurrent()) return;
+      if (!nextHistory.items?.length && pageRef.current > 0) {
+        pageRef.current -= 1;
+        setPage(pageRef.current);
+        return;
+      }
       setConfig(nextConfig); setHistory(nextHistory);
+      setCheckedIds(ids => ids.filter(id => nextHistory.items.some(item => item.id === id && !isAnalysisRunning(item.status) && !item.has_running_message)));
       if (nextAutomation) {
         setAutomation(nextAutomation);
         if (resetDraft) setAutomationDraft({enabled: Boolean(nextAutomation.enabled), trigger_mode: nextAutomation.trigger_mode || 'interval', interval_minutes: Number(nextAutomation.interval_minutes || 60), auto_apply_settings: Boolean(nextAutomation.auto_apply_settings)});
       }
-      if (selectedIdRef.current === null && nextHistory.items?.length) setSelectedId(nextHistory.items[0].id);
+      if (selectFirst && selectedIdRef.current === null && nextHistory.items?.length) setSelectedId(nextHistory.items[0].id);
       if (resetDraft) setConfigDraft({model: nextConfig.model || defaults.model});
     } catch (error) {if (request.isCurrent()) showError(error);}
     finally {if (request.isCurrent()) setLoading(false);}
-  }, [showError, user.user_role]);
+  }, [showError, user.user_role, automationOnly]);
 
   useEffect(() => {
     mounted.current = true;
@@ -292,7 +300,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
   }, []);
 
   useEffect(() => {refresh(true);}, [refresh, refreshToken]);
-  useEffect(() => {if (previousPage.current !== page) {previousPage.current = page; refresh(false);}}, [refresh, page]);
+  useEffect(() => {if (previousPage.current !== page) {previousPage.current = page; refresh(false, false);}}, [refresh, page]);
   useEffect(() => {
     const controller = new AbortController();
     api(`${API}/recommendations/${market}`, {signal: controller.signal}).then(rows => {if (!controller.signal.aborted) setRecommendations(Array.isArray(rows) ? rows : []);}).catch(error => {if (error?.name !== 'AbortError') setRecommendations([]);});
@@ -396,7 +404,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
       ? itemOrId
       : (history.items || []).find(it => String(it.id) === String(targetId)) || selected;
 
-    if (targetItem?.status === 'RUNNING' || targetItem?.status === 'PENDING') {
+    if (targetItem?.status === 'RUNNING' || targetItem?.status === 'PENDING' || targetItem?.has_running_message || targetItem?.conversations?.some(message => isAnalysisRunning(message.status))) {
       setLocalError('현재 분석이 진행 중인 대화는 완료 전까지 삭제할 수 없습니다.');
       return;
     }
@@ -419,7 +427,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
             setShowEvidence(false);
           }
           setNotice(targetItem?.applied_candidate_id ? '감사 기록을 대화 목록에서 숨겼습니다.' : 'AI 대화를 삭제했습니다.');
-          await refresh(false);
+          await refresh(false, false);
         });
       }
     });
@@ -427,6 +435,23 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
 
   function deleteConversation() {
     deleteTargetConversation(selected);
+  }
+
+  function deleteCheckedConversations() {
+    const ids = [...checkedIds];
+    setConfirmDialog({title: '선택한 대화 정리', message: `${ids.length}개 대화를 정리할까요? 설정 적용 기록은 숨기고 보존하며, 나머지는 메시지와 함께 삭제합니다. 진행 중인 대화는 건너뜁니다.`, onConfirm: async () => {
+      await runAction('bulk-delete', async () => {
+        const result = await api(`${API}/analyses/bulk-delete`, {method: 'POST', body: JSON.stringify({ids})});
+        if (!mounted.current) return;
+        if (ids.includes(selectedIdRef.current) && !result.skipped.some(item => item.id === selectedIdRef.current)) {
+          detailRequests.current.cancel(); selectedIdRef.current = null;
+          setSelectedId(null); setSelected(null); setProposal(null); setShowEvidence(false);
+        }
+        setCheckedIds([]); setSelectionMode(false);
+        setNotice(`삭제 ${result.deleted} · 숨김 ${result.hidden} · 건너뜀 ${result.skipped.length}`);
+        await refresh(false, false);
+      });
+    }});
   }
 
   async function inspectCandidate(candidate) {
@@ -509,13 +534,15 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     </form></section>}
 
     <div className="ai-chat-workspace" data-view={viewMode}>
-    <aside className="ai-conversation-list"><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span><button type="button" className="empty-action-btn" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>새 대화 시작하기</button></div> : <div className="ai-history-list">{history.items.map(item => {
+    {viewMode !== 'summary' && <button className="quiet ai-history-filter" aria-pressed={automationOnly} disabled={Boolean(pending) || loading} onClick={() => {pageRef.current = 0; setPage(0); setCheckedIds([]); setAutomationOnly(value => !value);}}>자동 판단만 보기 {automationOnly ? '✓' : ''}</button>}
+    <aside className={`ai-conversation-list ${selectionMode ? 'ai-selecting' : ''}`}><button className="primary ai-new-button" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>＋ 새 대화</button><section className="ai-history"><div className="section-head ai-section-head"><h3>대화 <small>{count(history.total)}개</small></h3><button className="quiet compact" disabled={Boolean(pending)} onClick={() => {setSelectionMode(value => !value); setCheckedIds([]);}}>{selectionMode ? '선택 취소' : '선택'}</button>{loading && <span className="ai-muted" role="status">불러오는 중…</span>}</div>{selectionMode && <button className="quiet ai-select-all" disabled={loading || Boolean(pending)} onClick={() => setCheckedIds(history.items.filter(item => !isAnalysisRunning(item.status) && !item.has_running_message).map(item => item.id))}>이 페이지 전체 선택</button>}{!history.items?.length ? <div className="empty"><b>아직 대화가 없습니다</b><span>새 분석 대화를 시작해 보세요.</span><button type="button" className="empty-action-btn" onClick={() => {detailRequests.current.cancel(); setSelectedId(null); setSelected(null); setProposal(null); setChatQuestion('');}}>새 대화 시작하기</button></div> : <div className="ai-history-list">{history.items.map(item => {
       const isSelected = String(item.id) === String(selectedId);
       const isApplied = Boolean(item.applied_candidate_id);
-      const isRunning = item.status === 'RUNNING' || item.status === 'PENDING';
+      const isRunning = item.status === 'RUNNING' || item.status === 'PENDING' || item.has_running_message;
       const isDeleting = pending === `delete-chat-${item.id}`;
       return (
         <div key={item.id} className={`ai-history-item-row ${isSelected ? 'selected' : ''}`}>
+          {selectionMode && <label className="ai-history-check"><input type="checkbox" aria-label={`${item.prompt || '대화'} 선택`} disabled={isRunning || Boolean(pending)} checked={checkedIds.includes(item.id)} onChange={event => setCheckedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))}/></label>}
           <button type="button" className="ai-history-item-btn" onClick={() => selectAnalysis(item.id)} aria-pressed={isSelected}>
             <div className="ai-history-item-info">
               <b>{marketName(item.market)} · {item.prompt || '분석 대화'}{item.automation_run ? ' · 자동 판단' : ''}</b>
@@ -527,7 +554,7 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
               <small>{count(item.usage_tokens)} 토큰</small>
             </div>
           </button>
-          <button
+          {!selectionMode && <button
             type="button"
             className="ai-item-delete-btn"
             title={isApplied ? '감사 기록은 보존하고 목록에서 숨기기' : isRunning ? '진행 중인 분석은 삭제할 수 없습니다' : '대화 삭제'}
@@ -539,10 +566,11 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
             aria-label={`${item.prompt || '대화'} 삭제`}
           >
             {isDeleting ? '…' : isApplied ? '숨김' : '✕'}
-          </button>
+          </button>}
         </div>
       );
     })}</div>}{pages > 1 && <nav className="pager" aria-label="AI 대화 목록 페이지"><button className="quiet" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>이전</button><span>{page + 1} / {pages}</span><button className="quiet" disabled={page + 1 >= pages || loading} onClick={() => setPage(value => value + 1)}>다음</button></nav>}</section></aside>
+    {selectionMode && <div className="ai-bulk-bar" role="region" aria-label="선택한 대화 정리"><span>{checkedIds.length}개 선택</span><button className="danger" disabled={!checkedIds.length || Boolean(pending) || loading} onClick={deleteCheckedConversations}>{pending === 'bulk-delete' ? '처리 중…' : (() => {const hidden = history.items.filter(item => checkedIds.includes(item.id) && item.applied_candidate_id).length; return hidden ? `${checkedIds.length - hidden}개 삭제 · ${hidden}개 숨김` : `${checkedIds.length}개 삭제`;})()}</button></div>}
     <div className="ai-conversation-panel">
 
     {selectedId !== null && <section className={`ai-result ${(showEvidence || viewMode === 'evidence') ? 'show-evidence' : ''}`} aria-label="선택한 분석 결과">

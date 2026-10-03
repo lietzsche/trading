@@ -71,6 +71,18 @@ class ApplyRequest(BaseModel):
     confirm: Literal[True]
 
 
+class BulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ids: list[int] = Field(min_length=1, max_length=50)
+
+    @field_validator("ids")
+    @classmethod
+    def valid_ids(cls, value):
+        if any(item <= 0 for item in value):
+            raise ValueError("대화 ID는 양수여야 합니다.")
+        return sorted(set(value))
+
+
 class ConversationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1500)
@@ -484,11 +496,14 @@ class AIService:
             if row and row["status"] in {"PENDING", "RUNNING"}:
                 self._settle(cursor, row, status, used, result, error_message)
 
-    def history(self, user_id, page):
-        total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s AND hidden_at IS NULL", (user_id,))["count"]
+    def history(self, user_id, page, automation_only=False):
+        total = self.db.one("SELECT count(*) AS count FROM ai_analyses WHERE user_id=%s AND hidden_at IS NULL AND (%s=false OR automation_run=true)", (user_id, automation_only))["count"]
         items = self.db.all("""SELECT id,market,status,prompt,created_at,completed_at,error_message,usage_tokens,
-            automation_run,applied_candidate_id FROM ai_analyses
-            WHERE user_id=%s AND hidden_at IS NULL ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, page * 10))
+            automation_run,applied_candidate_id,
+            EXISTS(SELECT 1 FROM ai_conversation_messages m WHERE m.analysis_id=ai_analyses.id
+                AND m.status IN ('PENDING','RUNNING')) AS has_running_message FROM ai_analyses
+            WHERE user_id=%s AND hidden_at IS NULL AND (%s=false OR automation_run=true)
+            ORDER BY id DESC LIMIT 10 OFFSET %s""", (user_id, automation_only, page * 10))
         return {"items": items, "total": total, "page": page, "page_size": 10}
 
     def recommendations(self, market):
@@ -515,10 +530,35 @@ class AIService:
                 raise HTTPException(404, "대화를 찾을 수 없습니다.")
             if row["status"] in {"PENDING", "RUNNING"}:
                 raise HTTPException(409, "진행 중인 대화는 삭제할 수 없습니다.")
+            if self._has_running_message(cursor, analysis_id):
+                raise HTTPException(409, "후속 답변이 진행 중인 대화는 삭제할 수 없습니다.")
             if row["applied_candidate_id"]:
                 cursor.execute("UPDATE ai_analyses SET hidden_at=now() WHERE id=%s AND user_id=%s", (analysis_id, user_id))
             else:
                 cursor.execute("DELETE FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+
+    @staticmethod
+    def _has_running_message(cursor, analysis_id):
+        cursor.execute("SELECT 1 FROM ai_conversation_messages WHERE analysis_id=%s AND status IN ('PENDING','RUNNING') LIMIT 1", (analysis_id,))
+        return bool(cursor.fetchone())
+
+    def bulk_delete_analyses(self, user_id, ids):
+        result = {"deleted": 0, "hidden": 0, "skipped": []}
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            for analysis_id in sorted(set(ids)):
+                cursor.execute("SELECT status,applied_candidate_id FROM ai_analyses WHERE id=%s AND user_id=%s AND hidden_at IS NULL FOR UPDATE", (analysis_id, user_id))
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                if row["status"] in {"PENDING", "RUNNING"} or self._has_running_message(cursor, analysis_id):
+                    result["skipped"].append({"id": analysis_id, "reason": "running"})
+                elif row["applied_candidate_id"]:
+                    cursor.execute("UPDATE ai_analyses SET hidden_at=now() WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+                    result["hidden"] += 1
+                else:
+                    cursor.execute("DELETE FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+                    result["deleted"] += 1
+        return result
 
     def enqueue_conversation(self, user_id, analysis_id, payload):
         today = self.today()
@@ -528,7 +568,7 @@ class AIService:
             config = cursor.fetchone()
             if not config:
                 raise HTTPException(400, "먼저 DeepSeek API 키를 등록해 주세요.")
-            cursor.execute("SELECT id,status FROM ai_analyses WHERE id=%s AND user_id=%s", (analysis_id, user_id))
+            cursor.execute("SELECT id,status FROM ai_analyses WHERE id=%s AND user_id=%s AND hidden_at IS NULL FOR UPDATE", (analysis_id, user_id))
             analysis = cursor.fetchone()
             if not analysis:
                 raise HTTPException(404, "분석 결과를 찾을 수 없습니다.")
@@ -762,13 +802,17 @@ def create_router(service, admin_dependency, master_dependency):
         return service.run_automation_now(user)
 
     @router.get("/analyses")
-    def analyses(page: int = Query(default=0, ge=0, le=100000), user: dict = Depends(admin_dependency)):
-        return service.history(user["id"], page)
+    def analyses(page: int = Query(default=0, ge=0, le=100000), automation_only: bool = False, user: dict = Depends(admin_dependency)):
+        return service.history(user["id"], page, automation_only)
 
     @router.get("/recommendations/{market}")
     def recommendation_choices(market: Literal["stock", "upbit"],
                                _: dict = Depends(admin_dependency)):
         return service.recommendations(market)
+
+    @router.post("/analyses/bulk-delete")
+    def bulk_delete(payload: BulkDeleteRequest, user: dict = Depends(admin_dependency)):
+        return service.bulk_delete_analyses(user["id"], payload.ids)
 
     @router.get("/analyses/{analysis_id}")
     def analysis(analysis_id: int, user: dict = Depends(admin_dependency)):
