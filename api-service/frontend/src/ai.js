@@ -12,11 +12,11 @@ export function isAnalysisRunning(status) {
 }
 
 export function parseAnalysisSymbols(text, market) {
-  const symbols = [...new Set(text.trim().toUpperCase().split(/[\s,]+/).filter(Boolean))];
+  const symbols = [...new Set(text.trim().toUpperCase().split(/[\s,]+/).filter(Boolean).map(code=>market==='stock'&&!/^\d{6}$/.test(code)&&!code.startsWith('US:')&&!code.startsWith('KRW-')?`US:${code}`:code))];
   if (symbols.length > 5) throw new Error('종목은 최대 5개까지 입력해 주세요.');
-  const pattern = market === 'upbit' ? /^KRW-[A-Z0-9]+$/ : /^\d{6}$/;
+  const pattern = market === 'upbit' ? /^KRW-[A-Z0-9]+$/ : /^(?:\d{6}|US:[A-Z][A-Z0-9-]{0,14})$/;
   if (symbols.some(symbol => !pattern.test(symbol))) {
-    throw new Error(market === 'upbit' ? 'Upbit 종목은 KRW-BTC처럼 원화 마켓 코드를 입력해 주세요.' : '주식 종목은 005930처럼 6자리 코드를 입력해 주세요.');
+    throw new Error(market === 'upbit' ? 'Upbit 종목은 KRW-BTC처럼 원화 마켓 코드를 입력해 주세요.' : '국내는 005930처럼 6자리 코드, 미국은 AAPL 또는 US:AAPL 형식으로 입력해 주세요.');
   }
   return symbols;
 }

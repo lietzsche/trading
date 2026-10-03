@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
 import {Icon, Sheet} from './MobileUI';
+import {equityRegion, filterEquities, dollarPrice} from './equities';
 import './tokens.css';
 import './base.css';
 import './layout.css';
@@ -46,12 +47,14 @@ function PriceFreshness({rows}) {
  return <div className={`price-freshness ${healthy?'healthy':'delayed'}`} role="status"><span><i/>{healthy?'가격 갱신 정상':'가격 갱신 지연'} · {display('updated_at',latest)}</span><details><summary aria-label="가격 갱신 주기 안내">?</summary><p>Upbit 추천 가격은 서버가 1분마다 갱신하고, 이 화면은 열려 있는 동안 30초마다 결과를 확인합니다. 자동 주문 판단은 별도로 30초마다 실행됩니다.</p></details></div>;
 }
 function RecommendationCards({rows,market,onAskAI}) {
- const [ownedOnly,setOwnedOnly]=useState(false),ownedRows=(rows||[]).filter(row=>row.owned===true),visibleRows=ownedOnly?ownedRows:rows;
+ const [region,setRegion]=useState('ALL');
+ const [ownedOnly,setOwnedOnly]=useState(false),ownedRows=(rows||[]).filter(row=>row.owned===true),visibleRows=ownedOnly?ownedRows:market==='stock'?filterEquities(rows,region):rows;
  const pagination=usePagination(visibleRows,9);
  if(!rows?.length)return <Empty text="다음 수집 주기에 조건에 맞는 종목이 자동으로 추가됩니다."/>;
  return (
   <>
    {market==='upbit'&&<PriceFreshness rows={rows}/>}
+   {market==='stock'&&<><div className="filter-chips" aria-label="주식 시장">{[['ALL','전체'],['KR','국내'],['US','미국']].map(([key,label])=><button key={key} className={region===key?'active':''} aria-pressed={region===key} onClick={()=>{setRegion(key);pagination.setPage(0)}}>{label} {filterEquities(rows,key).length}</button>)}</div><p className="hint">미국은 설정된 관심 티커 대상 · USD 기준 공개 일봉 시세이며 실시간 호가가 아닙니다.</p></>}
    <div className="recommendation-toolbar">
     <p className="summary">갱신 단계 우선 · 같은 단계는 목표 도달률 순</p>
     {market==='upbit'&&rows.some(row=>typeof row.owned==='boolean')&&(
@@ -61,7 +64,7 @@ function RecommendationCards({rows,market,onAskAI}) {
      </div>
     )}
    </div>
-   {ownedOnly&&!visibleRows.length?<Empty text="현재 추천 목록에 보유 중인 종목이 없습니다."/>:(
+   {!visibleRows.length?<Empty text={ownedOnly?'현재 추천 목록에 보유 중인 종목이 없습니다.':'이 시장에는 현재 조건에 맞는 추천 종목이 없습니다.'}/>:(
     <>
      <section className="recommendations" aria-label="추천 종목 목록">
       {pagination.items.map(row=>{
@@ -69,12 +72,13 @@ function RecommendationCards({rows,market,onAskAI}) {
        const progress=range?100-(Number(row.expected_selling_price)-Number(row.temp_price))*100/range:0;
        const change=Number(row.setting_price)?(Number(row.temp_price)-Number(row.setting_price))*100/Number(row.setting_price):0;
        const visual=Math.max(0,Math.min(100,progress));
+       const quote=value=>market==='stock'&&equityRegion(row)==='US'?dollarPrice(value):formatPrice(value);
        return (
         <article className={`recommendation ${row.owned?'owned':''}`} key={row.code}>
          <div className="recommendation-head">
           <div>
            <div className="tag-row">
-            <span className={`market ${market}`}>{market==='upbit'?'UPBIT':'STOCK'}</span>
+            <span className={`market ${market}`}>{market==='upbit'?'UPBIT':equityRegion(row)==='US'?'미국 · USD':'국내 · KRW'}</span>
             {row.owned&&<span className="owned-badge">보유 중 · {formatQty(row.owned_quantity)}</span>}
            </div>
            <h3>{row.name}</h3>
@@ -87,16 +91,16 @@ function RecommendationCards({rows,market,onAskAI}) {
          </div>
          <div className="price-main">
           <small>현재가</small>
-          <strong>{formatPrice(row.temp_price)}</strong>
+          <strong>{quote(row.temp_price)}</strong>
          </div>
          <div className="progress-label">
-          <span>손절가 {formatPrice(row.minimum_selling_price)}</span>
+          <span>손절가 {quote(row.minimum_selling_price)}</span>
           <b>목표 도달 {number(progress,0)}%</b>
-          <span>목표가 {formatPrice(row.expected_selling_price)}</span>
+          <span>목표가 {quote(row.expected_selling_price)}</span>
          </div>
          <div className="progress"><i style={{width:`${visual}%`}}/></div>
          <div className="meta">
-          <span><small>기준가</small>{formatPrice(row.setting_price)}</span>
+          <span><small>기준가</small>{quote(row.setting_price)}</span>
           <span><small>갱신 단계</small>{row.renewal_cnt}단계</span>
           <span><small>최근 갱신</small>{display('pricing_reference_date',row.pricing_reference_date)}</span>
          </div>
@@ -117,7 +121,13 @@ function RecommendationCards({rows,market,onAskAI}) {
   </>
  );
 }
-function DividendCards({rows}){const pagination=usePagination(rows,12);if(!rows?.length)return <Empty text="배당 정보 수집이 끝나면 이곳에 표시됩니다."/>;return <><div className="info-note"><b>배당수익률이란?</b><span>최근 공시 기준 주당 배당금을 현재 주가로 나눈 연 환산 비율입니다. 실제 지급액과 향후 배당을 보장하는 수치는 아닙니다.</span></div><p className="summary">배당수익률 상위 <b>{rows.length}</b>개 종목 · 네이버 금융 기준</p><div className="dividend-grid">{pagination.items.map(row=><article className="card dividend" key={row.code}><div><h3>{row.name}</h3><small>{row.code}</small></div><strong>{number(row.dividend_rate)}%</strong></article>)}</div><Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>}
+function DividendCards({rows}){
+ const [region,setRegion]=useState('ALL'),visible=filterEquities(rows,region),pagination=usePagination(visible,12);
+ if(!rows?.length)return <Empty text="배당 정보 수집이 끝나면 이곳에 표시됩니다."/>;
+ return <><div className="filter-chips" aria-label="배당 시장">{[['ALL','전체'],['KR','국내'],['US','미국']].map(([key,label])=><button key={key} className={region===key?'active':''} aria-pressed={region===key} onClick={()=>{setRegion(key);pagination.setPage(0)}}>{label} {filterEquities(rows,key).length}</button>)}</div>
+ <div className="info-note"><b>배당수익률이란?</b><span>국내는 제공자의 배당수익률, 미국은 최근 12개월 기록된 주당 배당 합계를 최근 종가로 나눈 비율입니다. 세전·해당 통화 기준이며 실제 지급액과 향후 배당을 보장하지 않습니다. 미국은 설정된 관심 티커만 수집합니다.</span></div>
+ <p className="summary">조회된 배당 종목 <b>{visible.length}</b>개</p>{!visible.length?<Empty text="이 시장의 수집된 배당 정보가 없습니다."/>:<div className="dividend-grid">{pagination.items.map(row=><article className="card dividend" key={row.code}><div><span className="market stock">{equityRegion(row)==='US'?'미국 · USD':'국내 · KRW'}</span><h3>{row.name}</h3><small>{row.code}</small></div><strong>{number(row.dividend_rate)}%</strong><details><summary>배당 기준·수집 시각</summary><p>{row.yield_basis || '국내 제공자 배당수익률'} · {row.data_source || '네이버 금융'}</p>{row.ex_div_date&&<p>최근 배당락일: {display('ex_div_date',row.ex_div_date)}</p>}<p>수집: {display('updated_at',row.updated_at || row.created_at)}</p>{equityRegion(row)==='US'&&<p>향후 지급일은 제공하지 않습니다. 분할 이벤트가 있는 경우 부정확한 수익률을 표시하지 않기 위해 제외할 수 있습니다.</p>}</details></article>)}</div>}<Pager page={pagination.page} pages={pagination.pages} onChange={pagination.setPage}/></>;
+}
 
 function SlideToConfirm({onConfirm,disabled,label="오른쪽으로 밀어서 매도",action="매도",progressLabel="주문 전송 중"}) {
  const [dragPct,setDragPct]=useState(0);
@@ -785,7 +795,7 @@ function ErrorLog({initial,setError}) {
  const applied=useRef({source:'',keyword:''}),requests=useRef(createRequestGate()),pages=Math.max(1,Math.ceil(result.total/50));
  useEffect(()=>()=>requests.current.cancel(),[]);
  async function move(page,filters=applied.current){const request=requests.current.begin();setLoading(true);setError('');try{const query=new URLSearchParams({page:String(page),...filters});const next=await api(`/admin/errors?${query}`,{signal:request.signal});if(request.isCurrent()){applied.current=filters;setResult(next)}}catch(e){if(request.isCurrent())setError(e)}finally{if(request.isCurrent())setLoading(false)}}
- return <><form className="error-filters" onSubmit={e=>{e.preventDefault();move(0,{source,keyword:keyword.trim()})}}><label>오류 구분<select value={source} onChange={e=>setSource(e.target.value)}><option value="">전체</option><option value="UPBIT">Upbit</option><option value="STOCK">주식</option><option value="SYSTEM">시스템</option></select></label><label>작업·종류·내용 검색<input value={keyword} maxLength={100} onChange={e=>setKeyword(e.target.value)} placeholder="예: 429, FETCH_PRICE"/></label><button className="primary" type="submit">검색</button></form><p className="summary">조회된 오류 <b>{result.total}</b>건 · 페이지당 50건</p>{loading?<div className="loading-row" role="status"><div className="loader"/>불러오는 중입니다.</div>:<Table rows={result.items} columns={['created_at','source','operation','error_type','message']}/>}<Pager page={result.page} pages={pages} onChange={move}/></>
+ return <>{result.retention&&<p className="info-note">오류 기록은 {result.retention.days}일 보존 · 최대 {number(result.retention.max_records,0)}건입니다. 시작 시와 매시간 오래된 기록을 자동 삭제합니다. 정리된 기록은 복구할 수 없습니다.</p>}<form className="error-filters" onSubmit={e=>{e.preventDefault();move(0,{source,keyword:keyword.trim()})}}><label>오류 구분<select value={source} onChange={e=>setSource(e.target.value)}><option value="">전체</option><option value="UPBIT">Upbit</option><option value="STOCK">국내 주식</option><option value="STOCK_US">미국 주식</option><option value="SYSTEM">시스템</option></select></label><label>작업·종류·내용 검색<input value={keyword} maxLength={100} onChange={e=>setKeyword(e.target.value)} placeholder="예: 429, FETCH_PRICE"/></label><button className="primary" type="submit">검색</button></form><p className="summary">조회된 오류 <b>{result.total}</b>건 · 페이지당 50건</p>{loading?<div className="loading-row" role="status"><div className="loader"/>불러오는 중입니다.</div>:<Table rows={result.items} columns={['created_at','source','operation','error_type','message']}/>}<Pager page={result.page} pages={pages} onChange={move}/></>
 }
 function Profile({user,onSaved,setError,onNavigate,connectionsRequest,onConnectionsConsumed}) {
  const [name,setName]=useState(user.user_name||''),[email,setEmail]=useState(user.user_email||''),[password,setPassword]=useState('');

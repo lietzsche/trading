@@ -161,6 +161,7 @@ def test_saved_provider_key_is_encrypted_and_only_hint_is_retained():
 def test_market_defaults_and_symbol_validation_are_explicit():
     assert AnalysisRequest(market="upbit").fee_bps == 5
     assert AnalysisRequest(market="stock").fee_bps == 15
+    assert AnalysisRequest(market="stock",symbols=["AAPL"]).symbols==["US:AAPL"]
     with pytest.raises(ValidationError):
         AnalysisRequest(market="stock", symbols=["KRW-BTC"])
     with pytest.raises(ValidationError):

@@ -75,9 +75,12 @@ class AnalysisRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_symbols(self):
-        pattern = r"KRW-[A-Z0-9]{1,20}" if self.market == "upbit" else r"[0-9]{6}"
+        if self.market=='stock':
+            if any(symbol.upper().startswith('KRW-') for symbol in self.symbols):raise ValueError('Upbit 종목은 주식 시장으로 분석할 수 없습니다.')
+            self.symbols=[symbol.upper() if re.fullmatch(r'[0-9]{6}|US:.*',symbol.upper()) else 'US:'+symbol.upper() for symbol in self.symbols]
+        pattern = r"KRW-[A-Z0-9]{1,20}" if self.market == "upbit" else r"(?:[0-9]{6}|US:[A-Z][A-Z0-9-]{0,14})"
         if any(not re.fullmatch(pattern, symbol) for symbol in self.symbols):
-            raise ValueError("주식은 6자리 종목 코드, Upbit는 KRW-BTC 형식으로 입력해 주세요.")
+            raise ValueError("국내 주식은 6자리 코드, 미국 주식은 US:AAPL, Upbit는 KRW-BTC 형식으로 입력해 주세요.")
         self.symbols = list(dict.fromkeys(self.symbols))
         if self.market == "stock" and "fee_bps" not in self.model_fields_set:
             self.fee_bps = 15

@@ -1,13 +1,14 @@
 import hashlib
 import html
 import logging
+import os
 import re
 import smtplib
 import threading
 import time
 import uuid
 from decimal import Decimal, InvalidOperation
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from urllib.parse import unquote, urlencode
 
@@ -15,6 +16,7 @@ import httpx
 import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
+from app.us_market import us_data, us_universe, is_us_symbol, chart_result, trailing_dividend, USRateLimited
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ class TradingEngine:
         self._auto_order_lock = threading.Lock()
         self._upbit_lock = threading.Lock()
         self._last_upbit_request = 0.0
+        self.error_retention_days=max(1,min(3650,int(os.getenv('ERROR_LOG_RETENTION_DAYS','30'))))
+        self.error_max_records=max(100,min(1000000,int(os.getenv('ERROR_LOG_MAX_RECORDS','10000'))))
         self._upbit_client = httpx.Client(timeout=15, headers={"User-Agent": "Trading/2.0"})
 
     def start(self):
@@ -40,6 +44,11 @@ class TradingEngine:
             (self.auto_order, "interval", {"seconds": 30}),
             (self.collect_stock, "cron", {"day_of_week": "mon-fri", "hour": 8, "minute": 10}),
             (self.update_stock, "cron", {"day_of_week": "mon-fri", "hour": "8-15", "minute": "*"}),
+            (self.collect_us_stock,"cron",{"day_of_week":"mon-fri","hour":8,"minute":30,"timezone":"America/New_York"}),
+            (self.update_us_stock,"cron",{"day_of_week":"mon-fri","hour":"9-16","minute":"*/5","timezone":"America/New_York"}),
+            (self.save_us_stock_history,"cron",{"day_of_week":"mon-fri","hour":17,"minute":30,"timezone":"America/New_York"}),
+            (self.collect_us_dividends,"cron",{"hour":18,"minute":0,"timezone":"America/New_York"}),
+            (self.prune_errors,"interval",{"hours":1}),
             (self.save_stock_history, "cron", {"day_of_week": "mon-fri", "hour": 17, "minute": 30}),
             (self.save_upbit_history, "cron", {"hour": 17, "minute": 30}),
             (self.collect_dividends, "cron", {"hour": 17, "minute": 30}),
@@ -51,6 +60,10 @@ class TradingEngine:
         self.scheduler.start()
         if not self.db.one("SELECT id FROM dividend_stock WHERE deleted_at IS NULL LIMIT 1"):
             self.scheduler.add_job(self.collect_dividends, "date", id="seed-dividends")
+        if not self.db.one("SELECT id FROM stock_history_label WHERE code LIKE %s AND deleted_at IS NULL LIMIT 1",('US:%',)):
+            self.scheduler.add_job(self.collect_us_stock,'date',id='seed-us-stock')
+            self.scheduler.add_job(self.collect_us_dividends,'date',id='seed-us-dividends')
+        self.scheduler.add_job(self.prune_errors,'date',id='initial-error-retention')
         log.info("Python trading scheduler started with %d jobs", len(jobs))
 
     def stop(self):
@@ -84,6 +97,21 @@ class TradingEngine:
     @staticmethod
     def now():
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    def error_retention_policy(self):
+        return {'days':self.error_retention_days,'max_records':self.error_max_records}
+
+    def prune_errors(self):
+        cutoff=(datetime.now()-timedelta(days=self.error_retention_days)).strftime('%Y-%m-%d %H:%M:%S.%f')
+        # Both deletions are in one transaction. Keep newest IDs; other tables are untouched.
+        with self.db.connection() as connection,connection.cursor() as cursor:
+            cursor.execute('DELETE FROM trade_error_log WHERE created_at < %s',(cutoff,))
+            expired=cursor.rowcount
+            cursor.execute('''DELETE FROM trade_error_log WHERE id IN
+                (SELECT id FROM trade_error_log ORDER BY id DESC OFFSET %s)''',(self.error_max_records,))
+            excess=cursor.rowcount
+        log.info('Error retention removed %d expired and %d excess records',expired,excess)
+        return {'expired':expired,'excess':excess,**self.error_retention_policy()}
 
     def setting(self, name):
         return self.db.one("SELECT * FROM deal_settings WHERE name=%s AND deleted_at IS NULL", (name,)) or {
@@ -168,6 +196,7 @@ class TradingEngine:
 
     @staticmethod
     def stock_prices(code, count):
+        if is_us_symbol(code):return us_data.prices(code,count)
         prices, cursor = [], None
         while len(prices) < min(count, 200):
             params = {"size": min(100, count - len(prices))}
@@ -194,9 +223,18 @@ class TradingEngine:
     def collect_stock(self):
         return self.run("STOCK", "SCHEDULE_SAVE", self._collect_stock)
 
-    def _collect_stock(self):
+    def collect_us_stock(self):
+        return self.run('STOCK_US','SCHEDULE_SAVE',lambda:self._collect_stock('US'))
+
+    def _collect_stock(self,region='KR'):
         setting = self.setting("stock")
-        labels = self.db.all("SELECT DISTINCT code,name FROM stock_history_label WHERE deleted_at IS NULL")
+        labels = us_universe() if region=='US' else self.db.all("SELECT DISTINCT code,name FROM stock_history_label WHERE deleted_at IS NULL AND code NOT LIKE %s",('US:%',))
+        if region=='US' and not labels:return {'status':'SKIPPED'}
+        if region=='US':
+            for label in labels:
+                if not self.db.one('SELECT id FROM stock_history_label WHERE code=%s AND deleted_at IS NULL',(label['code'],)):
+                    self.db.execute('''INSERT INTO stock_history_label(id,code,name,created_at,updated_at,deleted_at)
+                        VALUES(nextval('stock_history_label_seq'),%s,%s,%s,NULL,NULL)''',(label['code'],label['name'],self.now()))
         if not labels:
             labels = self.stock_universe()
             self.db.executemany("""INSERT INTO stock_history_label(id,code,name,created_at,updated_at,deleted_at)
@@ -207,7 +245,10 @@ class TradingEngine:
             try:
                 instruments.append({"code": label["code"], "name": label["name"],
                                     "prices": self.stock_prices(label["code"], setting["highest_price_reference_days"])})
-            except Exception as error: self.record_error("STOCK", "FETCH_PRICE", error)
+            except Exception as error:
+                self.record_error('STOCK_US' if region=='US' else 'STOCK','FETCH_PRICE',error)
+                if isinstance(error,USRateLimited):break
+        if not instruments:return {'status':'ERROR'}
         selected = self.calc("/v1/recommendations/select", {
             "instruments": instruments, "low_percentage": setting["expected_low_percentage"],
             "high_percentage": setting["expected_high_percentage"],
@@ -248,7 +289,33 @@ class TradingEngine:
         return result
 
     def update_stock(self):
-        return self.run("STOCK", "SCHEDULE_UPDATE", lambda: self._update_positions("stock", self.stock_prices))
+        return self.run("STOCK", "SCHEDULE_UPDATE", lambda: self._update_positions("stock", self.stock_prices,'KR'))
+
+    def update_us_stock(self):
+        return self.run('STOCK_US','SCHEDULE_UPDATE',lambda:self._update_positions('stock',self.stock_prices,'US'))
+
+    def collect_us_dividends(self):
+        return self.run('STOCK_US','SCHEDULE_SAVE_DIVIDENDS',self._collect_us_dividends)
+
+    def _collect_us_dividends(self):
+        saved=0
+        for label in us_universe():
+            try:
+                payload=us_data.chart(label['code']);dividend=trailing_dividend(payload)
+                if not dividend:
+                    self.db.execute('UPDATE dividend_stock SET deleted_at=%s WHERE code=%s AND deleted_at IS NULL',(self.now(),label['code']))
+                    continue
+                meta=chart_result(payload)['meta'];name=meta.get('longName') or meta.get('shortName') or label['name']
+                existing=self.db.one('SELECT id FROM dividend_stock WHERE code=%s AND deleted_at IS NULL',(label['code'],))
+                if existing:self.db.execute('''UPDATE dividend_stock SET name=%s,dividend_rate=%s,ex_div_date=%s,
+                    pay_date=NULL,updated_at=%s WHERE id=%s''',(name,dividend['dividend_rate'],dividend['ex_div_date'],self.now(),existing['id']))
+                else:self.db.execute('''INSERT INTO dividend_stock(id,code,name,dividend_rate,ex_div_date,pay_date,created_at,updated_at,deleted_at)
+                    VALUES(nextval('dividend_stock_seq'),%s,%s,%s,%s,NULL,%s,NULL,NULL)''',(label['code'],name,dividend['dividend_rate'],dividend['ex_div_date'],self.now()))
+                saved+=1
+            except Exception as error:
+                self.record_error('STOCK_US','FETCH_DIVIDEND',error)
+                if isinstance(error,USRateLimited):break
+        return saved
 
     @staticmethod
     def parse_dividend_page(body):
@@ -304,15 +371,21 @@ class TradingEngine:
 
     def save_stock_history(self):
         return self.run("STOCK", "SCHEDULE_SAVE_HISTORY",
-                        lambda: self._save_history("stock", "stock_history_label", self.stock_prices))
+                        lambda: self._save_history("stock", "stock_history_label", self.stock_prices,'KR'))
+
+    def save_us_stock_history(self):
+        return self.run('STOCK_US','SCHEDULE_SAVE_HISTORY',lambda:self._save_history('stock','stock_history_label',self.stock_prices,'US'))
 
     def save_upbit_history(self):
         return self.run("UPBIT", "SCHEDULE_SAVE_HISTORY",
                         lambda: self._save_history("upbit", "upbit_history_label", self.upbit_prices))
 
-    def _save_history(self, source, label_table, loader):
+    def _save_history(self, source, label_table, loader,region=None):
         target=f"{source}_history"; today=datetime.now().strftime("%Y-%m-%d")
-        for label in self.db.all(f"SELECT code,name FROM {label_table} WHERE deleted_at IS NULL"):
+        query=f"SELECT code,name FROM {label_table} WHERE deleted_at IS NULL"
+        params=()
+        if region:query+=' AND code '+('LIKE' if region=='US' else 'NOT LIKE')+' %s';params=('US:%',)
+        for label in self.db.all(query,params):
             if self.db.one(f"SELECT id FROM {target} WHERE code=%s AND created_at LIKE %s LIMIT 1",(label["code"],f"{today}%")):
                 continue
             try:
@@ -324,17 +397,24 @@ class TradingEngine:
                     (label["code"],label["name"],price["close"],price.get("diff",0),price.get("open",0),
                      price["high"],price["low"],price["volume"],self.now()))
             except Exception as error:
-                self.record_error(source.upper(),"SAVE_HISTORY_ITEM",error)
+                self.record_error('STOCK_US' if region == 'US' else source.upper(),"SAVE_HISTORY_ITEM",error)
+                if isinstance(error, USRateLimited):
+                    break
 
-    def _update_positions(self, table, price_loader):
-        setting = self.setting(table); positions = self.db.all(f"SELECT * FROM {table} WHERE deleted_at IS NULL")
+    def _update_positions(self, table, price_loader,region=None):
+        setting = self.setting(table)
+        query=f"SELECT * FROM {table} WHERE deleted_at IS NULL";params=()
+        if region:query+=' AND code '+('LIKE' if region=='US' else 'NOT LIKE')+' %s';params=('US:%',)
+        positions = self.db.all(query,params)
         if not positions: return
         payload = []
         for item in positions:
             try:
                 prices = price_loader(item["code"], 1)
             except Exception as error:
-                self.record_error(table.upper(), "UPDATE_PRICE_ITEM", error)
+                self.record_error('STOCK_US' if region == 'US' else table.upper(), "UPDATE_PRICE_ITEM", error)
+                if isinstance(error, USRateLimited):
+                    break
                 continue
             payload.append({"code":item["code"],"name":item["name"],"prices":prices,
                 "expected_selling_price":item["expected_selling_price"],"minimum_selling_price":item["minimum_selling_price"],

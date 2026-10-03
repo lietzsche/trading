@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from psycopg.rows import dict_row
 from app.trading import TradingEngine
 from app.ai import AIService, create_router
+from app.us_market import is_us_symbol
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://bion_user@postgres:5432/postgres")
@@ -229,13 +230,21 @@ def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Dep
             currency = row["code"].removeprefix("KRW-")
             row["owned"] = owned.get(currency, 0) > 0 if ownership_available else None
             row["owned_quantity"] = owned.get(currency, 0) if ownership_available else None
+    if market=='stock':
+        for row in rows:row.update(market_region='US' if is_us_symbol(row['code']) else 'KR',currency='USD' if is_us_symbol(row['code']) else 'KRW')
     return rows
 
 
 @app.get("/api/dividends")
 def dividends(_: Annotated[dict, Depends(current_user)]):
-    return db.all("""SELECT code,name,dividend_rate,ex_div_date,pay_date FROM dividend_stock
+    rows=db.all("""SELECT code,name,dividend_rate,ex_div_date,pay_date,updated_at,created_at FROM dividend_stock
         WHERE deleted_at IS NULL ORDER BY dividend_rate DESC""")
+    for row in rows:
+        us=is_us_symbol(row['code'])
+        row.update(market_region='US' if us else 'KR',currency='USD' if us else 'KRW',
+                   yield_basis='최근 12개월 배당 이벤트 합계 / 최근 종가' if us else '국내 제공자 배당수익률',
+                   data_source='Yahoo Finance 공개 일봉·배당 이벤트' if us else '네이버 금융')
+    return rows
 
 
 @app.get("/api/orders")
@@ -567,9 +576,10 @@ def delete_mail_target(email: str, _: Annotated[dict, Depends(admin_user)]):
 
 
 @app.post("/api/admin/jobs/{job}")
-def run_job(job: Literal["collect-stock","update-stock","collect-upbit","update-upbit","collect-dividends","auto-order","stock-history","upbit-history"],
+def run_job(job: Literal["collect-stock","update-stock","collect-us-stock","update-us-stock","collect-us-dividends","collect-upbit","update-upbit","collect-dividends","auto-order","stock-history","upbit-history"],
             _: Annotated[dict, Depends(master_user)]):
     function={"collect-stock":engine.collect_stock,"update-stock":engine.update_stock,
+              "collect-us-stock":engine.collect_us_stock,"update-us-stock":engine.update_us_stock,"collect-us-dividends":engine.collect_us_dividends,
               "collect-upbit":engine.collect_upbit,"update-upbit":engine.update_upbit,
               "collect-dividends":engine.collect_dividends,
               "auto-order":engine.auto_order,"stock-history":engine.save_stock_history,
@@ -606,7 +616,7 @@ def errors(
         f"SELECT id, source, operation, error_type, message, created_at FROM trade_error_log{where} ORDER BY id DESC LIMIT 50 OFFSET %s",
         (*values, page * 50),
     )
-    return {"items": rows, "page": page, "total": total}
+    return {"items": rows, "page": page, "total": total,"retention":engine.error_retention_policy()}
 
 
 @app.get("/api/admin/users")

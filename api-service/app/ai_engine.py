@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
+from app.us_market import us_data, chart_bars, is_us_symbol
 
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
@@ -64,7 +65,7 @@ def _settings(value):
 
 def _valid_symbol(market, code):
     return isinstance(code, str) and re.fullmatch(
-        r"KRW-[A-Z0-9]{1,20}" if market == "upbit" else r"[0-9]{6}", code,
+        r"KRW-[A-Z0-9]{1,20}" if market == "upbit" else r"(?:[0-9]{6}|US:[A-Z][A-Z0-9-]{0,14})", code,
     ) is not None
 
 
@@ -157,6 +158,10 @@ class _MarketData:
                 if bar:
                     prices.append(bar)
             source = "Upbit 공개 일봉 (UTC, 미완성 당일 봉 제외)"
+        elif is_us_symbol(code):
+            if time.monotonic()+15>=self.deadline:raise AIAnalysisError('미국 시세 조회를 위한 시간이 부족합니다.')
+            prices=chart_bars(us_data.chart(code),completed_only=True)[-200:]
+            source='Yahoo Finance 공개 미국 일봉 (USD, 미국 동부 기준 당일 봉 제외·실시간/기업행동 보장 없음)'
         else:
             today = datetime.now(ZoneInfo("Asia/Seoul")).date()
             prices, seen_dates = [], set()
@@ -182,6 +187,7 @@ class _MarketData:
             raise ValueError("검증 가능한 완료 일봉을 찾지 못했습니다.")
         result = {"code": code, "name": code, "prices": ordered,
                   "source": source, "as_of": ordered[-1]["date"], "count": len(ordered)}
+        result['currency']='USD' if is_us_symbol(code) else 'KRW'
         self.cache[code] = result
         return {**result, "prices": ordered[-count:]}
 

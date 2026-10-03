@@ -1,5 +1,12 @@
+x-bounded-logs: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
+    logging: *bounded-logs
     image: postgres:15
     container_name: postgres_db
     environment:
@@ -20,6 +27,7 @@ services:
       - nat
 
   calculation-service:
+    logging: *bounded-logs
     image: trading/calculation-service:latest
     build:
       context: ./calculation-service
@@ -37,6 +45,7 @@ services:
       - nat
 
   api-service:
+    logging: *bounded-logs
     image: trading/api-service:latest
     build:
       context: ./api-service
@@ -49,6 +58,9 @@ services:
       SESSION_COOKIE_SECURE: "true"
       TRADING_EXECUTION_ENABLED: "true"
       AUTO_APPLY_COOLDOWN_HOURS: ${AUTO_APPLY_COOLDOWN_HOURS:-72}
+      ERROR_LOG_RETENTION_DAYS: ${ERROR_LOG_RETENTION_DAYS:-30}
+      ERROR_LOG_MAX_RECORDS: ${ERROR_LOG_MAX_RECORDS:-10000}
+      US_STOCK_SYMBOLS: ${US_STOCK_SYMBOLS:-AAPL,MSFT,NVDA,AMZN,GOOGL,META,BRK-B,JPM,V,MA,UNH,JNJ,PG,KO,PEP,ABBV,MRK,XOM,CVX,O,MO,PM,VZ,T,IBM,CSCO,TXN,ADP,MCD,WMT,COST,HD,LOW,CAT,NEE,DUK,SO,SCHD,VYM,DGRO}
       TZ: Asia/Seoul
     ports:
       - "127.0.0.1:8001:8001"
@@ -76,7 +88,7 @@ services:
       PGDATABASE: ${POSTGRES_DB:-postgres}
     volumes:
       - ./db/migrations:/migrations:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V002__ai_analysis.sql", "-f", "/migrations/V003__ai_conversations.sql", "-f", "/migrations/V004__ai_portfolio_consent.sql", "-f", "/migrations/V005__ai_automation.sql", "-f", "/migrations/V006__portfolio_dashboard.sql", "-f", "/migrations/V007__ai_analysis_visibility.sql", "-f", "/migrations/V008__ai_settings_revert.sql"]
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V002__ai_analysis.sql", "-f", "/migrations/V003__ai_conversations.sql", "-f", "/migrations/V004__ai_portfolio_consent.sql", "-f", "/migrations/V005__ai_automation.sql", "-f", "/migrations/V006__portfolio_dashboard.sql", "-f", "/migrations/V007__ai_analysis_visibility.sql", "-f", "/migrations/V008__ai_settings_revert.sql", "-f", "/migrations/V009__error_retention_index.sql"]
     depends_on:
       postgres:
         condition: service_healthy
