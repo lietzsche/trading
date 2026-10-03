@@ -11,6 +11,35 @@ export function useMobile() {
   return mobile;
 }
 
+// Measure the actual header/nav instead of reserving a fixed number of pixels.
+export function useMobileChatLayout(ref, enabled) {
+  useEffect(() => {
+    if (!enabled || !ref.current) return;
+    const root=ref.current, viewport=window.visualViewport;
+    window.scrollTo(0,0);
+    let frame,unfocusedHeight=window.innerHeight;
+    const measure=()=>{
+      const height=viewport?.height || window.innerHeight;
+      const inputFocused=root.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA';
+      if(!inputFocused)unfocusedHeight=window.innerHeight;
+      const keyboard=Boolean(viewport && height<unfocusedHeight-100 && inputFocused);
+      root.dataset.keyboardOpen=String(keyboard);
+      root.closest('.layout')?.style.setProperty('--mobile-viewport-height',`${height}px`);
+      const nav=document.querySelector('.mobile-nav');
+      const navHeight=nav?.getBoundingClientRect().height || 0;
+      const top=root.getBoundingClientRect().top-(viewport?.offsetTop || 0);
+      root.style.setProperty('--mobile-chat-height',`${Math.max(0,height-top-navHeight)}px`);
+    };
+    const update=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(measure)};
+    const observer=new ResizeObserver(update);
+    for(const element of [document.querySelector('main>header'),document.querySelector('.mobile-nav')])if(element)observer.observe(element);
+    viewport?.addEventListener('resize',update);viewport?.addEventListener('scroll',update);
+    window.addEventListener('resize',update);root.addEventListener('focusin',update);root.addEventListener('focusout',update);
+    update();
+    return()=>{cancelAnimationFrame(frame);observer.disconnect();viewport?.removeEventListener('resize',update);viewport?.removeEventListener('scroll',update);window.removeEventListener('resize',update);root.removeEventListener('focusin',update);root.removeEventListener('focusout',update);root.closest('.layout')?.style.removeProperty('--mobile-viewport-height');};
+  },[ref,enabled]);
+}
+
 export function Icon({name}) {
   const paths = {
     account:'M3 10 12 3l9 7M5 9v12h14V9M9 21v-7h6v7',
@@ -28,6 +57,9 @@ export function Icon({name}) {
     autos:'M5 8a8 8 0 0 1 14-2l2 2M21 3v5h-5M19 16a8 8 0 0 1-14 2l-2-2M3 21v-5h5',
     users:'M9 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8M2 21v-3a7 7 0 0 1 14 0v3M17 4a4 4 0 0 1 0 8M19 15a5 5 0 0 1 3 5',
     mail:'M3 5h18v14H3V5M3 5l9 8 9-8',
+    info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 11v6m0-10h.01',
+    send:'M3 3l18 9-18 9 4-9-4-9M7 12h14',
+    ellipsis:'M5 12h.01M12 12h.01M19 12h.01',
   };
   return <svg className="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] || paths.settings}/></svg>;
 }

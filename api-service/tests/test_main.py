@@ -55,6 +55,26 @@ def test_protected_endpoint_requires_login():
     assert client.get("/api/admin/system").status_code == 401
 
 
+@pytest.mark.parametrize("registered", [False, True])
+def test_upbit_key_status_returns_only_registration(monkeypatch, registered):
+    authenticated("USER")
+    calls=[]
+    def read(query, params):
+        calls.append((query,params))
+        return {"registered": registered}
+    monkeypatch.setattr(main.db,"one",read)
+    monkeypatch.setattr(main.engine,"account_snapshot",lambda *args: pytest.fail("No exchange account request allowed"))
+    response=client.get("/api/upbit/key/status")
+    assert response.status_code==200
+    assert response.json()=={"registered": registered}
+    assert calls[0][1]==("master",)
+    assert "SELECT EXISTS" in calls[0][0]
+
+
+def test_upbit_key_status_requires_authentication():
+    assert client.get("/api/upbit/key/status").status_code==401
+
+
 def test_login_and_admin_access(monkeypatch):
     monkeypatch.setattr(main.httpx, "get", lambda *args, **kwargs: type("R", (), {"is_success": True})())
     response = client.post("/api/auth/login", json={"login_id": "master", "password": "password123"})
@@ -328,4 +348,3 @@ def test_dashboard_returns_enriched_data(monkeypatch):
     assert btc["ai_action"] == "SELL"
     assert btc["distance_to_target_pct"] == 10.0
     assert btc["distance_to_stop_pct"] == 5.0
-

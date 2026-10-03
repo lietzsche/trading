@@ -787,17 +787,17 @@ function ErrorLog({initial,setError}) {
  async function move(page,filters=applied.current){const request=requests.current.begin();setLoading(true);setError('');try{const query=new URLSearchParams({page:String(page),...filters});const next=await api(`/admin/errors?${query}`,{signal:request.signal});if(request.isCurrent()){applied.current=filters;setResult(next)}}catch(e){if(request.isCurrent())setError(e)}finally{if(request.isCurrent())setLoading(false)}}
  return <><form className="error-filters" onSubmit={e=>{e.preventDefault();move(0,{source,keyword:keyword.trim()})}}><label>오류 구분<select value={source} onChange={e=>setSource(e.target.value)}><option value="">전체</option><option value="UPBIT">Upbit</option><option value="STOCK">주식</option><option value="SYSTEM">시스템</option></select></label><label>작업·종류·내용 검색<input value={keyword} maxLength={100} onChange={e=>setKeyword(e.target.value)} placeholder="예: 429, FETCH_PRICE"/></label><button className="primary" type="submit">검색</button></form><p className="summary">조회된 오류 <b>{result.total}</b>건 · 페이지당 50건</p>{loading?<div className="loading-row" role="status"><div className="loader"/>불러오는 중입니다.</div>:<Table rows={result.items} columns={['created_at','source','operation','error_type','message']}/>}<Pager page={result.page} pages={pages} onChange={move}/></>
 }
-function Profile({user,onSaved,setError,onNavigate,connectionsRequest}) {
+function Profile({user,onSaved,setError,onNavigate,connectionsRequest,onConnectionsConsumed}) {
  const [name,setName]=useState(user.user_name||''),[email,setEmail]=useState(user.user_email||''),[password,setPassword]=useState('');
  const [connections,setConnections]=useState(null),[showKeys,setShowKeys]=useState(false),[access,setAccess]=useState(''),[secret,setSecret]=useState(''),[saving,setSaving]=useState(false);
  const connectionRef=useRef(null),saveLock=useRef(false);
  const admin=['ADMIN','MASTER'].includes(user.user_role);
  const loadConnections=useCallback(async(signal)=>{
-  const [dashboard,deepseek]=await Promise.all([api('/dashboard',{signal}),admin?api('/admin/ai/config',{signal}):Promise.resolve(null)]);
-  if(!signal?.aborted)setConnections({upbit:dashboard.key_registered,deepseek:deepseek?.configured});
+  const [keyStatus,deepseek]=await Promise.all([api('/upbit/key/status',{signal}),admin?api('/admin/ai/config',{signal}):Promise.resolve(null)]);
+  if(!signal?.aborted)setConnections({upbit:keyStatus.registered,deepseek:deepseek?.configured});
  },[admin]);
  useEffect(()=>{const controller=new AbortController();loadConnections(controller.signal).catch(error=>{if(error.name!=='AbortError')setError(error)});return()=>controller.abort()},[loadConnections]);
- useEffect(()=>{if(connectionsRequest)connectionRef.current?.scrollIntoView({block:'start'})},[connectionsRequest]);
+ useEffect(()=>{if(connectionsRequest){connectionRef.current?.scrollIntoView({block:'start'});onConnectionsConsumed?.()}},[connectionsRequest,onConnectionsConsumed]);
  async function save(){setError('');try{await api('/profile',{method:'PUT',body:JSON.stringify({name,email:email||null,password:password||null})});setPassword('');await onSaved()}catch(e){setError(e)}}
  async function saveKeys(){
   if(saveLock.current)return;saveLock.current=true;setSaving(true);setError('');
@@ -952,6 +952,7 @@ function CardsSkeleton() {
 
 function App() {
  const [aiSettingsRequest,setAiSettingsRequest]=useState(0),[connectionsRequest,setConnectionsRequest]=useState(0);
+ const consumeAISettings=useCallback(()=>setAiSettingsRequest(0),[]),consumeConnections=useCallback(()=>setConnectionsRequest(0),[]);
  const [aiRefresh,setAiRefresh]=useState(0);
  const [aiInitialSymbol,setAiInitialSymbol]=useState('');
  const [user,setUser]=useState(null),[ready,setReady]=useState(false),[tab,setTab]=useState('account'),[data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[authMessage,setAuthMessage]=useState(''),[installPrompt,setInstallPrompt]=useState(null),[pending,setPending]=useState([]),[mobileMore,setMobileMore]=useState(false);
@@ -1005,9 +1006,9 @@ return <div className="layout"><aside><div className="brand"><img src="/icons/ic
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
  {data&&tab==='orders'&&<Orders rows={data}/>}
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate}/>}
- {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest}/>}
+ {data&&tab==='profile'&&<Profile user={data} onSaved={loadUser} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest} onConnectionsConsumed={consumeConnections}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
- {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={navigate} initialSymbol={aiInitialSymbol} settingsRequest={aiSettingsRequest}/>}
+ {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={navigate} initialSymbol={aiInitialSymbol} settingsRequest={aiSettingsRequest} onSettingsConsumed={consumeAISettings}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
  {data&&tab==='users'&&<Table rows={data}/>}

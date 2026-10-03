@@ -37,7 +37,7 @@
 @media(max-width:760px){
  .layout > aside {padding:0;}
  .layout > aside > :is(.brand,.logout) {display:none;}
- .layout > main {padding-top:var(--space-3);}
+ .layout > main {padding-top:max(var(--space-3),env(safe-area-inset-top));}
  .layout :is(button,summary),.layout input:not([type="checkbox"]),.layout select {min-height:44px;min-width:44px;}
  .layout label.check {min-height:44px;}
  .profile-content {display:grid;gap:var(--space-4);}
@@ -58,34 +58,37 @@
  .ai-setting-comparison-table :is(.col-cur,.col-rec)::before {display:inline-block;margin-right:var(--space-2);color:var(--text-secondary);font-weight:600;}
  .ai-setting-comparison-table .col-cur::before {content:'현재';}
  .ai-setting-comparison-table .col-rec::before {content:'AI 추천';}
- .ai-page[data-mode="chat"] {gap:var(--space-2);}
- .ai-page[data-mode="chat"] .ai-cockpit {padding:var(--space-3);}
- .ai-page[data-mode="chat"] .ai-state-chips {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-1);}
- .ai-page[data-mode="chat"] .ai-state-chips button {font-size:var(--text-xs);padding:var(--space-1);line-height:1.4;}
- .ai-page[data-mode="chat"] .ai-cockpit :is(.eyebrow,.ai-cockpit-stats),.ai-page[data-mode="chat"] .ai-cockpit p {display:none;}
- .ai-page[data-mode="chat"] .ai-disclaimer summary {font-size:var(--text-sm);}
- .ai-page[data-mode="chat"] .ai-chat-workspace {display:block;margin-top:0;}
- .ai-page[data-mode="chat"] .ai-conversation-panel {padding:var(--space-3);height:calc(100dvh - 470px);min-height:340px;overflow:hidden;display:flex;flex-direction:column;}
- .ai-page[data-mode="chat"] .ai-result > .ai-muted {display:none;}
- .ai-page[data-mode="chat"] .ai-result {height:100%;min-height:0;padding-top:0;display:flex;flex-direction:column;gap:var(--space-2);}
- .ai-page[data-mode="chat"] .ai-result > .section-head {margin-bottom:0;flex-shrink:0;}
- .ai-page[data-mode="chat"] .ai-result > .hint {display:none;}
- .ai-page[data-mode="chat"] :is(.ai-first-question,.ai-first-answer) {display:none;}
- .ai-page[data-mode="chat"] .ai-chat {flex:1;display:flex;flex-direction:column;min-height:0;margin:0;gap:var(--space-1);}
- .ai-page[data-mode="chat"] .ai-chat-thread {flex:1;min-height:0;overflow-y:auto;max-height:none;}
- .ai-page[data-mode="chat"] .ai-message-composer {position:static;flex-shrink:0;padding:var(--space-2);gap:var(--space-2);border-radius:var(--radius-md);margin-top:0;}
- .ai-page[data-mode="chat"] .ai-chat-assistant > small.ai-muted {display:none;}
- .ai-page[data-mode="chat"] .ai-message-composer textarea {height:64px;min-height:64px;border-radius:var(--radius-md);resize:none;}
- .ai-page[data-mode="chat"] .ai-message-composer > label > small {display:none;}
- .ai-page[data-mode="chat"] .ai-message-composer .ai-chat-consent {display:flex;flex-direction:row;align-items:center;gap:var(--space-2);padding:0;margin:0;background:transparent;border:0;}
- .ai-page[data-mode="chat"] .ai-chat-consent input {width:20px;height:20px;min-width:20px;min-height:20px;flex-shrink:0;}
- .ai-page[data-mode="chat"] .ai-chat-consent span {font-size:var(--text-xs);}
- .ai-page[data-mode="chat"] .ai-message-composer > div {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2);}
- .ai-page[data-mode="chat"] .ai-data-sharing summary {font-size:var(--text-xs);}
- .ai-page[data-mode="chat"] .ai-message-composer > div:has(details[open]) {grid-template-columns:minmax(0,1fr);}
- .ai-page[data-mode="chat"] .ai-conversation-panel:has(.ai-data-sharing[open]) {height:auto;overflow:visible;}
- .ai-page[data-mode="chat"] .ai-conversation-panel:has(.ai-data-sharing[open]) .ai-chat-thread {max-height:240px;flex-basis:240px;}
- .ai-page[data-mode="chat"] .ai-message-composer button {min-width:0;width:100%;}
+ .layout:has(.ai-page[data-mode="chat"]) {height:var(--mobile-viewport-height,100dvh);padding-bottom:0;overflow:hidden;}
+ .layout:has(.ai-page[data-mode="chat"]) > main {padding-bottom:0;overflow:hidden;}
+ .ai-page[data-mode="chat"] {height:var(--mobile-chat-height);min-height:0;display:flex;flex-direction:column;gap:var(--space-1);}
+ .ai-page[data-mode="chat"] > :is(.ai-cockpit,.ai-disclaimer,.ai-list-trigger) {display:none;}
+ .ai-page[data-mode="chat"] .ai-view-tabs {flex-shrink:0;margin:0;}
+ .ai-chat-toolbar {height:44px;flex-shrink:0;display:flex;align-items:center;gap:var(--space-1);}
+ .ai-chat-toolbar button {height:44px;padding:var(--space-2);flex-shrink:0;}
+ .ai-chat-toolbar .ai-chat-list-button {flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+ .ai-chat-settings {position:relative;}
+ .ai-warning-dot {position:absolute;right:var(--space-1);top:var(--space-1);width:8px;height:8px;background:var(--state-warning);border-radius:var(--radius-full);}
+ .ai-page[data-mode="chat"] .ai-chat-workspace {flex:1;min-height:0;height:auto;display:flex;margin:0;overflow:hidden;}
+ .ai-page[data-mode="chat"] .ai-chat-workspace:not(:has(.ai-result)) {flex:0;height:0;overflow:visible;}
+ .ai-page[data-mode="chat"] .ai-new-chat {flex:1;min-height:0;overflow-y:auto;}
+ .ai-page[data-mode="chat"] .ai-conversation-panel {width:100%;flex:1;min-height:0;height:auto;padding:0;overflow:hidden;display:flex;scrollbar-gutter:auto;}
+ .ai-page[data-mode="chat"] .ai-result {width:100%;max-width:none;flex:1;min-height:0;padding:0;display:flex;flex-direction:column;gap:0;}
+ .ai-page[data-mode="chat"] .ai-result > :is(.section-head,.ai-muted,.hint,.ai-first-question,.ai-first-answer) {display:none;}
+ .ai-page[data-mode="chat"] .ai-chat {flex:1;display:flex;flex-direction:column;min-height:0;margin:0;gap:0;}
+ .ai-page[data-mode="chat"] .ai-chat-thread {flex:1;min-height:0;overflow-y:auto;max-height:none;padding:var(--space-2);display:block;overscroll-behavior:contain;}
+ .ai-page[data-mode="chat"] .ai-chat-thread > article {margin-bottom:var(--space-3);}
+ .ai-page[data-mode="chat"] .ai-markdown a {display:inline-flex;align-items:center;min-height:44px;min-width:44px;max-width:100%;overflow-wrap:anywhere;}
+ .ai-page[data-mode="chat"] .ai-message-composer.ai-compact-composer {flex-shrink:0;position:static;margin:0;padding:var(--space-1);display:flex;flex-direction:column;gap:var(--space-1);border-radius:var(--radius-md);}
+ .ai-page[data-mode="chat"] .ai-compact-composer :is(.ai-compact-input,.ai-compact-consent) {display:flex;align-items:center;gap:var(--space-1);}
+ .ai-page[data-mode="chat"] .ai-compact-input textarea {flex:1;min-width:0;width:100%;height:44px;min-height:44px;max-height:96px;resize:none;line-height:20px;padding:var(--space-2);border-radius:var(--radius-md);background:var(--surface-sunken);border:1px solid var(--border-subtle);color:var(--text-primary);font-size:var(--text-sm);}
+ .ai-page[data-mode="chat"] .ai-compact-composer button {width:auto;min-width:44px;height:44px;padding:var(--space-2);}
+ .ai-compact-consent button[aria-checked="true"] {background:var(--accent-surface);color:var(--accent);border:1px solid var(--accent);}
+ .ai-page[data-mode="summary"] .ai-state-chips {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-1);}
+ .ai-page[data-mode="summary"] .ai-state-chips button {font-size:var(--text-xs);padding:var(--space-1);line-height:1.4;min-height:44px;}
+ .layout:has(.ai-page[data-keyboard-open="true"]) > main > header,.layout:has(.ai-page[data-keyboard-open="true"]) .mobile-nav {display:none;}
+ .layout:has(.ai-page[data-keyboard-open="true"]) > main {padding-top:env(safe-area-inset-top);}
+ .ai-page[data-keyboard-open="true"] .ai-chat-thread {min-height:120px;}
+ .ai-page[data-mode="chat"] .ai-selection-mode .ai-message-composer {display:none;}
  .ai-list-trigger {display:flex;align-items:center;justify-content:space-between;min-height:44px;width:100%;}
  .ai-page .ai-view-tabs button {min-height:44px;}
  .ai-page :is(button,summary),.connection-management :is(button,summary) {min-height:44px;min-width:44px;}

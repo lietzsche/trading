@@ -323,6 +323,14 @@ def update_profile(payload: ProfileUpdate, user: Annotated[dict, Depends(current
     return {"ok": True}
 
 
+@app.get("/api/upbit/key/status")
+def upbit_key_status(user: Annotated[dict, Depends(current_user)]):
+    row=db.one("""SELECT EXISTS(SELECT 1 FROM tb_upbit_key
+        WHERE user_login_id=%s AND COALESCE(access_key,'')<>'' AND COALESCE(secret_key,'')<>'') AS registered""",
+        (user["user_login_id"],))
+    return {"registered": bool(row and row["registered"])}
+
+
 @app.put("/api/upbit/key")
 def save_upbit_key(payload: UpbitKeyUpdate, user: Annotated[dict, Depends(current_user)]):
     existing=db.one("SELECT id FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))

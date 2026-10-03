@@ -1,0 +1,228 @@
+{
+  "light-home": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-auto-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-upbit": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-ai-summary": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-ai-chat": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-ai-settings": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-more": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-connections": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-chat-first-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "light-chat-returning-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "light-chat-first-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "light-chat-returning-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "light-keyboard-simulated": {
+    "threadHeight": 190,
+    "composerBottom": 399,
+    "keyboardOpen": "true"
+  },
+  "dark-home": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-auto-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-upbit": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-ai-summary": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-ai-chat": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-ai-settings": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-more": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-connections": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-chat-first-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "dark-chat-returning-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "dark-chat-first-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "dark-chat-returning-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "dark-keyboard-simulated": {
+    "threadHeight": 190,
+    "composerBottom": 399,
+    "keyboardOpen": "true"
+  }
+}
