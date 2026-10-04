@@ -1,4 +1,7 @@
 from contextlib import contextmanager
+import os
+os.environ.setdefault('SESSION_SECRET','test-secret-that-is-at-least-thirty-two-characters')
+os.environ.setdefault('SESSION_COOKIE_SECURE','false')
 import pytest
 from fastapi import HTTPException
 from app.credentials import encrypt_upbit,upbit_credentials,migrate_upbit_credentials,PREFIX
@@ -87,6 +90,7 @@ def test_auto_order_decrypts_but_key_replacement_checks_ciphertext(monkeypatch,r
     class Database:
         def all(self,*args):return []
         def one(self,sql,params):
+            if 'auto_order_requests' in sql:return None
             assert params==(1,row['access_key'],row['secret_key'])
             return None if replaced else {'id':1}
         def execute(self,*args):pass
