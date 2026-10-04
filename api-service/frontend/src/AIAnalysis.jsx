@@ -7,6 +7,7 @@ import {AI_SETTING_FIELDS, AI_STATUS_LABELS, autoApplyEligible, candidateEligibl
 import './ai.css';
 import {Icon, ResponsivePanel, Sheet, useMobile, useMobileChatLayout} from './MobileUI';
 import {Toast} from './Feedback';
+import {startVisiblePolling} from './visiblePolling';
 
 const API = '/admin/ai';
 const count = value => Number(value || 0).toLocaleString('ko-KR');
@@ -336,25 +337,20 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
   useEffect(() => {
     if (selectedId === null) return;
     const request = detailRequests.current.begin();
-    let timer;
-    let inFlight = false;
     setDetailLoading(true);
     async function poll() {
-      if (document.hidden || inFlight || !request.isCurrent()) return;
-      inFlight = true;
+      if (!request.isCurrent()) return false;
       try {
         const result = await api(`${API}/analyses/${encodeURIComponent(selectedId)}`, {signal: request.signal});
         if (!request.isCurrent()) return;
         setSelected(result); setDetailLoading(false);
-        if (isAnalysisRunning(result.status) || result.conversations?.some(item => isAnalysisRunning(item.status))) timer = setTimeout(poll, 3000);
-        else refresh(false);
+        const running=isAnalysisRunning(result.status) || result.conversations?.some(item => isAnalysisRunning(item.status));
+        if (!running) refresh(false);
+        return running;
       } catch (error) {if (request.isCurrent()) {setDetailLoading(false); showError(error);}}
-      finally {inFlight = false;}
     }
-    function visibilityChanged() {clearTimeout(timer); if (!document.hidden) poll();}
-    document.addEventListener('visibilitychange', visibilityChanged);
-    poll();
-    return () => {clearTimeout(timer); document.removeEventListener('visibilitychange', visibilityChanged); detailRequests.current.cancel();};
+    const stop=startVisiblePolling(poll);
+    return () => {stop(); detailRequests.current.cancel();};
   }, [selectedId, detailVersion, refreshToken, refresh, showError]);
 
   async function runAction(name, action) {
