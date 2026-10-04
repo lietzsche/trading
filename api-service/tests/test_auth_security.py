@@ -1,4 +1,7 @@
 from contextlib import contextmanager
+import os
+os.environ.setdefault('SESSION_SECRET','test-secret-that-is-at-least-thirty-two-characters')
+os.environ.setdefault('SESSION_COOKIE_SECURE','false')
 from datetime import datetime,timedelta,timezone
 import bcrypt
 import pytest
@@ -83,3 +86,20 @@ def test_password_change_invalidates_session(auth):
     client.post('/api/auth/login',json={'login_id':'master','password':'password123'})
     assert client.put('/api/profile',json={'name':'Master','password':'newpassword123','current_password':'password123'}).status_code==200
     assert client.get('/api/auth/me').status_code==401
+
+
+@pytest.mark.parametrize('peer,header,expected',[
+    ('127.0.0.1','203.0.113.5','203.0.113.5'),
+    ('172.18.0.1','203.0.113.6','203.0.113.6'),
+    ('203.0.113.7','203.0.113.8','203.0.113.7'),
+    ('127.0.0.1','invalid','127.0.0.1')])
+def test_cloudflare_address_is_trusted_only_from_connector(monkeypatch,peer,header,expected):
+    from starlette.requests import Request
+    from fastapi import Response
+    calls=[]
+    def authenticate(db,login_id,ip,verify):
+        calls.append(ip);return {'user_login_id':'master','user_name':'Master','user_role':'MASTER'}
+    monkeypatch.setattr(main,'authenticate',authenticate)
+    request=Request({'type':'http','client':(peer,1),'headers':[(b'cf-connecting-ip',header.encode())]})
+    main.login(main.LoginRequest(login_id='master',password='password123'),Response(),request)
+    assert calls==[expected]

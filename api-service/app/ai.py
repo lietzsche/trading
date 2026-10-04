@@ -1,5 +1,4 @@
 """Owner-scoped AI analysis, separate from the live trading scheduler."""
-import base64
 import hashlib
 import json
 import logging
@@ -15,9 +14,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
-from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from psycopg.types.json import Jsonb

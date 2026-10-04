@@ -32,6 +32,7 @@ SESSION_MAX_AGE = 60 * 60 * 12
 STARTED_AT = time.monotonic()
 TRADING_ENABLED = os.environ.get("TRADING_EXECUTION_ENABLED", "false").lower() == "true"
 SIGNUP_ENABLED = os.environ.get('SIGNUP_ENABLED','false').lower() == 'true'
+DUMMY_PASSWORD_HASH = bcrypt.hashpw(b'not-a-real-account-password',bcrypt.gensalt()).decode()
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -81,6 +82,7 @@ class Database:
     def execute(self, query: str, params=()):
         with self.connection() as connection, connection.cursor() as cursor:
             cursor.execute(query, params)
+            return cursor.rowcount
 
     def executemany(self, query: str, params):
         with self.connection() as connection, connection.cursor() as cursor:
@@ -196,7 +198,8 @@ def login(payload: LoginRequest, response: Response, request: Request):
         (payload.login_id,),
     )
         try:
-            valid = user and bcrypt.checkpw(payload.password.encode(), user["user_password"].encode())
+            matched = bcrypt.checkpw(payload.password.encode(), (user["user_password"] if user else DUMMY_PASSWORD_HASH).encode())
+            valid = bool(user and matched)
         except (ValueError, TypeError):
             valid = False
         return user if valid else None
@@ -355,10 +358,12 @@ def update_profile(payload: ProfileUpdate, user: Annotated[dict, Depends(current
         if not valid:raise HTTPException(400,'현재 비밀번호가 올바르지 않습니다.')
     encoded = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode() if payload.password else None
     phone = payload.phone if "phone" in payload.model_fields_set else user.get("user_phone")
-    db.execute("""UPDATE tb_user SET user_name=%s,user_email=%s,user_phone=%s,
+    changed = db.execute("""UPDATE tb_user SET user_name=%s,user_email=%s,user_phone=%s,
         user_password=COALESCE(%s,user_password),updated_at=%s,
         session_version=session_version+%s WHERE id=%s AND (%s IS NULL OR user_password=%s)""",
         (payload.name,payload.email,phone,encoded,engine.now(),1 if encoded else 0,user["id"],encoded,existing['user_password'] if encoded else None))
+    if changed == 0:
+        raise HTTPException(409,'계정 정보가 변경되었습니다. 다시 로그인해 주세요.')
     return {"ok": True}
 
 
