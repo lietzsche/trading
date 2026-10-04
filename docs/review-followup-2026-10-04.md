@@ -20,10 +20,17 @@
 - 통화: `test_stock_context_includes_currency_in_recommendations_and_history` 통과. 단위: `uses positive drop magnitudes and explicit units` 통과.
 - 격리 임시 PostgreSQL `repeat_test`에서 V010 **2회 실행** 통과. 8개 작업 스레드로 총 100회 기록 → **1행 / repeat_count 100 / 최초 메시지 유지**. last_seen_at을 11분 전으로 둔 뒤 새 행 생성 확인.
 - 최초 시각이 2000년이어도 최근 마지막 발생이 있으면 유지하고, 마지막 발생도 오래되면 삭제함을 확인했다. 121개 최근 묶음에 최대 100개 정책을 적용하여 21개 정리, 가장 최근 갱신된 기존 행 유지 확인.
-- 운영 DB는 읽기 전용 조회만 했다. 운영 V010·배포·푸시는 실행하지 않았다. `./reup.sh`가 V010을 적용한 후 새 API를 시작한다.
+- 구현 검수 단계에서는 운영 DB를 읽기 전용으로만 조회했다. 이후 사용자 배포 요청에 따라 아래 배포 확인을 진행했다. `./reup.sh`가 V010을 적용한 후 새 API를 시작한다.
 - Playwright 모의 API: 375×812 라이트·다크, 굵게 된 퍼센트·오류 집계·기존 설정 저장 확인·AI 동의·삭제 보호·자동 스크롤 회귀 통과. 가로 넘침과 런타임 오류 0. 실제 안드로이드 기기 키보드는 미검수.
 
 [라이트 AI 대화](screenshots/markdown-repeat-2026-10-04/light-ai-chat.png) · [다크 AI 대화](screenshots/markdown-repeat-2026-10-04/dark-ai-chat.png) · [원시 UI 수치](screenshots/markdown-repeat-2026-10-04/metrics.json)
+
+## 배포 확인
+
+- 사용자 요청으로 `./reup.sh` 정상 종료. 구현 커밋 `5b67201` 배포 완료, 기존 Cloudflare Named Tunnel 유지.
+- API·계산 서비스·PostgreSQL 모두 healthy. `https://trade.lietzsche.org/api/health`의 status/database/calculation 모두 UP.
+- 운영 스키마 읽기 전용 조회로 V010의 repeat_count INTEGER, last_seen_at VARCHAR 컬럼 확인. 마이그레이션 정상 종료 및 최근 시작 로그의 ERROR/FATAL/Traceback 0건.
+- 계산 서비스 이미지는 변경되지 않았다. 선정식 반올림을 제거하지 않았으며 푸시는 실행하지 않았다.
 
 ## 반올림 영향 — 계산식은 변경하지 않음
 
