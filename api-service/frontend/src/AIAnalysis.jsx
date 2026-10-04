@@ -337,8 +337,11 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
     if (selectedId === null) return;
     const request = detailRequests.current.begin();
     let timer;
+    let inFlight = false;
     setDetailLoading(true);
     async function poll() {
+      if (document.hidden || inFlight || !request.isCurrent()) return;
+      inFlight = true;
       try {
         const result = await api(`${API}/analyses/${encodeURIComponent(selectedId)}`, {signal: request.signal});
         if (!request.isCurrent()) return;
@@ -346,9 +349,12 @@ export default function AIAnalysis({user, refreshToken = 0, setError, onNavigate
         if (isAnalysisRunning(result.status) || result.conversations?.some(item => isAnalysisRunning(item.status))) timer = setTimeout(poll, 3000);
         else refresh(false);
       } catch (error) {if (request.isCurrent()) {setDetailLoading(false); showError(error);}}
+      finally {inFlight = false;}
     }
+    function visibilityChanged() {clearTimeout(timer); if (!document.hidden) poll();}
+    document.addEventListener('visibilitychange', visibilityChanged);
     poll();
-    return () => {clearTimeout(timer); detailRequests.current.cancel();};
+    return () => {clearTimeout(timer); document.removeEventListener('visibilitychange', visibilityChanged); detailRequests.current.cancel();};
   }, [selectedId, detailVersion, refreshToken, refresh, showError]);
 
   async function runAction(name, action) {
