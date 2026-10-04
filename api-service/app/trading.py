@@ -167,15 +167,20 @@ class TradingEngine:
     def _collect_upbit(self):
         setting = self.setting("upbit")
         markets = self.upbit_public("/v1/market/all", {"isDetails": "false"})
+        codes = self._validated_upbit_codes(markets)
+        now = self.now()
+        self.db.execute("""UPDATE upbit SET deleted_at=%s,updated_at=%s
+            WHERE deleted_at IS NULL AND NOT (code=ANY(%s))""", (now,now,codes))
         instruments = []
         for market in markets:
             code = market["market"]
             if not code.startswith("KRW-"):
                 continue
-            label = self.db.one("SELECT id FROM upbit_history_label WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
-            if label:
-                self.db.execute("UPDATE upbit_history_label SET deleted_at=NULL,name=%s WHERE id=%s",
-                                (market["korean_name"],label["id"]))
+            label = self.db.one("SELECT id,name,deleted_at FROM upbit_history_label WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
+            if label and (label.get('deleted_at') is not None or label.get('name') != market['korean_name']):
+                self.db.execute("""UPDATE upbit_history_label SET deleted_at=NULL,name=%s
+                    WHERE id=%s AND (deleted_at IS NOT NULL OR name IS DISTINCT FROM %s)""",
+                    (market["korean_name"],label["id"],market['korean_name']))
             if not label:
                 self.db.execute("""INSERT INTO upbit_history_label(id,code,name,created_at,updated_at,deleted_at)
                     VALUES(nextval('upbit_history_label_seq'),%s,%s,%s,NULL,NULL)""",
@@ -392,9 +397,8 @@ class TradingEngine:
         return self.run("UPBIT", "SCHEDULE_SAVE_HISTORY",
                         self._save_upbit_history)
 
-    def _save_upbit_history(self):
-        # A failed/invalid market response must never deactivate existing targets.
-        markets = self.upbit_public("/v1/market/all")
+    @staticmethod
+    def _validated_upbit_codes(markets):
         if (not isinstance(markets, list) or not markets or
                 any(not isinstance(row, dict) or not isinstance(row.get("market"), str)
                     or not re.fullmatch(r"[A-Z0-9]+-[A-Z0-9]+", row["market"]) for row in markets)):
@@ -402,6 +406,14 @@ class TradingEngine:
         codes = sorted({row["market"] for row in markets if row["market"].startswith("KRW-")})
         if not codes:
             raise RuntimeError("Upbit 원화 거래 지원 목록이 비어 있습니다. 수집 대상을 유지합니다.")
+        if any(not isinstance(row.get('korean_name'),str) or not row['korean_name'].strip()
+               for row in markets if row['market'].startswith('KRW-')):
+            raise RuntimeError("Upbit 종목명 형식이 비정상입니다. 수집 대상을 유지합니다.")
+        return codes
+
+    def _save_upbit_history(self):
+        # A failed/invalid market response must never deactivate existing targets.
+        codes = self._validated_upbit_codes(self.upbit_public("/v1/market/all"))
         with self.db.connection() as connection, connection.cursor() as cursor:
             cursor.execute("""UPDATE upbit_history_label SET deleted_at=%s,updated_at=%s
                 WHERE deleted_at IS NULL AND code LIKE 'KRW-%%' AND NOT (code=ANY(%s))""",
@@ -649,8 +661,14 @@ class TradingEngine:
             # immediately buying back the same asset. The next ranked BUY can proceed.
             if action["side"] == "BUY" and market in recent_manual_sells:
                 continue
-            chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"],
-                                        {"market": market})
+            try:
+                chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"],
+                                            {"market": market})
+            except httpx.HTTPStatusError as error:
+                if not self._missing_upbit_market(error):
+                    raise
+                self.record_error('UPBIT',f'AUTO_ORDER_MARKET_{market}',error)
+                continue
             if action["side"] == "BUY":
                 krw = next((a for a in accounts if a["currency"] == "KRW"), None)
                 if not krw:
@@ -674,9 +692,28 @@ class TradingEngine:
                 (key["id"], key["access_key"], key["secret_key"]))
             if not active:
                 break
-            order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+            try:
+                order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+            except httpx.HTTPStatusError as error:
+                if not self._missing_upbit_market(error):
+                    raise
+                self.record_error('UPBIT',f'AUTO_ORDER_MARKET_{market}',error)
+                continue
             self.save_order(key["user_login_id"], order)
             accounts = self.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+
+    @staticmethod
+    def _missing_upbit_market(error):
+        if error.response.status_code == 404:
+            return True
+        if error.response.status_code != 400:
+            return False
+        try:
+            detail = error.response.json().get('error', {})
+            return detail.get('name') in {'market_not_found','not_found_market','invalid_market'} or (
+                detail.get('message') in {'Code not found','market not found','존재하지 않는 마켓입니다.'})
+        except (ValueError,AttributeError):
+            return False
 
     def save_order(self, login_id, order):
         columns=["uuid","side","ord_type","price","state","market","created_at","volume","remaining_volume",

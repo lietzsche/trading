@@ -64,7 +64,7 @@ def trading_engine():
 
 def test_history_targets_sync_before_collection_and_preserve_history(trading_engine, monkeypatch):
     monkeypatch.setattr(trading_engine, 'upbit_public', lambda *args: [
-        {'market':'KRW-BTC'}, {'market':'BTC-ETH'}])
+        {'market':'KRW-BTC','korean_name':'비트코인'}, {'market':'BTC-ETH'}])
     collected=[]
     monkeypatch.setattr(trading_engine, '_save_history', lambda *args: collected.append(len(trading_engine.db.writes)))
     trading_engine._save_upbit_history()
@@ -112,10 +112,76 @@ def test_relisted_market_reuses_existing_history_label(trading_engine, monkeypat
     monkeypatch.setattr(trading_engine, 'upbit_prices', lambda *args: [])
     monkeypatch.setattr(trading_engine, 'calc', lambda *args: {'selected_codes':[]})
     trading_engine._collect_upbit()
+    assert len(trading_engine.db.writes)==2
+    sql,params=trading_engine.db.writes[1]
+    assert 'UPDATE upbit_history_label SET deleted_at=NULL' in sql
+    assert params==('비트코인',123,'비트코인')
+
+
+@pytest.mark.parametrize('response', [[], {}, [{'market':'BTC-ETH'}], [{'market':'KRW-BTC'}]])
+def test_collect_invalid_list_keeps_recommendations(trading_engine, monkeypatch,response):
+    monkeypatch.setattr(trading_engine,'setting',lambda *_: {})
+    monkeypatch.setattr(trading_engine,'upbit_public',lambda *_: response)
+    with pytest.raises(RuntimeError): trading_engine._collect_upbit()
+    assert trading_engine.db.writes==[]
+
+
+def test_collect_market_lookup_failure_keeps_recommendations(trading_engine,monkeypatch):
+    monkeypatch.setattr(trading_engine,'setting',lambda *_: {})
+    def fail(*args):raise httpx.ConnectError('temporary failure')
+    monkeypatch.setattr(trading_engine,'upbit_public',fail)
+    with pytest.raises(httpx.ConnectError):trading_engine._collect_upbit()
+    assert trading_engine.db.writes==[]
+
+
+def test_collect_unchanged_label_has_no_update(trading_engine,monkeypatch):
+    monkeypatch.setattr(trading_engine,'setting',lambda *_: {
+        'highest_price_reference_days':60,'expected_low_percentage':-12,
+        'expected_high_percentage':15,'is_volume_check':False})
+    monkeypatch.setattr(trading_engine,'upbit_public',lambda *_: [{'market':'KRW-BTC','korean_name':'비트코인'}])
+    monkeypatch.setattr(trading_engine.db,'one',lambda *_: {'id':1,'name':'비트코인','deleted_at':None})
+    monkeypatch.setattr(trading_engine,'upbit_prices',lambda *_: [])
+    monkeypatch.setattr(trading_engine,'calc',lambda *_: {'selected_codes':[]})
+    trading_engine._collect_upbit()
     assert len(trading_engine.db.writes)==1
     sql,params=trading_engine.db.writes[0]
-    assert 'UPDATE upbit_history_label SET deleted_at=NULL' in sql
-    assert params==('비트코인',123)
+    assert 'UPDATE upbit SET' in sql and params[-1]==['KRW-BTC']
+
+
+@pytest.mark.parametrize('status,error_name,path,side', [
+    (404,'market_not_found','/v1/orders/chance','BUY'),
+    (400,'market_not_found','/v1/orders/chance','BUY'),
+    (400,'market_not_found','/v1/orders','BUY'),
+    (404,'market_not_found','/v1/orders/chance','SELL'),
+    (401,'jwt_verification','/v1/orders/chance','BUY'),
+    (403,'out_of_scope','/v1/orders','BUY'),
+    (400,'insufficient_funds_bid','/v1/orders','BUY')])
+def test_auto_missing_market_continues_but_auth_and_other_errors_stop(
+        trading_engine,monkeypatch,status,error_name,path,side):
+    calls=[];errors=[];saved=[]
+    def private(method,endpoint,*args):
+        params=args[-1] if isinstance(args[-1],dict) else {}
+        calls.append((method,endpoint,params))
+        if endpoint=='/v1/accounts': return [{'currency':'KRW','balance':'10000'}]
+        if endpoint==path and params.get('market')=='KRW-BONK':
+            httpx.Response(status,json={'error':{'name':error_name}},
+                request=httpx.Request(method,'https://api.upbit.com'+endpoint)).raise_for_status()
+        if endpoint=='/v1/orders/chance':return {'bid_fee':'0.0005','market':{'bid':{'min_total':'5000'}}}
+        return {'uuid':'next'}
+    monkeypatch.setattr(trading_engine,'private_upbit',private)
+    monkeypatch.setattr(trading_engine,'record_error',lambda *args: errors.append(args))
+    monkeypatch.setattr(trading_engine,'save_order',lambda *args: saved.append(args))
+    monkeypatch.setattr(trading_engine,'calc',lambda *_: {'actions':[
+        {'market':'KRW-BONK','side':side},{'market':'KRW-ETH','side':'BUY'}]})
+    if status in (401,403) or error_name=='insufficient_funds_bid':
+        with pytest.raises(httpx.HTTPStatusError):trading_engine._auto_order_for_key(trading_engine.db.keys[0],[])
+        assert not saved
+    else:
+        trading_engine._auto_order_for_key(trading_engine.db.keys[0],[])
+        assert len(saved)==1 and len(errors)==1
+        posted=[params['market'] for method,_,params in calls if method=='POST']
+        assert posted[-1]=='KRW-ETH'
+        if side=='SELL':assert 'KRW-BONK' not in posted
 
 
 def test_upbit_order_token_contains_matching_query_hash():
