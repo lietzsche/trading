@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from psycopg.types.json import Jsonb
 from typing import Literal
+from app.credentials import upbit_credentials, key_cipher
 
 log = logging.getLogger(__name__)
 SETTING_COLUMNS = "expected_high_percentage,expected_low_percentage,highest_price_reference_days,is_volume_check AS volume_check"
@@ -144,15 +145,6 @@ def account_for_ai(row):
             "avg_buy_price_unit_currency": unit_currency,
             "avg_buy_price_note": None if is_krw else
                 "평균매수가가 KRW 기준이 아니어서 제외했습니다. 원화 시세와 직접 비교하지 마세요."}
-
-
-def key_cipher(secret, user_id):
-    if len(secret) < 32:
-        raise HTTPException(503, "서버 암호화 설정을 확인해 주세요.")
-    # SESSION_SECRET is generated from 32 random bytes by up.sh, not a user password.
-    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=b"trading-ai-credentials-v1",
-               info=f"deepseek-owner:{user_id}".encode()).derive(secret.encode())
-    return Fernet(base64.urlsafe_b64encode(key))
 
 
 def candidate_verified(candidate):
@@ -394,11 +386,11 @@ class AIService:
             GROUP BY source,error_type ORDER BY sum(repeat_count) DESC LIMIT 10""")
         context['error_counts_basis']='최근 24시간 안에 마지막 발생이 있는 오류 묶음의 누적 횟수입니다. 정확한 24시간 발생 횟수가 아닙니다.'
         if job["include_account"] and market == "upbit":
-            key = self.db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+            key = self.db.one("SELECT user_login_id,access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
             if key:
                 # Do not call /accounts route: its authentication failure changes auto_on.
                 try:
-                    accounts = self.engine.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+                    accounts = self.engine.private_upbit("GET", "/v1/accounts", *upbit_credentials(self.session_secret,user["user_login_id"],key))
                     context["account"] = [account_for_ai(row) for row in accounts[:100]]
                 except (httpx.HTTPError, ValueError, TypeError):
                     context["account_warning"] = "계좌 조회에 실패하여 계좌 요약은 포함하지 않았습니다. 자동매매 설정은 변경하지 않았습니다."
@@ -636,7 +628,7 @@ class AIService:
         fills, unavailable_markets = [], set()
         for order in reversed(recent):  # oldest-first so FIFO matching sees buys before their sells
             try:
-                trades = self.engine.order_fills(key_row["access_key"], key_row["secret_key"], order["uuid"])
+                trades = self.engine.order_fills(*upbit_credentials(self.session_secret,key_row.get("user_login_id"),key_row), order["uuid"])
             except (httpx.HTTPError, ValueError, TypeError):
                 unavailable_markets.add(order["market"])
                 continue
@@ -714,10 +706,10 @@ class AIService:
                 if analysis["market"] != "upbit" or not analysis.get("include_account"):
                     raise HTTPException(409, "계좌 정보 포함에 동의한 Upbit 분석에서만 계좌·주문 요약을 사용할 수 있습니다.")
                 owner = self.db.one("SELECT user_login_id FROM tb_user WHERE id=%s AND deleted_at IS NULL", (row["user_id"],))
-                key_row = self.db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (owner["user_login_id"],)) if owner else None
+                key_row = self.db.one("SELECT user_login_id,access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (owner["user_login_id"],)) if owner else None
                 if not key_row:
                     raise HTTPException(409, "현재 Upbit 계좌 정보를 확인할 수 없습니다.")
-                accounts = self.engine.private_upbit("GET", "/v1/accounts", key_row["access_key"], key_row["secret_key"])
+                accounts = self.engine.private_upbit("GET", "/v1/accounts", *upbit_credentials(self.session_secret,key_row.get("user_login_id"),key_row))
                 orders = self.db.all("""SELECT uuid,market,side,ord_type,state,price,volume,executed_volume,
                     paid_fee,trades_count,created_at FROM upbit_order_history
                     WHERE login_id=%s ORDER BY id DESC LIMIT 100""", (owner["user_login_id"],))

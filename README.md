@@ -111,3 +111,6 @@ CRON_TZ=Asia/Seoul
 ```
 
 첫 백업으로 `backups/`를 먼저 생성하고, cron의 Docker 실행 권한과 시간대 지원을 확인하세요. 백업과 별도로 `.runtime.env`의 `SESSION_SECRET`도 안전하게 보관해야 합니다.
+### API 키 암호화 주의
+
+Upbit와 DeepSeek 키는 `SESSION_SECRET`에서 사용자별로 파생한 키로 암호화됩니다. **SESSION_SECRET을 바꾸거나 잃으면 기존 키를 복호화할 수 없으므로 DeepSeek·Upbit 키를 다시 등록해야 합니다.** `.runtime.env`를 백업과 별도로 안전하게 보관하세요. 앱 기동 시 기존 Upbit 평문 키는 한 트랜잭션으로 암호화 전환되며 키 값은 로그에 출력하지 않습니다.

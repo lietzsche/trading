@@ -18,6 +18,7 @@ import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
 from app.us_market import us_data, us_universe, is_us_symbol, chart_result, trailing_dividend, USRateLimited
+from app.credentials import upbit_credentials
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +72,13 @@ class TradingEngine:
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         self._upbit_client.close()
+
+    def key_credentials(self, key, owner=None):
+        return upbit_credentials(os.environ.get('SESSION_SECRET',''),owner or key.get('user_login_id'),key)
+
+    def private_for_key(self, method, path, key, params=None, owner=None):
+        access,secret=self.key_credentials(key,owner)
+        return self.private_upbit(method,path,access,secret,params)
 
     def run(self, source, operation, function):
         try:
@@ -535,7 +543,7 @@ class TradingEngine:
         try:
             if not isinstance(market, str) or not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", market):
                 raise ValueError("유효한 Upbit 원화 마켓이 아닙니다.")
-            chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"], {"market": market})
+            chance = self.private_for_key("GET", "/v1/orders/chance", key, {"market": market})
             try:
                 available = Decimal(str(chance["ask_account"]["balance"]))
                 expected = Decimal(str(expected_available))
@@ -563,7 +571,7 @@ class TradingEngine:
                 raise ValueError("등록된 Upbit 키가 변경되었습니다. 계좌를 새로고침해 주세요.")
             params = {"market": market, "side": "ask", "volume": format(available, "f"), "ord_type": "market",
                       "identifier": f"manual-sell-{key['id']}-{uuid.uuid4()}"}
-            order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+            order = self.private_for_key("POST", "/v1/orders", key, params)
             history_saved = True
             try:
                 self.save_order(key["user_login_id"], order)
@@ -636,7 +644,7 @@ class TradingEngine:
 
     def _auto_order_for_key(self, key, markets):
         try:
-            accounts = self.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+            accounts = self.private_for_key("GET", "/v1/accounts", key)
         except httpx.HTTPStatusError as error:
             if error.response.status_code in (401, 403):
                 self.db.execute("""UPDATE tb_upbit_key SET auto_on=false
@@ -662,7 +670,7 @@ class TradingEngine:
             if action["side"] == "BUY" and market in recent_manual_sells:
                 continue
             try:
-                chance = self.private_upbit("GET", "/v1/orders/chance", key["access_key"], key["secret_key"],
+                chance = self.private_for_key("GET", "/v1/orders/chance", key,
                                             {"market": market})
             except httpx.HTTPStatusError as error:
                 if not self._missing_upbit_market(error):
@@ -693,14 +701,14 @@ class TradingEngine:
             if not active:
                 break
             try:
-                order = self.private_upbit("POST", "/v1/orders", key["access_key"], key["secret_key"], params)
+                order = self.private_for_key("POST", "/v1/orders", key, params)
             except httpx.HTTPStatusError as error:
                 if not self._missing_upbit_market(error):
                     raise
                 self.record_error('UPBIT',f'AUTO_ORDER_MARKET_{market}',error)
                 continue
             self.save_order(key["user_login_id"], order)
-            accounts = self.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+            accounts = self.private_for_key("GET", "/v1/accounts", key)
 
     @staticmethod
     def _missing_upbit_market(error):

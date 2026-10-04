@@ -20,6 +20,7 @@ from app.trading import TradingEngine
 from app.ai import AIService, create_router
 from app.us_market import is_us_symbol
 from app.auth_security import authenticate
+from app.credentials import encrypt_upbit, migrate_upbit_credentials
 from ipaddress import ip_address
 
 
@@ -92,6 +93,7 @@ engine = TradingEngine(db, CALCULATION_SERVICE_URL, TRADING_ENABLED)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    migrate_upbit_credentials(db,SESSION_SECRET)
     ai_service.start()
     engine.start()
     yield
@@ -233,12 +235,12 @@ def recommendations(market: Literal["stock", "upbit"], user: Annotated[dict, Dep
                       id DESC"""
     )
     if market == "upbit" and include_ownership:
-        key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+        key = db.one("SELECT user_login_id,access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
         owned = {}
         ownership_available = True
         if key:
             try:
-                accounts = engine.private_upbit("GET", "/v1/accounts", key["access_key"], key["secret_key"])
+                accounts = engine.private_for_key("GET", "/v1/accounts", key)
                 owned = {row["currency"]: float(row["balance"]) + float(row["locked"]) for row in accounts}
             except (httpx.HTTPError, ValueError) as error:
                 ownership_available = False
@@ -266,10 +268,10 @@ def dividends(_: Annotated[dict, Depends(current_user)]):
 
 @app.get("/api/orders")
 def order_history(user: Annotated[dict, Depends(current_user)]):
-    key = db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+    key = db.one("SELECT user_login_id,access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
     if key:
         try:
-            engine.sync_orders(user["user_login_id"], key["access_key"], key["secret_key"])
+            engine.sync_orders(user["user_login_id"], *engine.key_credentials(key,user["user_login_id"]))
         except httpx.HTTPError as error:
             engine.record_error("UPBIT", "SYNC_ORDER_HISTORY", error)
     return db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
@@ -375,13 +377,15 @@ def upbit_key_status(user: Annotated[dict, Depends(current_user)]):
 
 @app.put("/api/upbit/key")
 def save_upbit_key(payload: UpbitKeyUpdate, user: Annotated[dict, Depends(current_user)]):
+    access=encrypt_upbit(SESSION_SECRET,user['user_login_id'],payload.access_key)
+    secret=encrypt_upbit(SESSION_SECRET,user['user_login_id'],payload.secret_key)
     existing=db.one("SELECT id FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
     if existing:
         db.execute("UPDATE tb_upbit_key SET access_key=%s,secret_key=%s WHERE id=%s",
-                   (payload.access_key,payload.secret_key,existing["id"]))
+                   (access,secret,existing["id"]))
     else:
         db.execute("INSERT INTO tb_upbit_key(id,user_login_id,access_key,secret_key,auto_on) VALUES(nextval('tb_upbit_key_seq'),%s,%s,%s,false)",
-                   (user["user_login_id"],payload.access_key,payload.secret_key))
+                   (user["user_login_id"],access,secret))
     return {"ok": True}
 
 
@@ -390,7 +394,7 @@ def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
     key=db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s",(user["user_login_id"],))
     if not key: return {"total_valuation": 0, "valuation_complete": True, "unpriced_currencies": [], "assets": []}
     try:
-        return engine.account_snapshot(key["access_key"],key["secret_key"])
+        return engine.account_snapshot(*engine.key_credentials(key,user["user_login_id"]))
     except httpx.HTTPError as error:
         status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
         engine.record_error("UPBIT", "GET_ACCOUNT" if status is None else f"GET_ACCOUNT_HTTP_{status}", error)
@@ -406,7 +410,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
     snapshot = {"total_valuation": 0, "valuation_complete": True, "unpriced_currencies": [], "assets": []}
     if key:
         try:
-            snapshot = engine.account_snapshot(key["access_key"], key["secret_key"])
+            snapshot = engine.account_snapshot(*engine.key_credentials(key,user["user_login_id"]))
         except httpx.HTTPError as error:
             engine.record_error("UPBIT", "GET_DASHBOARD_ACCOUNT", error)
             raise HTTPException(502, "대시보드 계좌 조회에 실패했습니다.") from None
