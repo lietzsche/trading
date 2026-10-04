@@ -20,6 +20,42 @@ def test_health():
     assert client.get("/health").json() == {"status": "UP"}
 
 
+@pytest.mark.parametrize('code,close,high,low_pct,high_pct,amplitude,expected',[
+    ('KRW-BONK',0.00444,0.00523,-12,15,False,False),
+    ('KRW-BLAST',0.553,0.59,-12,15,False,True),
+    ('005930',119000,120000,-5,10,True,True),
+])
+def test_selection_compares_fractional_threshold_without_integer_rounding(code,close,high,low_pct,high_pct,amplitude,expected):
+    # Synthetic rising OHLC fixtures anchored to the report's first-day prices.
+    bars=[{'close':close,'high':high,'low':min(close,high)*.9,'volume':100},
+          {'close':high*.85,'high':high*.9,'low':high*.7,'volume':90},
+          {'close':high*.75,'high':high*.8,'low':high*.6,'volume':80}]
+    threshold=high*(1+low_pct/100)
+    if code=='KRW-BONK':assert threshold==pytest.approx(0.0046024) and close>=round(threshold)
+    elif code=='KRW-BLAST':assert threshold==pytest.approx(0.5192) and close<round(threshold)
+    else:assert (close>=threshold)==(close>=round(threshold))
+    response=client.post('/v1/recommendations/select',json={
+        'instruments':[{'code':code,'prices':bars}],'low_percentage':low_pct,
+        'high_percentage':high_pct,'volume_check':False,'amplitude_check':amplitude})
+    assert response.status_code==200
+    assert response.json()['selected_codes']==([code] if expected else [])
+
+
+def test_domestic_high_price_record_keeps_selection_result():
+    # Read-only DB snapshot: 039030, 2026-10-02/10-01/09-17.
+    bars=[{'close':536000,'high':562000,'low':525000,'volume':107199},
+          {'close':553000,'high':564000,'low':510000,'volume':136090},
+          {'close':466000,'high':476000,'low':454500,'volume':89284}]
+    threshold=562000*(1-5/100)
+    assert threshold==round(threshold)==533900
+    response=client.post('/v1/recommendations/select',json={
+        'instruments':[{'code':'039030','prices':bars}],'low_percentage':-5,
+        'high_percentage':10,'volume_check':False,'amplitude_check':True})
+    assert response.status_code==200
+    # Rising-high condition fails both before and after this single-line change.
+    assert response.json()['selected_codes']==[]
+
+
 def test_selects_matching_instrument_once():
     response = client.post(
         "/v1/recommendations/select",

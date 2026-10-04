@@ -134,7 +134,7 @@ def _is_recommended(instrument: Instrument, request: SelectionRequest) -> bool:
         return False
     if not (recent.low.iloc[0] > recent.low.iloc[1] > recent.low.iloc[2]):
         return False
-    if recent.close.iloc[0] < round(recent.high.iloc[0] * (1 + request.low_percentage / 100)):
+    if recent.close.iloc[0] < recent.high.iloc[0] * (1 + request.low_percentage / 100):
         return False
     if recent.high.iloc[0] != frame.high.max():
         return False

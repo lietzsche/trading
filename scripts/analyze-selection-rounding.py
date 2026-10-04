@@ -2,6 +2,7 @@
 No market download, order, setting update, or error recording is performed.
 """
 import json
+import argparse
 from collections import defaultdict
 from datetime import datetime,timezone
 from app.main import db,CALCULATION_SERVICE_URL
@@ -24,7 +25,7 @@ def selected(prices,setting,amplitude,rounded):
     change=(max(highs)-min(highs))/min(highs)*100
     return float(setting['expected_high_percentage'])<=change<=float(setting['expected_high_percentage'])*3
 
-def main():
+def main(live_rule='rounded'):
     snapshots={};settings={}
     with db.connection() as connection,connection.cursor() as cursor:
         cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -35,7 +36,7 @@ def main():
             cursor.execute(f'''SELECT DISTINCT ON (code,left(created_at,10)) code,name,close,high,low,volume,created_at
               FROM {market}_history WHERE deleted_at IS NULL ORDER BY code,left(created_at,10),created_at DESC,id DESC''')
             snapshots[market]=cursor.fetchall()
-    report={'snapshot_at':datetime.now(timezone.utc).isoformat(),'settings':settings,'markets':{}}
+    report={'snapshot_at':datetime.now(timezone.utc).isoformat(),'settings':settings,'live_rule_verified':live_rule,'markets':{}}
     for market,rows in snapshots.items():
         grouped=defaultdict(list)
         for row in rows:grouped[row['code']].append(row)
@@ -51,7 +52,7 @@ def main():
                 'low_percentage':float(settings[market]['expected_low_percentage']),'high_percentage':float(settings[market]['expected_high_percentage']),
                 'volume_check':settings[market]['is_volume_check'],'amplitude_check':market=='stock'},timeout=60)
             response.raise_for_status();actual=set(response.json()['selected_codes'])
-            mirrored={item['code'] for item in instruments if selected(item['prices'],settings[market],market=='stock',True)}
+            mirrored={item['code'] for item in instruments if selected(item['prices'],settings[market],market=='stock',live_rule=='rounded')}
             if actual!=mirrored:raise RuntimeError('Baseline mirror differs from running calculation service')
         for region in (('KR','US') if market=='stock' else ('UPBIT',)):
             scoped=[item for item in instruments if market=='upbit' or item['code'].startswith('US:')==(region=='US')]
@@ -83,4 +84,7 @@ def main():
                 'history_range':[min(dates),max(dates)] if dates else None,'historical':historical}
     print(json.dumps(report,ensure_ascii=False,default=str))
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--live-rule',choices=('rounded','unrounded'),default='rounded')
+    main(parser.parse_args().live_rule)
