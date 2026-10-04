@@ -62,6 +62,62 @@ def trading_engine():
     engine.stop()
 
 
+def test_history_targets_sync_before_collection_and_preserve_history(trading_engine, monkeypatch):
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda *args: [
+        {'market':'KRW-BTC'}, {'market':'BTC-ETH'}])
+    collected=[]
+    monkeypatch.setattr(trading_engine, '_save_history', lambda *args: collected.append(len(trading_engine.db.writes)))
+    trading_engine._save_upbit_history()
+    assert collected==[2]
+    deactivate,restore=trading_engine.db.writes
+    assert 'NOT (code=ANY(%s))' in deactivate[0] and deactivate[1][-1]==['KRW-BTC']
+    assert 'deleted_at=NULL' in restore[0] and restore[1][-1]==['KRW-BTC']
+    assert all('upbit_history_label' in sql and 'DELETE' not in sql for sql,_ in trading_engine.db.writes)
+
+
+@pytest.mark.parametrize('response', [[], {}, [{'market':'BTC-ETH'}], [{'market':None}],
+                                       [{'market':'KRW-BTC'}, {}]])
+def test_invalid_market_list_preserves_history_targets(trading_engine, monkeypatch, response):
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda *args: response)
+    monkeypatch.setattr(trading_engine, '_save_history', lambda *args: pytest.fail('must not collect'))
+    with pytest.raises(RuntimeError): trading_engine._save_upbit_history()
+    assert trading_engine.db.writes==[]
+
+
+def test_market_list_failure_preserves_history_targets(trading_engine, monkeypatch):
+    def fail(*args): raise httpx.ConnectError('temporary failure')
+    monkeypatch.setattr(trading_engine, 'upbit_public', fail)
+    with pytest.raises(httpx.ConnectError): trading_engine._save_upbit_history()
+    assert trading_engine.db.writes==[]
+
+
+def test_active_market_404_does_not_disable_target(trading_engine, monkeypatch):
+    monkeypatch.setattr(trading_engine.db, 'all', lambda *args: [{'code':'KRW-BTC','name':'Bitcoin'}])
+    monkeypatch.setattr(trading_engine.db, 'one', lambda *args: None)
+    errors=[]
+    monkeypatch.setattr(trading_engine, 'record_error', lambda *args: errors.append(args))
+    def fail(*args):
+        response=httpx.Response(404,request=httpx.Request('GET','https://api.upbit.com/v1/candles/days'))
+        response.raise_for_status()
+    trading_engine._save_history('upbit','upbit_history_label',fail)
+    assert len(errors)==1 and trading_engine.db.writes==[]
+
+
+def test_relisted_market_reuses_existing_history_label(trading_engine, monkeypatch):
+    monkeypatch.setattr(trading_engine, 'setting', lambda *args: {
+        'highest_price_reference_days':60,'expected_low_percentage':-12,
+        'expected_high_percentage':15,'is_volume_check':False})
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda *args: [{'market':'KRW-BTC','korean_name':'비트코인'}])
+    monkeypatch.setattr(trading_engine.db, 'one', lambda *args: {'id':123})
+    monkeypatch.setattr(trading_engine, 'upbit_prices', lambda *args: [])
+    monkeypatch.setattr(trading_engine, 'calc', lambda *args: {'selected_codes':[]})
+    trading_engine._collect_upbit()
+    assert len(trading_engine.db.writes)==1
+    sql,params=trading_engine.db.writes[0]
+    assert 'UPDATE upbit_history_label SET deleted_at=NULL' in sql
+    assert params==('비트코인',123)
+
+
 def test_upbit_order_token_contains_matching_query_hash():
     params = {"market": "KRW-BTC", "side": "bid", "price": "5000", "ord_type": "price"}
     token = TradingEngine.token("access", "secret", params)

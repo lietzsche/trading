@@ -172,7 +172,10 @@ class TradingEngine:
             code = market["market"]
             if not code.startswith("KRW-"):
                 continue
-            label = self.db.one("SELECT id FROM upbit_history_label WHERE code=%s AND deleted_at IS NULL", (code,))
+            label = self.db.one("SELECT id FROM upbit_history_label WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
+            if label:
+                self.db.execute("UPDATE upbit_history_label SET deleted_at=NULL,name=%s WHERE id=%s",
+                                (market["korean_name"],label["id"]))
             if not label:
                 self.db.execute("""INSERT INTO upbit_history_label(id,code,name,created_at,updated_at,deleted_at)
                     VALUES(nextval('upbit_history_label_seq'),%s,%s,%s,NULL,NULL)""",
@@ -387,7 +390,25 @@ class TradingEngine:
 
     def save_upbit_history(self):
         return self.run("UPBIT", "SCHEDULE_SAVE_HISTORY",
-                        lambda: self._save_history("upbit", "upbit_history_label", self.upbit_prices))
+                        self._save_upbit_history)
+
+    def _save_upbit_history(self):
+        # A failed/invalid market response must never deactivate existing targets.
+        markets = self.upbit_public("/v1/market/all")
+        if (not isinstance(markets, list) or not markets or
+                any(not isinstance(row, dict) or not isinstance(row.get("market"), str)
+                    or not re.fullmatch(r"[A-Z0-9]+-[A-Z0-9]+", row["market"]) for row in markets)):
+            raise RuntimeError("Upbit 거래 지원 목록이 비정상입니다. 수집 대상을 유지합니다.")
+        codes = sorted({row["market"] for row in markets if row["market"].startswith("KRW-")})
+        if not codes:
+            raise RuntimeError("Upbit 원화 거래 지원 목록이 비어 있습니다. 수집 대상을 유지합니다.")
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("""UPDATE upbit_history_label SET deleted_at=%s,updated_at=%s
+                WHERE deleted_at IS NULL AND code LIKE 'KRW-%%' AND NOT (code=ANY(%s))""",
+                (self.now(),self.now(),codes))
+            cursor.execute("""UPDATE upbit_history_label SET deleted_at=NULL,updated_at=%s
+                WHERE deleted_at IS NOT NULL AND code=ANY(%s)""", (self.now(),codes))
+        self._save_history("upbit", "upbit_history_label", self.upbit_prices)
 
     def _save_history(self, source, label_table, loader,region=None):
         target=f"{source}_history"; today=datetime.now().strftime("%Y-%m-%d")
