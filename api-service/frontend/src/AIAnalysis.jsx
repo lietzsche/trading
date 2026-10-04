@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly';
 import {api, createRequestGate} from './api';
 import {AI_SETTING_FIELDS, AI_STATUS_LABELS, autoApplyEligible, candidateEligible, candidateRiskLabel, isAnalysisRunning, parseAnalysisSymbols, percentText, sameSettings, settingText, textItems} from './ai';
 import './ai.css';
@@ -26,7 +27,7 @@ export function Metrics({title, values}) {
 }
 
 export function MarkdownAnswer({children}) {
-  return <div className="ai-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{
+  return <div className="ai-markdown"><ReactMarkdown remarkPlugins={[remarkGfm,remarkCjkFriendly]} skipHtml components={{
     a: ({children: label, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer">{label}</a>,
   }}>{typeof children === 'string' ? children : ''}</ReactMarkdown></div>;
 }

@@ -19,7 +19,7 @@ const result={report:'## 결론\n현재 설정을 유지하세요.\n\n- 목표 �
   const context=await browser.newContext({viewport:{width:375,height:812},serviceWorkers:'block'});
   await context.addInitScript(theme=>{localStorage.setItem('theme',theme);localStorage.setItem('ai-disclaimer-closed','true');},theme);
   await context.addInitScript(()=>{window.scrollRequests=[];const original=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(...args){window.scrollRequests.push(this.id);return original.apply(this,args)}});
-  const page=await context.newPage();let auto=false,simulateReply=false,replyAnswer='현재 손절 폭 **10%**를 유지하세요. 시장 변동을 다시 확인하세요.';const calls=[],errors=[],mutations=[];
+  const page=await context.newPage();let auto=false,simulateReply=false,replyAnswer='손절 폭 **10%**를 유지하는 예시입니다. 수익률은 **+3.5%**입니다. **(주의)**는 과거 자료이며 **KRW-BTC**는 미래 수익을 보장하지 않습니다.';const calls=[],errors=[],mutations=[];
   const calculationRows=[{name:'upbit',...settings},{name:'stock',...settings}],managedUsers=[user,{id:8,user_login_id:'other',user_name:'다른 사용자',user_role:'USER',user_email:null,deleted:false}];let mailRows=[{email:'sample@example.org'}];
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/api/**',async route=>{
@@ -37,7 +37,7 @@ const result={report:'## 결론\n현재 설정을 유지하세요.\n\n- 목표 �
    else if(p.startsWith('/api/admin/users/')){assert.equal(request.method(),'PUT');Object.assign(managedUsers.find(row=>row.id===Number(p.split('/').at(-1))),request.postDataJSON());body={ok:true};}
    else if(p==='/api/admin/mail-targets')body=mailRows;
    else if(p.startsWith('/api/admin/mail-targets/')){assert.equal(request.method(),'DELETE');mailRows=[];body={ok:true};}
-   else if(p==='/api/admin/errors')body={items:[{id:1,created_at:'2026-10-03 10:00:00',source:'UPBIT',operation:'FETCH_PRICE',error_type:'HTTPStatusError',message:'https://example.org/very-long-upbit-error-without-spaces/'.repeat(15)}],total:1,page:0,retention:{days:30,max_records:10000}};
+   else if(p==='/api/admin/errors')body={items:[{id:1,created_at:'2026-10-03 10:00:00',last_seen_at:'2026-10-04 20:30:00',repeat_count:100,source:'UPBIT',operation:'FETCH_PRICE',error_type:'HTTPStatusError',message:'https://example.org/very-long-upbit-error-without-spaces/'.repeat(15)}],total:1,page:0,retention:{days:30,max_records:10000}};
    else if(p.endsWith('/config'))body={configured:true,model:'deepseek-flash',key_hint:'검수 키'};
    else if(p.endsWith('/automation'))body={enabled:true,interval_minutes:360,trigger_mode:'interval',auto_apply_settings:true};
    else if(p.endsWith('/analyses')){const index=Number(url.searchParams.get('page')||0);body={items:items.slice(index*10,index*10+10),page:index,page_size:10,total:23};}
@@ -91,6 +91,7 @@ const result={report:'## 결론\n현재 설정을 유지하세요.\n\n- 목표 �
   await page.locator('.mobile-nav button').nth(3).click();await page.locator('.ai-result').waitFor();await capture('ai-summary');
   await page.getByRole('button',{name:'근거·설정',exact:true}).click();await capture('ai-evidence');
   await page.getByRole('button',{name:'AI 대화',exact:true}).click();await page.locator('.ai-message-composer').waitFor();await page.evaluate(()=>window.scrollTo(0,0));await capture('ai-chat');
+  await page.locator('.ai-chat-thread .ai-markdown strong').filter({hasText:'+3.5%'}).waitFor();
   const composer=await page.locator('.ai-message-composer').boundingBox(),nav=await page.locator('.mobile-nav').boundingBox();
   assert(composer.y+composer.height<=nav.y,`${theme}: composer obscured by navigation`);
   assert.equal(await page.locator('.ai-compact-consent [role="switch"]').getAttribute('aria-checked'),'false');
@@ -116,7 +117,7 @@ const result={report:'## 결론\n현재 설정을 유지하세요.\n\n- 목표 �
   await page.getByRole('button',{name:'설정 저장',exact:true}).first().click();await page.getByRole('button',{name:'확인하고 저장',exact:true}).click();await page.locator('.success-toast').waitFor();assert.equal(mutations.filter(call=>call.path.includes('/admin/settings/')).length,1);assert.equal(mutations.find(call=>call.path.includes('/admin/settings/')).body.expected_low_percentage,-12);await capture('success-toast');await page.waitForFunction(()=>!document.querySelector('.success-toast'),null,{timeout:5000});assert.equal(await page.getByRole('button',{name:'설정 저장',exact:true}).first().isDisabled(),true);console.log('PASS: settings_save_requires_confirmation_and_negative_drawdown',theme);
   await more('사용자');await page.getByRole('heading',{name:'다른 사용자',exact:true}).waitFor();await capture('users');assert.equal(await page.getByRole('combobox',{name:'demo 권한',exact:true}).count(),0);await page.getByRole('combobox',{name:'other 권한',exact:true}).selectOption('ADMIN');assert.equal(mutations.filter(call=>call.path.includes('/admin/users/')).length,0);await page.getByRole('button',{name:'확인하고 변경',exact:true}).click();await page.getByText('ADMIN · 사용 중',{exact:true}).waitFor();
   await more('메일');await page.getByRole('button',{name:'삭제',exact:true}).click();assert.equal(mutations.filter(call=>call.method==='DELETE').length,0);await page.getByRole('button',{name:'삭제 확인',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('[role="dialog"]'));assert.equal(mutations.filter(call=>call.method==='DELETE').length,1);
-  await more('오류');await page.getByRole('button',{name:'펼치기',exact:true}).waitFor();await capture('errors');await page.getByRole('button',{name:'펼치기',exact:true}).click();assert.equal(await page.locator('.clamped-value').count(),2);await page.getByRole('button',{name:'접기',exact:true}).click();
+  await more('오류');await page.getByRole('button',{name:'펼치기',exact:true}).waitFor();await page.getByText('100회 반복 · 마지막 20:30',{exact:true}).waitFor();await capture('errors');await page.getByRole('button',{name:'펼치기',exact:true}).click();assert.equal(await page.locator('.clamped-value').count(),2);await page.getByRole('button',{name:'접기',exact:true}).click();
   for(const size of [{width:375,height:812},{width:360,height:740}])for(const visit of ['first','returning']){
    await page.evaluate(visit=>{if(visit==='first')localStorage.clear();else localStorage.setItem('ai-disclaimer-closed','true')},visit);
    await page.locator('.mobile-nav button').first().click();await page.locator('.mobile-nav button').nth(3).click();await page.locator('.ai-result').waitFor();await page.setViewportSize(size);await page.getByRole('button',{name:'AI 대화',exact:true}).click();await page.waitForTimeout(200);

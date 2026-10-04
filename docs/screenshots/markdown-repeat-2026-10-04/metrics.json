@@ -1,0 +1,418 @@
+{
+  "light-home": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 38,
+      "minRatio": 5.103025354463761,
+      "failures": []
+    }
+  },
+  "light-sell-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 27,
+      "minRatio": 5.296472886194491,
+      "failures": []
+    }
+  },
+  "light-ai-new-analysis": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 28,
+      "minRatio": 5.103025354463761,
+      "failures": []
+    }
+  },
+  "light-auto-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 11,
+      "minRatio": 5.296472886194491,
+      "failures": []
+    }
+  },
+  "light-upbit": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "cards": {
+      "heights": [
+        173.96875,
+        173.96875,
+        173.96875
+      ],
+      "firstScreenCards": 3
+    }
+  },
+  "light-stock": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "cards": {
+      "heights": [
+        173.96875,
+        173.96875,
+        173.96875
+      ],
+      "firstScreenCards": 3
+    }
+  },
+  "light-ai-summary": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-ai-evidence": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 27,
+      "minRatio": 4.509690813114294,
+      "failures": []
+    }
+  },
+  "light-ai-chat": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-ai-settings": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-more": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-connections": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-settings-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-success-toast": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 22,
+      "minRatio": 4.835445678549616,
+      "failures": []
+    }
+  },
+  "light-users": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-errors": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "light-chat-first-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "light-chat-returning-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "light-chat-first-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "light-chat-returning-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "light-keyboard-simulated": {
+    "threadHeight": 190,
+    "composerBottom": 399,
+    "keyboardOpen": "true"
+  },
+  "dark-home": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 38,
+      "minRatio": 6.374523693542281,
+      "failures": []
+    }
+  },
+  "dark-sell-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 27,
+      "minRatio": 6.248954717665015,
+      "failures": []
+    }
+  },
+  "dark-ai-new-analysis": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 28,
+      "minRatio": 5.973086317488318,
+      "failures": []
+    }
+  },
+  "dark-auto-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 11,
+      "minRatio": 6.782820780265951,
+      "failures": []
+    }
+  },
+  "dark-upbit": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "cards": {
+      "heights": [
+        173.96875,
+        173.96875,
+        173.96875
+      ],
+      "firstScreenCards": 3
+    }
+  },
+  "dark-stock": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "cards": {
+      "heights": [
+        173.96875,
+        173.96875,
+        173.96875
+      ],
+      "firstScreenCards": 3
+    }
+  },
+  "dark-ai-summary": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-ai-evidence": {
+    "headerHeight": 44,
+    "composerY": 0,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 27,
+      "minRatio": 7.251961858837799,
+      "failures": []
+    }
+  },
+  "dark-ai-chat": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-ai-settings": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-more": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-connections": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-settings-confirm": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-success-toast": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "contrast": {
+      "checked": 22,
+      "minRatio": 6.6346444884307845,
+      "failures": []
+    }
+  },
+  "dark-users": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-errors": {
+    "headerHeight": 44,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": []
+  },
+  "dark-chat-first-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "dark-chat-returning-375": {
+    "headerHeight": 44,
+    "composerY": 630.203125,
+    "scrollWidth": 375,
+    "clientWidth": 375,
+    "smallTargets": [],
+    "threadHeight": 451.203125,
+    "composerTop": 630.203125,
+    "composerBottom": 732.203125,
+    "composerHeight": 102,
+    "navTop": 733.203125,
+    "scrollHeight": 812,
+    "clientHeight": 812
+  },
+  "dark-chat-first-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "dark-chat-returning-360": {
+    "headerHeight": 44,
+    "composerY": 558.203125,
+    "scrollWidth": 360,
+    "clientWidth": 360,
+    "smallTargets": [],
+    "threadHeight": 379.203125,
+    "composerTop": 558.203125,
+    "composerBottom": 660.203125,
+    "composerHeight": 102,
+    "navTop": 661.203125,
+    "scrollHeight": 740,
+    "clientHeight": 740
+  },
+  "dark-keyboard-simulated": {
+    "threadHeight": 190,
+    "composerBottom": 399,
+    "keyboardOpen": "true"
+  }
+}

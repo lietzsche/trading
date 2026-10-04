@@ -96,7 +96,7 @@ def test_error_retention_one_transaction_and_latest_count(monkeypatch):
         assert result=={'expired':7,'excess':3,'days':14,'max_records':500}
         assert db.committed and len(db.calls)==2
         assert all('DELETE FROM trade_error_log' in query for query,_ in db.calls)
-        assert 'ORDER BY id DESC OFFSET %s' in db.calls[1][0] and db.calls[1][1]==(500,)
+        assert 'ORDER BY COALESCE(last_seen_at,created_at) DESC,id DESC OFFSET %s' in db.calls[1][0] and db.calls[1][1]==(500,)
         cutoff=datetime.strptime(db.calls[0][1][0],'%Y-%m-%d %H:%M:%S.%f')
         assert abs((datetime.now()-cutoff).total_seconds()-14*86400)<5
     finally:engine.stop()

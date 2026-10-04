@@ -1,5 +1,6 @@
 import hashlib
 import html
+import json
 import logging
 import os
 import re
@@ -85,14 +86,22 @@ class TradingEngine:
             if secret in message.lower():
                 message = "Sensitive error details were redacted"
                 break
-        self.db.execute(
-            """INSERT INTO trade_error_log(source,operation,error_type,message,created_at)
-               SELECT %s,%s,%s,%s,%s WHERE NOT EXISTS (
-                 SELECT 1 FROM trade_error_log WHERE source=%s AND operation=%s AND error_type=%s
-                   AND created_at::timestamp > now()-interval '5 minutes')""",
-            (source[:20], operation[:100], type(error).__name__[:255], message, self.now(),
-             source[:20], operation[:100], type(error).__name__[:255]),
-        )
+        group=(source[:20],operation[:100],type(error).__name__[:255])
+        # A transaction-level advisory lock also protects the no-row/first-insert case.
+        with self.db.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                           (json.dumps(group,ensure_ascii=False),))
+            cursor.execute("""SELECT id FROM trade_error_log WHERE source=%s AND operation=%s AND error_type=%s
+                AND COALESCE(last_seen_at,created_at)::timestamp > clock_timestamp()-interval '10 minutes'
+                ORDER BY COALESCE(last_seen_at,created_at) DESC,id DESC LIMIT 1 FOR UPDATE""",group)
+            previous=cursor.fetchone()
+            if previous:
+                cursor.execute("""UPDATE trade_error_log SET repeat_count=repeat_count+1,
+                    last_seen_at=to_char(clock_timestamp(),'YYYY-MM-DD HH24:MI:SS.US') WHERE id=%s""",(previous['id'],))
+            else:
+                cursor.execute("""INSERT INTO trade_error_log(source,operation,error_type,message,created_at,last_seen_at)
+                    VALUES(%s,%s,%s,%s,to_char(clock_timestamp(),'YYYY-MM-DD HH24:MI:SS.US'),
+                    to_char(clock_timestamp(),'YYYY-MM-DD HH24:MI:SS.US'))""",(*group,message))
 
     @staticmethod
     def now():
@@ -105,10 +114,10 @@ class TradingEngine:
         cutoff=(datetime.now()-timedelta(days=self.error_retention_days)).strftime('%Y-%m-%d %H:%M:%S.%f')
         # Both deletions are in one transaction. Keep newest IDs; other tables are untouched.
         with self.db.connection() as connection,connection.cursor() as cursor:
-            cursor.execute('DELETE FROM trade_error_log WHERE created_at < %s',(cutoff,))
+            cursor.execute('DELETE FROM trade_error_log WHERE COALESCE(last_seen_at,created_at) < %s',(cutoff,))
             expired=cursor.rowcount
             cursor.execute('''DELETE FROM trade_error_log WHERE id IN
-                (SELECT id FROM trade_error_log ORDER BY id DESC OFFSET %s)''',(self.error_max_records,))
+                (SELECT id FROM trade_error_log ORDER BY COALESCE(last_seen_at,created_at) DESC,id DESC OFFSET %s)''',(self.error_max_records,))
             excess=cursor.rowcount
         log.info('Error retention removed %d expired and %d excess records',expired,excess)
         return {'expired':expired,'excess':excess,**self.error_retention_policy()}

@@ -1,0 +1,383 @@
+{
+  "snapshot_at": "2026-10-04T11:38:50.688949+00:00",
+  "settings": {
+    "stock": {
+      "name": "stock",
+      "expected_high_percentage": 10,
+      "expected_low_percentage": -5,
+      "highest_price_reference_days": 60,
+      "is_volume_check": false
+    },
+    "upbit": {
+      "name": "upbit",
+      "expected_high_percentage": 15,
+      "expected_low_percentage": -12,
+      "highest_price_reference_days": 60,
+      "is_volume_check": false
+    }
+  },
+  "markets": {
+    "KR": {
+      "instruments": 1819,
+      "insufficient_history": 0,
+      "rounded_selected": 163,
+      "unrounded_selected": 163,
+      "added": [],
+      "removed": [],
+      "changes": [],
+      "price_range": [
+        2,
+        536000
+      ],
+      "history_range": [
+        "2026-09-09 17:30:04.157684",
+        "2026-10-02 17:42:14.130118"
+      ],
+      "historical": {
+        "checks": 12627,
+        "rounded_selected": 403,
+        "unrounded_selected": 403,
+        "added": [],
+        "removed": []
+      }
+    },
+    "US": {
+      "instruments": 0,
+      "insufficient_history": 0,
+      "rounded_selected": 0,
+      "unrounded_selected": 0,
+      "added": [],
+      "removed": [],
+      "changes": [],
+      "price_range": null,
+      "history_range": null,
+      "historical": {
+        "checks": 0,
+        "rounded_selected": 0,
+        "unrounded_selected": 0,
+        "added": [],
+        "removed": []
+      }
+    },
+    "UPBIT": {
+      "instruments": 293,
+      "insufficient_history": 0,
+      "rounded_selected": 12,
+      "unrounded_selected": 12,
+      "added": [],
+      "removed": [],
+      "changes": [],
+      "price_range": [
+        0.000505,
+        115618000
+      ],
+      "history_range": [
+        "2026-08-06 00:00:00",
+        "2026-10-04 17:31:22.478013"
+      ],
+      "historical": {
+        "checks": 16573,
+        "rounded_selected": 1025,
+        "unrounded_selected": 1039,
+        "added": [
+          {
+            "code": "KRW-ANIME",
+            "date": "2026-08-22 00:00:00",
+            "close": 3.89,
+            "threshold": 3.784,
+            "rounded_threshold": 4
+          },
+          {
+            "code": "KRW-B3",
+            "date": "2026-09-13 17:30:20.767633",
+            "close": 0.86,
+            "threshold": 0.8509599999999999,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-BIGTIME",
+            "date": "2026-08-22 00:00:00",
+            "close": 8.72,
+            "threshold": 8.685599999999999,
+            "rounded_threshold": 9
+          },
+          {
+            "code": "KRW-BLAST",
+            "date": "2026-09-13 17:32:42.185244",
+            "close": 0.553,
+            "threshold": 0.5192,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-BORA",
+            "date": "2026-09-21 17:31:09.395218",
+            "close": 38.7,
+            "threshold": 38.544,
+            "rounded_threshold": 39
+          },
+          {
+            "code": "KRW-CHIP",
+            "date": "2026-08-16 00:00:00",
+            "close": 39.7,
+            "threshold": 39.6,
+            "rounded_threshold": 40
+          },
+          {
+            "code": "KRW-CKB",
+            "date": "2026-09-26 17:31:24.485127",
+            "close": 1.96,
+            "threshold": 1.7424,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-CKB",
+            "date": "2026-09-23 17:30:41.650610",
+            "close": 1.84,
+            "threshold": 1.6368,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-CKB",
+            "date": "2026-09-19 17:31:25.355978",
+            "close": 1.69,
+            "threshold": 1.5048,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-DKA",
+            "date": "2026-08-28 00:00:00",
+            "close": 4.98,
+            "threshold": 4.752000000000001,
+            "rounded_threshold": 5
+          },
+          {
+            "code": "KRW-DOOD",
+            "date": "2026-09-07 00:00:00",
+            "close": 2.95,
+            "threshold": 2.8248,
+            "rounded_threshold": 3
+          },
+          {
+            "code": "KRW-DOOD",
+            "date": "2026-08-08 00:00:00",
+            "close": 1.9,
+            "threshold": 1.6984,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-IQ",
+            "date": "2026-08-21 00:00:00",
+            "close": 0.968,
+            "threshold": 0.8518399999999999,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-LINEA",
+            "date": "2026-09-23 17:30:37.040760",
+            "close": 3.93,
+            "threshold": 3.5112,
+            "rounded_threshold": 4
+          },
+          {
+            "code": "KRW-MED",
+            "date": "2026-08-22 00:00:00",
+            "close": 1.98,
+            "threshold": 1.8656000000000001,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-MED",
+            "date": "2026-08-21 00:00:00",
+            "close": 1.99,
+            "threshold": 1.8128,
+            "rounded_threshold": 2
+          },
+          {
+            "code": "KRW-MEW",
+            "date": "2026-09-23 17:30:45.118536",
+            "close": 0.696,
+            "threshold": 0.64504,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-MEW",
+            "date": "2026-08-22 00:00:00",
+            "close": 0.571,
+            "threshold": 0.57024,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-MEW",
+            "date": "2026-08-21 00:00:00",
+            "close": 0.604,
+            "threshold": 0.5367999999999999,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-PUMP",
+            "date": "2026-08-11 00:00:00",
+            "close": 3.83,
+            "threshold": 3.652,
+            "rounded_threshold": 4
+          },
+          {
+            "code": "KRW-PUMP",
+            "date": "2026-08-10 00:00:00",
+            "close": 3.93,
+            "threshold": 3.564,
+            "rounded_threshold": 4
+          },
+          {
+            "code": "KRW-QKC",
+            "date": "2026-08-14 00:00:00",
+            "close": 2.81,
+            "threshold": 2.7632000000000003,
+            "rounded_threshold": 3
+          },
+          {
+            "code": "KRW-SC",
+            "date": "2026-08-21 00:00:00",
+            "close": 0.747,
+            "threshold": 0.66,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-SNT",
+            "date": "2026-08-21 00:00:00",
+            "close": 8.96,
+            "threshold": 8.624,
+            "rounded_threshold": 9
+          },
+          {
+            "code": "KRW-SONIC",
+            "date": "2026-09-22 17:30:36.029206",
+            "close": 35.8,
+            "threshold": 35.64,
+            "rounded_threshold": 36
+          },
+          {
+            "code": "KRW-VTHO",
+            "date": "2026-08-27 00:00:00",
+            "close": 0.572,
+            "threshold": 0.52096,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-W",
+            "date": "2026-08-22 00:00:00",
+            "close": 12.7,
+            "threshold": 12.672,
+            "rounded_threshold": 13
+          },
+          {
+            "code": "KRW-ZIL",
+            "date": "2026-09-01 00:00:00",
+            "close": 3.6,
+            "threshold": 3.564,
+            "rounded_threshold": 4
+          }
+        ],
+        "removed": [
+          {
+            "code": "KRW-AHT",
+            "date": "2026-08-22 00:00:00",
+            "close": 1.29,
+            "threshold": 1.3904,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-BONK",
+            "date": "2026-08-22 00:00:00",
+            "close": 0.00444,
+            "threshold": 0.0046024,
+            "rounded_threshold": 0
+          },
+          {
+            "code": "KRW-BORA",
+            "date": "2026-09-14 17:30:55.654056",
+            "close": 34.4,
+            "threshold": 34.496,
+            "rounded_threshold": 34
+          },
+          {
+            "code": "KRW-FCT2",
+            "date": "2026-08-22 00:00:00",
+            "close": 9.04,
+            "threshold": 9.24,
+            "rounded_threshold": 9
+          },
+          {
+            "code": "KRW-IOST",
+            "date": "2026-09-08 00:00:00",
+            "close": 1.32,
+            "threshold": 1.4168,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-MVL",
+            "date": "2026-08-22 00:00:00",
+            "close": 1.19,
+            "threshold": 1.2144,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-SAHARA",
+            "date": "2026-09-10 17:30:31.575295",
+            "close": 13.2,
+            "threshold": 13.376,
+            "rounded_threshold": 13
+          },
+          {
+            "code": "KRW-SHIB",
+            "date": "2026-08-22 00:00:00",
+            "close": 0.00747,
+            "threshold": 0.0075152000000000005,
+            "rounded_threshold": 0
+          },
+          {
+            "code": "KRW-SPK",
+            "date": "2026-08-21 00:00:00",
+            "close": 24,
+            "threshold": 24.024,
+            "rounded_threshold": 24
+          },
+          {
+            "code": "KRW-T",
+            "date": "2026-09-02 00:00:00",
+            "close": 7.3,
+            "threshold": 7.4184,
+            "rounded_threshold": 7
+          },
+          {
+            "code": "KRW-TOSHI",
+            "date": "2026-08-22 00:00:00",
+            "close": 0.17,
+            "threshold": 0.17864000000000002,
+            "rounded_threshold": 0
+          },
+          {
+            "code": "KRW-VTHO",
+            "date": "2026-09-13 17:31:57.890943",
+            "close": 1.22,
+            "threshold": 1.4080000000000001,
+            "rounded_threshold": 1
+          },
+          {
+            "code": "KRW-WAXP",
+            "date": "2026-09-15 17:31:15.122789",
+            "close": 7.14,
+            "threshold": 7.172000000000001,
+            "rounded_threshold": 7
+          },
+          {
+            "code": "KRW-YGG",
+            "date": "2026-08-22 00:00:00",
+            "close": 31.4,
+            "threshold": 31.416000000000004,
+            "rounded_threshold": 31
+          }
+        ]
+      }
+    }
+  }
+}

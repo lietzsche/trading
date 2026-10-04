@@ -1,5 +1,6 @@
 import hashlib
 import threading
+from contextlib import contextmanager
 from urllib.parse import urlencode
 
 import httpx
@@ -15,6 +16,19 @@ class NoopDatabase:
 
 
 class TradingDatabase:
+    @contextmanager
+    def connection(self):yield self
+
+    @contextmanager
+    def cursor(self):
+        database=self
+        class Cursor:
+            def execute(self,sql,params=()):
+                if sql.lstrip().startswith(('INSERT','UPDATE','DELETE')):database.execute(sql,params)
+                else:database.queries.append((sql,params))
+            def fetchone(self):return None
+        yield Cursor()
+
     def __init__(self):
         self.queries = []
         self.writes = []

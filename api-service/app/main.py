@@ -450,7 +450,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
         enriched_assets.append(row)
     snapshot["assets"] = enriched_assets
 
-    latest_error = db.one("SELECT source,operation,error_type,message,created_at FROM trade_error_log ORDER BY id DESC LIMIT 1")
+    latest_error = db.one("SELECT source,operation,error_type,message,COALESCE(last_seen_at,created_at) AS created_at FROM trade_error_log ORDER BY COALESCE(last_seen_at,created_at) DESC,id DESC LIMIT 1")
     latest_price = max((row.get("updated_at") for row in recommendations if row.get("updated_at")), default=None)
     now = time.time()
     price_age = None
@@ -613,7 +613,7 @@ def errors(
     where = " WHERE " + " AND ".join(filters) if filters else ""
     total = db.one(f"SELECT count(*) AS count FROM trade_error_log{where}", values)["count"]
     rows = db.all(
-        f"SELECT id, source, operation, error_type, message, created_at FROM trade_error_log{where} ORDER BY id DESC LIMIT 50 OFFSET %s",
+        f"SELECT id, source, operation, error_type, message, created_at,repeat_count,COALESCE(last_seen_at,created_at) AS last_seen_at FROM trade_error_log{where} ORDER BY COALESCE(last_seen_at,created_at) DESC,id DESC LIMIT 50 OFFSET %s",
         (*values, page * 50),
     )
     return {"items": rows, "page": page, "total": total,"retention":engine.error_retention_policy()}

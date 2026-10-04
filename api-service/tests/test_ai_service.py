@@ -33,6 +33,17 @@ def test_auto_apply_rejects_missing_nonfinite_and_negative_metrics():
 SETTINGS_BEFORE = {"expected_high_percentage": 20, "expected_low_percentage": -10, "highest_price_reference_days": 30, "volume_check": False}
 SETTINGS_AFTER = {**SETTINGS_BEFORE, "expected_high_percentage": 25}
 
+def test_stock_context_includes_currency_in_recommendations_and_history():
+    class ContextDB:
+        def all(self,sql,params=()):
+            if 'trade_error_log' in sql:return []
+            return [{'code':'US:AAPL','temp_price':120},{'code':'005930','temp_price':60000}]
+    service=AIService(lambda:ContextDB(),None,'http://calculation',os.environ['SESSION_SECRET'],SettingUpdate)
+    context=service._context({'market':'stock','include_account':False,'settings_snapshot':SETTINGS_BEFORE},{'user_login_id':'test'})
+    for key in ('recommendations','recommendation_history'):
+        assert context[key][0]['currency']=='USD' and context[key][0]['market_region']=='US'
+        assert context[key][1]['currency']=='KRW' and context[key][1]['market_region']=='KR'
+
 
 class SafetyCursor:
     def __init__(self, database): self.database, self.result = database, None

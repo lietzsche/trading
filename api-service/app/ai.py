@@ -382,11 +382,17 @@ class AIService:
         recommendation_history = self.db.all(f"""SELECT code,name,temp_price,expected_selling_price,
             minimum_selling_price,renewal_cnt,created_at,updated_at,deleted_at
             FROM {market} ORDER BY id DESC LIMIT 60""")
+        if market == 'stock':
+            for row in [*recommendations,*recommendation_history]:
+                american = str(row.get('code','')).startswith('US:')
+                row.update(market_region='US' if american else 'KR',currency='USD' if american else 'KRW')
         context = {"settings": job["settings_snapshot"], "recommendations": recommendations,
                    "recommendation_history": recommendation_history,
                    "snapshot_at": datetime.now(timezone.utc).isoformat()}
-        context["error_counts"] = self.db.all("""SELECT source,error_type,count(*) AS count FROM trade_error_log
-            WHERE created_at::timestamp > now()-interval '24 hours' GROUP BY source,error_type ORDER BY count(*) DESC LIMIT 10""")
+        context["error_counts"] = self.db.all("""SELECT source,error_type,sum(repeat_count) AS count FROM trade_error_log
+            WHERE COALESCE(last_seen_at,created_at)::timestamp > now()-interval '24 hours'
+            GROUP BY source,error_type ORDER BY sum(repeat_count) DESC LIMIT 10""")
+        context['error_counts_basis']='최근 24시간 안에 마지막 발생이 있는 오류 묶음의 누적 횟수입니다. 정확한 24시간 발생 횟수가 아닙니다.'
         if job["include_account"] and market == "upbit":
             key = self.db.one("SELECT access_key,secret_key FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
             if key:

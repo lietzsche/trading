@@ -4,6 +4,13 @@ import {describe, expect, it} from 'vitest';
 import {MarkdownAnswer, SettingRecommendation} from './AIAnalysis';
 
 describe('MarkdownAnswer', () => {
+  it.each([['손절 폭 **10%**를','10%'],['수익률은 **+3.5%**입니다','+3.5%'],['**(주의)**는','(주의)'],['**KRW-BTC**는','KRW-BTC'],['목표 **20%**, 손절','20%']])('renders CJK-adjacent emphasis: %s',(text,bold)=>{
+    expect(renderToStaticMarkup(<MarkdownAnswer>{text}</MarkdownAnswer>)).toContain(`<strong>${bold}</strong>`);
+  });
+  it('preserves non-emphasis stars and code literals',()=>{
+    const html=renderToStaticMarkup(<MarkdownAnswer>{'2 ** 3\n\n`**10%**를`\n\n```text\n**+3.5%**입니다\n```'}</MarkdownAnswer>);
+    expect(html).toContain('2 ** 3');expect(html).not.toContain('<strong>');expect(html).toContain('**10%**를');
+  });
   it('renders readable GFM without executing provider HTML or unsafe links', () => {
     const html = renderToStaticMarkup(<MarkdownAnswer>{`# 결론
 
