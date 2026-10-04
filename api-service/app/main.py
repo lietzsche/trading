@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 import bcrypt
 import httpx
 import psycopg
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,8 @@ from psycopg.rows import dict_row
 from app.trading import TradingEngine
 from app.ai import AIService, create_router
 from app.us_market import is_us_symbol
+from app.auth_security import authenticate
+from ipaddress import ip_address
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://bion_user@postgres:5432/postgres")
@@ -28,6 +30,7 @@ COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true
 SESSION_MAX_AGE = 60 * 60 * 12
 STARTED_AT = time.monotonic()
 TRADING_ENABLED = os.environ.get("TRADING_EXECUTION_ENABLED", "false").lower() == "true"
+SIGNUP_ENABLED = os.environ.get('SIGNUP_ENABLED','false').lower() == 'true'
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -126,15 +129,18 @@ def current_user(session: Annotated[str | None, Cookie()] = None) -> dict:
     if not session:
         raise HTTPException(401, "로그인이 필요합니다.")
     try:
-        login_id = serializer().loads(session, max_age=SESSION_MAX_AGE)
+        signed = serializer().loads(session, max_age=SESSION_MAX_AGE)
+        if not isinstance(signed,dict) or not isinstance(signed.get('version'),int):
+            raise HTTPException(401, '세션이 만료되었습니다.')
+        login_id = signed.get('login_id')
     except (BadSignature, SignatureExpired):
         raise HTTPException(401, "세션이 만료되었습니다.")
     user = db.one(
-        """SELECT id, user_login_id, user_name, user_role, user_email, user_phone
+        """SELECT id, user_login_id, user_name, user_role, user_email, user_phone, session_version
            FROM tb_user WHERE user_login_id=%s AND deleted_at IS NULL""",
         (login_id,),
     )
-    if not user:
+    if not user or user.get('session_version',0) != signed['version']:
         raise HTTPException(401, "사용자를 찾을 수 없습니다.")
     return user
 
@@ -173,27 +179,38 @@ def health():
 
 
 @app.post("/api/auth/login")
-def login(payload: LoginRequest, response: Response):
-    user = db.one(
-        """SELECT user_login_id, user_name, user_role, user_password
+def login(payload: LoginRequest, response: Response, request: Request):
+    peer = request.client.host if request.client else 'unknown'
+    # Only our local Cloudflare connector may assert the original client address.
+    try:
+        trusted = ip_address(peer).is_loopback or peer in os.environ.get('TRUSTED_PROXY_IPS','172.18.0.1').split(',')
+        client_ip = str(ip_address(request.headers.get('CF-Connecting-IP',peer))) if trusted else peer
+    except ValueError:
+        client_ip = peer
+    def verify():
+        user = db.one(
+        """SELECT user_login_id, user_name, user_role, user_password, session_version
            FROM tb_user WHERE user_login_id=%s AND deleted_at IS NULL""",
         (payload.login_id,),
     )
-    try:
-        valid = user and bcrypt.checkpw(payload.password.encode(), user["user_password"].encode())
-    except (ValueError, TypeError):
-        valid = False
-    if not valid:
+        try:
+            valid = user and bcrypt.checkpw(payload.password.encode(), user["user_password"].encode())
+        except (ValueError, TypeError):
+            valid = False
+        return user if valid else None
+    user = authenticate(db,payload.login_id,client_ip,verify)
+    if not user:
         raise HTTPException(401, "아이디 또는 비밀번호가 올바르지 않습니다.")
     response.set_cookie(
-        "session", serializer().dumps(user["user_login_id"]), max_age=SESSION_MAX_AGE,
+        "session", serializer().dumps({'login_id':user['user_login_id'],'version':user.get('session_version',0)}), max_age=SESSION_MAX_AGE,
         httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/",
     )
     return {key: user[key] for key in ("user_login_id", "user_name", "user_role")}
 
 
 @app.post("/api/auth/logout", status_code=204)
-def logout(response: Response):
+def logout(response: Response, user: Annotated[dict, Depends(current_user)]):
+    db.execute('UPDATE tb_user SET session_version=session_version+1 WHERE id=%s',(user['id'],))
     response.delete_cookie("session", path="/", secure=COOKIE_SECURE, httponly=True, samesite="lax")
 
 
@@ -287,6 +304,7 @@ class JoinRequest(PasswordPayload):
 
 
 class ProfileUpdate(PasswordPayload):
+    current_password: str | None = Field(None, max_length=200)
     name: str = Field(min_length=1, max_length=100)
     email: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=25)
@@ -312,6 +330,8 @@ class MailTarget(BaseModel):
 
 @app.post("/api/auth/join", status_code=201)
 def join(payload: JoinRequest):
+    if not SIGNUP_ENABLED:
+        raise HTTPException(403,'회원가입이 비활성화되어 있습니다.')
     if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (payload.login_id,)):
         raise HTTPException(409, "이미 사용 중인 아이디입니다.")
     password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
@@ -324,12 +344,25 @@ def join(payload: JoinRequest):
 
 @app.put("/api/profile")
 def update_profile(payload: ProfileUpdate, user: Annotated[dict, Depends(current_user)]):
+    if payload.password:
+        existing=db.one('SELECT user_password FROM tb_user WHERE id=%s',(user['id'],))
+        try:
+            valid=bool(payload.current_password and existing and bcrypt.checkpw(payload.current_password.encode(),existing['user_password'].encode()))
+        except (ValueError,TypeError):
+            valid=False
+        if not valid:raise HTTPException(400,'현재 비밀번호가 올바르지 않습니다.')
     encoded = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode() if payload.password else None
     phone = payload.phone if "phone" in payload.model_fields_set else user.get("user_phone")
     db.execute("""UPDATE tb_user SET user_name=%s,user_email=%s,user_phone=%s,
-        user_password=COALESCE(%s,user_password),updated_at=%s WHERE id=%s""",
-        (payload.name,payload.email,phone,encoded,engine.now(),user["id"]))
+        user_password=COALESCE(%s,user_password),updated_at=%s,
+        session_version=session_version+%s WHERE id=%s AND (%s IS NULL OR user_password=%s)""",
+        (payload.name,payload.email,phone,encoded,engine.now(),1 if encoded else 0,user["id"],encoded,existing['user_password'] if encoded else None))
     return {"ok": True}
+
+
+@app.get('/api/auth/config')
+def auth_config():
+    return {'signup_enabled':SIGNUP_ENABLED}
 
 
 @app.get("/api/upbit/key/status")

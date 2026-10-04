@@ -1,6 +1,7 @@
 import os
 import httpx
 import pytest
+from contextlib import contextmanager
 
 os.environ.setdefault("SESSION_SECRET", "test-secret-that-is-at-least-thirty-two-characters")
 os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
@@ -10,6 +11,15 @@ from app import main
 
 
 class FakeDatabase:
+    @contextmanager
+    def connection(self):yield self
+
+    @contextmanager
+    def cursor(self):
+        class Cursor:
+            def execute(self,*args):pass
+            def fetchone(self):return None
+        yield Cursor()
     def one(self, query, params=()):
         if "SELECT 1" in query:
             return {"?column?": 1}

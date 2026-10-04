@@ -1,0 +1,9 @@
+ALTER TABLE tb_user ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS auth_attempts (
+ scope VARCHAR(2) NOT NULL CHECK(scope IN ('id','ip')),
+ subject VARCHAR(255) NOT NULL,
+ failures INTEGER NOT NULL DEFAULT 0,
+ window_started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ locked_until TIMESTAMPTZ,
+ PRIMARY KEY(scope,subject)
+);
