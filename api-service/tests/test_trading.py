@@ -359,7 +359,8 @@ def test_order_checks_current_permission_and_keeps_existing_buy_amount(trading_e
     assert "k.access_key=%s AND k.secret_key=%s" in permission_query
     assert params == (1, "first", "test-secret")
     if active:
-        assert orders[0] == {"market": "KRW-BTC", "side": "bid", "price": "9995.0", "ord_type": "price"}
+        assert orders[0]['identifier'].startswith('auto-1-KRW-BTC-BUY-')
+        assert {k:v for k,v in orders[0].items() if k!='identifier'} == {"market": "KRW-BTC", "side": "bid", "price": "9995.0", "ord_type": "price"}
 
 
 def test_auto_order_skips_recent_manual_sell_and_buys_next_ranked_market(trading_engine, monkeypatch):

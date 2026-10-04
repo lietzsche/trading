@@ -643,6 +643,10 @@ class TradingEngine:
                 "failed_accounts": failed}
 
     def _auto_order_for_key(self, key, markets):
+        unresolved=self.db.one("""SELECT identifier,status FROM auto_order_requests
+            WHERE key_id=%s AND status IN ('PENDING','UNKNOWN') LIMIT 1""",(key['id'],))
+        if unresolved and unresolved.get('identifier'):
+            raise RuntimeError('접수 여부가 확인되지 않은 자동 주문이 있어 계정의 주문을 중단합니다.')
         try:
             accounts = self.private_for_key("GET", "/v1/accounts", key)
         except httpx.HTTPStatusError as error:
@@ -700,8 +704,9 @@ class TradingEngine:
                 (key["id"], key["access_key"], key["secret_key"]))
             if not active:
                 break
+            params['identifier']=f"auto-{key['id']}-{market}-{action['side']}-{uuid.uuid4()}"
             try:
-                order = self.private_for_key("POST", "/v1/orders", key, params)
+                order = self._submit_auto_order(key,params)
             except httpx.HTTPStatusError as error:
                 if not self._missing_upbit_market(error):
                     raise
@@ -709,6 +714,30 @@ class TradingEngine:
                 continue
             self.save_order(key["user_login_id"], order)
             accounts = self.private_for_key("GET", "/v1/accounts", key)
+
+    def _submit_auto_order(self,key,params):
+        identifier=params['identifier']
+        self.db.execute('''INSERT INTO auto_order_requests(identifier,key_id,login_id,market,side,status)
+            VALUES(%s,%s,%s,%s,%s,'PENDING')''',
+            (identifier,key['id'],key['user_login_id'],params['market'],params['side']))
+        try:
+            order=self.private_for_key('POST','/v1/orders',key,params)
+        except httpx.TransportError:
+            # Never repeat POST: recover using the exact same client identifier.
+            try:
+                order=self.private_for_key('GET','/v1/order',key,{'identifier':identifier})
+                if not isinstance(order,dict) or not order.get('uuid'):
+                    raise RuntimeError('자동 주문 접수 여부를 확인할 수 없습니다.')
+            except Exception as error:
+                self.db.execute("UPDATE auto_order_requests SET status='UNKNOWN',updated_at=now() WHERE identifier=%s",(identifier,))
+                self.record_error('UPBIT','AUTO_ORDER_UNCONFIRMED',error)
+                raise RuntimeError('자동 주문 접수 확인 실패: 계정의 주문을 중단합니다.') from None
+        except httpx.HTTPStatusError as error:
+            status='UNKNOWN' if error.response.status_code>=500 else 'REJECTED'
+            self.db.execute('UPDATE auto_order_requests SET status=%s,updated_at=now() WHERE identifier=%s',(status,identifier))
+            raise
+        self.db.execute("UPDATE auto_order_requests SET status='ACCEPTED',updated_at=now() WHERE identifier=%s",(identifier,))
+        return order
 
     @staticmethod
     def _missing_upbit_market(error):
