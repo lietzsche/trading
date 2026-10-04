@@ -97,3 +97,17 @@ GitHub push/PR에서도 같은 Python·프런트엔드 테스트를 실행합니
 ```
 
 `down.sh`는 컨테이너, 네트워크, 로컬 Cloudflare Tunnel 연결과 PostgreSQL 데이터 볼륨 `001_postgres_data`를 삭제합니다. 데이터는 복구할 수 없습니다. Cloudflare에 등록된 Named Tunnel과 `trade.lietzsche.org` DNS 설정은 다음 배포에서도 같은 URL을 쓰도록 보존됩니다.
+### DB 백업과 복원 검증
+
+`./scripts/backup.sh`는 PostgreSQL custom 형식 백업을 `backups/YYYYmmdd-HHMM.dump`에 생성합니다(한국 시간, 권한 600, 최근 14개 유지). 백업에는 민감한 데이터가 포함되므로 별도 안전한 저장소에도 보관하세요.
+
+`./scripts/restore.sh backups/파일.dump`는 기본적으로 별도 임시 DB에만 복원하고 주요 테이블 행 수를 출력한 뒤 임시 DB를 삭제합니다. 운영 DB는 변경하지 않습니다. 운영 덮어쓰기는 `--force`와 터미널에서 `RESTORE` 확인 입력이 모두 필요합니다. 운영 복원 전 자동매매/API 중지와 최신 백업이 필수입니다.
+
+매일 03:00 한국 시간 백업 예시(crontab은 직접 등록):
+
+```cron
+CRON_TZ=Asia/Seoul
+0 3 * * * /home/stxtory/001/scripts/backup.sh >> /home/stxtory/001/backups/cron.log 2>&1
+```
+
+첫 백업으로 `backups/`를 먼저 생성하고, cron의 Docker 실행 권한과 시간대 지원을 확인하세요. 백업과 별도로 `.runtime.env`의 `SESSION_SECRET`도 안전하게 보관해야 합니다.

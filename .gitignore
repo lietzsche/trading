@@ -13,3 +13,4 @@
 .cloudflare-tunnel-token
 __pycache__/
 *.pyc
+backups/
