@@ -27,7 +27,8 @@ def authenticate(database, login_id, ip, verify):
                 fresh = not row or row['window_started_at'] <= now-timedelta(minutes=15)
                 failures = 1 if fresh else row['failures']+1
                 start = now if fresh else row['window_started_at']
-                locked_until = now+timedelta(minutes=15) if failures >= 5 else None
+                threshold = 20 if scope == 'id' else 5
+                locked_until = now+timedelta(minutes=15) if failures >= threshold else None
                 cursor.execute('''INSERT INTO auth_attempts(scope,subject,failures,window_started_at,locked_until)
                     VALUES(%s,%s,%s,%s,%s) ON CONFLICT(scope,subject) DO UPDATE SET
                     failures=EXCLUDED.failures,window_started_at=EXCLUDED.window_started_at,

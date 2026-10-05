@@ -66,6 +66,31 @@ def test_ip_scope_blocks_different_login_ids(auth):
     for index in range(5):assert client.post('/api/auth/login',json={'login_id':f'unknown{index}','password':'wrong'}).status_code==401
     assert client.post('/api/auth/login',json={'login_id':'master','password':'password123'}).status_code==429
 
+
+def test_ip_lock_does_not_lock_same_id_from_other_ip_before_twenty_failures():
+    db=AuthDB()
+    for _ in range(5):
+        assert auth_security.authenticate(db,'master','192.0.2.1',lambda:None) is None
+    with pytest.raises(HTTPException) as error:
+        auth_security.authenticate(db,'master','192.0.2.1',lambda:{'id':1})
+    assert error.value.status_code==429
+    assert db.rows[('id','master')]['failures']==5
+    assert db.rows[('id','master')]['locked_until'] is None
+    assert auth_security.authenticate(db,'master','192.0.2.2',lambda:{'id':1})=={'id':1}
+    assert ('id','master') not in db.rows
+    assert db.rows[('ip','192.0.2.1')]['locked_until'] is not None
+
+
+def test_twenty_id_failures_lock_all_ips():
+    db=AuthDB()
+    for index in range(20):
+        assert auth_security.authenticate(db,'master',f'192.0.2.{index+1}',lambda:None) is None
+    assert db.rows[('id','master')]['failures']==20
+    for ip in ('192.0.2.1','198.51.100.1'):
+        with pytest.raises(HTTPException) as error:
+            auth_security.authenticate(db,'master',ip,lambda:{'id':1})
+        assert error.value.status_code==429
+
 def test_logout_invalidates_previous_cookie(auth):
     db,client=auth
     assert client.post('/api/auth/login',json={'login_id':'master','password':'password123'}).status_code==200
