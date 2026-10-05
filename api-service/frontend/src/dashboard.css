@@ -193,10 +193,15 @@
 }
 
 .safety-dot.warning,
-.safety-dot.error {
+.safety-dot.error,
+.safety-dot.blocked {
   background: var(--price-up);
   box-shadow: 0 0 6px rgba(224, 108, 117, 0.4);
 }
+
+.unresolved-orders details { min-width: 0; }
+.unresolved-orders summary { min-height: 44px; padding: 12px 0; cursor: pointer; overflow-wrap: anywhere; }
+.unresolved-orders p { overflow-wrap: anywhere; color: var(--text-secondary); }
 
 .safety-dot.neutral {
   background: var(--text-tertiary);

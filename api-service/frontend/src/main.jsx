@@ -373,7 +373,7 @@ function SafeSellModal({ target, selling, onClose, onConfirm }) {
  );
 }
 
-function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
+function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,reconciling}) {
  const [confirmAuto,setConfirmAuto]=useState(false);
  const [sellTarget,setSellTarget]=useState(null),[selling,setSelling]=useState(false),[message,setMessage]=useState('');
  const [filter,setFilter]=useState('all');
@@ -470,7 +470,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
  const unrealizedRate=performance.unrealized_rate;
  const autoOn=Boolean(snapshot?.auto_on);
  const keyRegistered=Boolean(snapshot?.key_registered);
- const safetyLevel=!keyRegistered?'warning':!autoOn?'neutral':!safety?.price_healthy?'delayed':'healthy';
+ const safetyLevel=safety.level==='blocked'?'blocked':!keyRegistered?'warning':!autoOn?'neutral':!safety?.price_healthy?'delayed':'healthy';
 
  const coinAssets=assets.filter(a=>a.currency!=='KRW');
  const krwAsset=assets.find(a=>a.currency==='KRW');
@@ -530,7 +530,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
      <div className={`safety-dot ${safetyLevel}`} />
      <div className="safety-statement">
       <h2 id="safety-bar-title">
-       {!keyRegistered
+       {safetyLevel==='blocked'?safety.summary:!keyRegistered
         ?'Upbit API 키 미등록 상태'
         :!autoOn
         ?'자동매매가 일시 중지되어 있습니다'
@@ -539,13 +539,14 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
         :'자동매매 정상 가동 중'}
       </h2>
       <span>
-       {autoOn
+       {safetyLevel==='blocked'?'접수 여부가 확인될 때까지 신규 자동 주문을 보내지 않습니다.':autoOn
         ?`다음 자동 판단 약 ${countdown}초 후 · 마지막 가격 확인 ${display('updated_at',safety?.price_updated_at)}`
         :'Upbit API 키로 안전하게 연결되어 있습니다. 언제든 자동매매를 켤 수 있습니다.'}
       </span>
      </div>
     </div>
     <div className="safety-bar-right">
+     {safetyLevel==='blocked'&&user.user_role==='MASTER'&&<button className="quiet" disabled={reconciling} onClick={onReconcile}>{reconciling?'확인 중…':'Upbit에서 다시 확인'}</button>}
      {!keyRegistered && <button className="quiet" onClick={()=>onNavigate('connections')}>연결 관리에서 키 등록</button>}
      {keyRegistered&&(
       <div className="auto-switch-wrap"><span>{togglingAuto?'변경 중…':autoOn?'자동매매 켜짐':'자동매매 꺼짐'}</span>
@@ -563,6 +564,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate}) {
     </div>
    </section>
 
+   {safetyLevel==='blocked'&&<section className="card unresolved-orders" aria-label="미확인 자동 주문"><p>조회 결과로만 정리됩니다. 이 버튼은 매수·매도 주문을 보내지 않습니다.</p>{(safety.unresolved_orders||[]).map(order=><details key={order.identifier}><summary>{order.market} · {display('created_at',order.created_at)}</summary><p>주문 식별자: {order.identifier}</p></details>)}</section>}
    {notifications.length>0&&(
     <section className="dashboard-alerts-tray" aria-label="중요 알림">
      {notifications.map(item=>(
@@ -1036,7 +1038,7 @@ return <div className="layout"><aside><div className="brand"><img src="/icons/ic
  {data&&['stock','upbit'].includes(tab)&&<>{tab==='upbit'&&data.some(row=>row.owned===null)&&<div className="info-note" role="status">보유 자산을 확인하지 못했습니다. 보유 표시 없이 추천 순서대로 표시합니다.</div>}<RecommendationCards key={tab} rows={data} market={tab} onAskAI={handleAskAI}/></>}
  {data&&tab==='dividends'&&<DividendCards rows={data}/>}
  {data&&tab==='orders'&&<Orders rows={data}/>}
- {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate}/>}
+ {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate} reconciling={pending.includes('reconcile')} onReconcile={()=>mutate('reconcile',async()=>{const result=await api('/upbit/auto-orders/reconcile',{method:'POST'});if(activeTab.current==='account'){await load();if(activeTab.current==='account')setNotice(`확인 완료 · 접수 ${result.accepted} · 미접수 ${result.rejected} · 미확인 ${result.blocked}`)}})}/>}
  {data&&tab==='profile'&&<Profile user={data} onSaved={async()=>{await loadUser();setNotice('저장했습니다')}} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest} onConnectionsConsumed={consumeConnections}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
  {tab==='guide'&&<UsageGuide/>}

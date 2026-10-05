@@ -120,4 +120,4 @@ Upbit와 DeepSeek 키는 `SESSION_SECRET`에서 사용자별로 파생한 키로
 
 `CF-Connecting-IP`는 로컬 터널 경유 요청에서만 신뢰합니다. 기본 신뢰 주소는 loopback과 `172.18.0.1`이며 Docker 네트워크 구성이 다르면 `TRUSTED_PROXY_IPS`를 실제 프록시 주소로 설정하세요(공개 클라이언트 주소나 넓은 대역을 등록하지 마세요).
 
-자동 주문은 `auto_order_requests`에 고유 identifier를 먼저 기록합니다. 응답 유실 시 POST를 반복하지 않고 같은 identifier로 주문을 조회합니다. 접수 확인에 실패하거나 프로세스가 주문 도중 종료돼 PENDING/UNKNOWN이 남으면 해당 계정의 후속 자동 주문도 차단합니다. Upbit 주문 내역과 해당 identifier를 확인한 뒤 관리자가 상태를 정리해야 합니다. 계좌 키·자동매매 설정은 이 상황에서 임의 변경하지 않습니다.
+자동 주문은 `auto_order_requests`에 고유 identifier를 먼저 기록합니다. 응답 유실 시 POST를 반복하지 않고 같은 identifier로 주문을 조회합니다. PENDING/UNKNOWN은 자동매매 주기 시작 때 재조회하며, 조회된 주문은 이력에 저장하고 ACCEPTED로 정리합니다. 주문 없음이 확인되고 생성 후 2분 이상 지난 경우만 REJECTED로 정리합니다. 그 외에는 상태를 그대로 두고 계정의 주문을 차단합니다. 홈에 미확인 주문 정보가 표시되고 MASTER는 “Upbit에서 다시 확인”으로 재조회만 실행할 수 있습니다. 재확인은 주문 POST를 보내지 않으며 사람이 상태를 직접 바꾸는 기능도 없습니다. 계좌 키·자동매매 설정은 이 상황에서 임의 변경하지 않습니다.
