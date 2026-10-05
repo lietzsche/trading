@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {api, createRequestGate, orderStatus} from './api';
 import AIAnalysis from './AIAnalysis';
+import UsageGuide from './UsageGuide';
 import {Icon, Sheet} from './MobileUI';
 import {Toast, ExpandableText} from './Feedback';
 import {settingChangeText} from './settings';
@@ -27,9 +28,10 @@ function formatPrice(val){if(val==null||val==='')return '—';const num=Number(v
 function formatQty(val,currency=''){if(val==null||val==='')return '0';const num=Number(val);if(isNaN(num))return String(val);const formatted=num.toLocaleString('ko-KR',{maximumFractionDigits:6});return currency?`${formatted} ${currency}`:formatted;}
 function display(key,value){if(value===null||value===undefined||value==='')return '—';if(typeof value==='boolean')return value?'예':'아니오';if(['dividend_rate','profit_rate'].includes(key))return `${number(value)}%`;if(key==='api_uptime_seconds'){const hours=Math.floor(value/3600),minutes=Math.floor(value%3600/60);return `${hours}시간 ${minutes}분`}if(priceKeys.has(key))return number(value,8);if(dateKeys.has(key))return String(value).replace('T',' ').slice(0,16);return stateLabels[value]??String(value)}
 
-const tabs=[['account','오늘의 대시보드','홈'],['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['ai','AI 분석','AI'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일']];
+const tabs=[['account','오늘의 대시보드','홈'],['upbit','Upbit 추천','코인'],['stock','주식 추천','주식'],['dividends','배당주','배당'],['orders','주문 내역','주문'],['ai','AI 분석','AI'],['profile','내 정보','정보'],['system','시스템','상태'],['errors','오류','오류'],['autos','자동매매','자동'],['settings','계산 설정','설정'],['users','사용자','사용자'],['mail','메일','메일'],['guide','사용 안내','안내']];
 const tabGroups=[
  {title:'내 계좌',keys:['account','profile']},
+ {title:'도움말',keys:['guide']},
  {title:'투자',keys:['upbit','stock','dividends','orders']},
  {title:'AI',keys:['ai']},
  {title:'관리',keys:['system','errors','autos','settings','users','mail']},
@@ -988,12 +990,13 @@ function App() {
  const requests=useRef(createRequestGate()),authRequests=useRef(createRequestGate()),activeTab=useRef('account'),view=useRef(0),actions=useRef(new Set());
  const expireSession=useCallback(()=>{requests.current.cancel();view.current++;setData(null);setUser(null);setAuthMessage('로그인이 만료되었습니다. 다시 로그인해 주세요.')},[]);
  const handleError=useCallback(e=>{if(e?.status===401){expireSession();return}setError(typeof e==='string'?e:e?.message||'요청을 처리하지 못했습니다.')},[expireSession]);
- const loadUser=useCallback(async()=>{const request=authRequests.current.begin();try{const next=await api('/auth/me',{signal:request.signal});if(!request.isCurrent())return;if(!['ADMIN','MASTER'].includes(next.user_role)&&!['stock','upbit','dividends','orders','account','profile'].includes(activeTab.current)){activeTab.current='account';setTab('account')}setUser(next);setAuthMessage('')}catch(e){if(request.isCurrent()){setUser(null);if(e.status!==401)setAuthMessage(e.message)}}finally{if(request.isCurrent())setReady(true)}},[]);
+ const loadUser=useCallback(async()=>{const request=authRequests.current.begin();try{const next=await api('/auth/me',{signal:request.signal});if(!request.isCurrent())return;if(!['ADMIN','MASTER'].includes(next.user_role)&&!['stock','upbit','dividends','orders','account','profile','guide'].includes(activeTab.current)){activeTab.current='account';setTab('account')}setUser(next);setAuthMessage('')}catch(e){if(request.isCurrent()){setUser(null);if(e.status!==401)setAuthMessage(e.message)}}finally{if(request.isCurrent())setReady(true)}},[]);
  useEffect(()=>{loadUser();const handler=e=>{e.preventDefault();setInstallPrompt(e)};window.addEventListener('beforeinstallprompt',handler);return()=>{authRequests.current.cancel();window.removeEventListener('beforeinstallprompt',handler)}},[loadUser]);
  const load=useCallback(async()=>{
   if(activeTab.current!==tab)return;
   const request=requests.current.begin();view.current++;setLoading(true);setData(null);setError('');setNotice('');
   if(tab==='ai'){setAiRefresh(value=>value+1);setData({});setLoading(false);return;}
+  if(tab==='guide'){setData({});setLoading(false);return;}
   let path=['stock','upbit'].includes(tab)?`/recommendations/${tab}`:`/admin/${tab}`;
   if(['dividends','orders'].includes(tab))path=`/${tab}`;
   if(tab==='account')path='/dashboard';if(tab==='profile')path='/auth/me';if(tab==='mail')path='/admin/mail-targets';
@@ -1017,7 +1020,7 @@ function App() {
  function saveSetting(row){return mutate(`settings-${row.name}`,()=>api(`/admin/settings/${row.name}`,{method:'PUT',body:JSON.stringify({expected_high_percentage:Number(row.expected_high_percentage),expected_low_percentage:Number(row.expected_low_percentage),highest_price_reference_days:Number(row.highest_price_reference_days),volume_check:!!row.volume_check})}),{message:'설정을 저장했습니다. 다음 계산부터 적용됩니다.'})}
  if(!ready)return <main className="center"><div className="loader"/></main>;
  if(!user)return <Login onLogin={loadUser} message={authMessage}/>;
- const isAdmin=['ADMIN','MASTER'].includes(user.user_role),visible=tabs.filter(([key])=>isAdmin||['stock','upbit','dividends','orders','account','profile'].includes(key)),current=tabs.find(item=>item[0]===tab),currentView=view.current;
+ const isAdmin=['ADMIN','MASTER'].includes(user.user_role),visible=tabs.filter(([key])=>isAdmin||['stock','upbit','dividends','orders','account','profile','guide'].includes(key)),current=tabs.find(item=>item[0]===tab),currentView=view.current;
  const primaryKeys=['upbit','stock','account','ai'],mobilePrimary=visible.filter(([key])=>primaryKeys.includes(key)),mobileSecondary=visible.filter(([key])=>!primaryKeys.includes(key));
  const scopedError=e=>{if(view.current===currentView)handleError(e)};
  const statusLabel=loading?'조회 중':error?'조회 실패':data?'조회 완료':'대기 중';
@@ -1036,6 +1039,7 @@ return <div className="layout"><aside><div className="brand"><img src="/icons/ic
  {data&&tab==='account'&&<Account snapshot={data} reload={load} setError={scopedError} user={user} onAskAI={handleAskAI} onNavigate={navigate}/>}
  {data&&tab==='profile'&&<Profile user={data} onSaved={async()=>{await loadUser();setNotice('저장했습니다')}} setError={scopedError} onNavigate={navigate} connectionsRequest={connectionsRequest} onConnectionsConsumed={consumeConnections}/>}
  {data&&tab==='errors'&&<ErrorLog initial={data} setError={scopedError}/>}
+ {tab==='guide'&&<UsageGuide/>}
  {tab==='ai'&&<AIAnalysis user={user} refreshToken={aiRefresh} setError={scopedError} onNavigate={navigate} initialSymbol={aiInitialSymbol} settingsRequest={aiSettingsRequest} onSettingsConsumed={consumeAISettings}/>}
  {Array.isArray(data)&&tab==='autos'&&<div className="auto-grid">{data.map(row=><article className="card auto-card" key={row.user_login_id}><div><h3>{row.user_name}</h3><small>{row.user_login_id}</small></div><span className={`status-pill ${row.auto_on?'on':'off'}`}>{row.auto_on?'자동매매 사용 중':'자동매매 중지'}</span><p>{row.key_registered?'Upbit API 키가 등록되어 있습니다.':'API 키 등록 후 사용할 수 있습니다.'}</p><button className={row.auto_on?'danger':'primary'} disabled={!row.key_registered||pending.includes(`auto-${row.user_login_id}`)} onClick={()=>mutate(`auto-${row.user_login_id}`,()=>api(`/admin/autos/${encodeURIComponent(row.user_login_id)}`,{method:'PUT',body:JSON.stringify({auto_on:!row.auto_on})}),{refresh:true})}>{pending.includes(`auto-${row.user_login_id}`)?'변경 중…':row.auto_on?'자동매매 끄기':'자동매매 켜기'}</button></article>)}</div>}
  {Array.isArray(data)&&tab==='settings'&&<Settings rows={data} pending={pending} onChange={(index,key,value)=>setData(rows=>rows.map((row,i)=>i===index?{...row,[key]:value}:row))} onSave={saveSetting}/>}
