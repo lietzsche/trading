@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from urllib.parse import unquote, urlencode
 
@@ -643,9 +643,7 @@ class TradingEngine:
                 "failed_accounts": failed}
 
     def _auto_order_for_key(self, key, markets):
-        unresolved=self.db.one("""SELECT identifier,status FROM auto_order_requests
-            WHERE key_id=%s AND status IN ('PENDING','UNKNOWN') LIMIT 1""",(key['id'],))
-        if unresolved and unresolved.get('identifier'):
+        if self.reconcile_auto_orders(key)['blocked']:
             raise RuntimeError('접수 여부가 확인되지 않은 자동 주문이 있어 계정의 주문을 중단합니다.')
         try:
             accounts = self.private_for_key("GET", "/v1/accounts", key)
@@ -714,6 +712,49 @@ class TradingEngine:
                 continue
             self.save_order(key["user_login_id"], order)
             accounts = self.private_for_key("GET", "/v1/accounts", key)
+
+    def reconcile_only(self,key):
+        # Same lock as scheduler/manual sell, but never launches an order cycle.
+        if not self._auto_order_lock.acquire(blocking=False):
+            raise ValueError('다른 주문을 처리 중입니다. 잠시 후 다시 확인해 주세요.')
+        try:return self.reconcile_auto_orders(key)
+        finally:self._auto_order_lock.release()
+
+    def reconcile_auto_orders(self,key):
+        rows=self.db.all("""SELECT identifier,market,created_at FROM auto_order_requests
+            WHERE key_id=%s AND status IN ('PENDING','UNKNOWN') ORDER BY created_at""",(key['id'],))
+        accepted=rejected=blocked=0
+        for row in rows:
+            identifier=row.get('identifier')
+            if not identifier:continue
+            try:
+                order=self.private_for_key('GET','/v1/order',key,{'identifier':identifier})
+                if not isinstance(order,dict) or not order.get('uuid') or order.get('identifier')!=identifier or order.get('market')!=row['market']:
+                    blocked+=1
+                    continue
+                if not self.db.one('SELECT id FROM upbit_order_history WHERE login_id=%s AND uuid=%s',
+                                   (key['user_login_id'],order['uuid'])):
+                    self.save_order(key['user_login_id'],order)
+                self.db.execute("UPDATE auto_order_requests SET status='ACCEPTED',updated_at=now() WHERE identifier=%s AND key_id=%s AND status IN ('PENDING','UNKNOWN')",(identifier,key['id']))
+                accepted+=1
+            except httpx.HTTPStatusError as error:
+                missing=error.response.status_code==404
+                if error.response.status_code==400:
+                    try:missing=error.response.json().get('error',{}).get('name')=='order_not_found'
+                    except (ValueError,AttributeError):missing=False
+                created=row.get('created_at')
+                if isinstance(created,str):
+                    try:created=datetime.fromisoformat(created)
+                    except ValueError:created=None
+                if isinstance(created,datetime) and created.tzinfo is None:created=created.replace(tzinfo=timezone.utc)
+                if missing and isinstance(created,datetime) and datetime.now(timezone.utc)-created>=timedelta(minutes=2):
+                    self.db.execute("UPDATE auto_order_requests SET status='REJECTED',updated_at=now() WHERE identifier=%s AND key_id=%s AND status IN ('PENDING','UNKNOWN')",(identifier,key['id']))
+                    rejected+=1
+                else:blocked+=1
+            except Exception:
+                # Includes provider/DB failures: do not guess or expose raw details.
+                blocked+=1
+        return {'accepted':accepted,'rejected':rejected,'blocked':blocked}
 
     def _submit_auto_order(self,key,params):
         identifier=params['identifier']

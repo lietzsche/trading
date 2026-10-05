@@ -372,6 +372,14 @@ def auth_config():
     return {'signup_enabled':SIGNUP_ENABLED}
 
 
+@app.post('/api/upbit/auto-orders/reconcile')
+def reconcile_orders(user: Annotated[dict, Depends(master_user)]):
+    key=db.one('SELECT * FROM tb_upbit_key WHERE user_login_id=%s',(user['user_login_id'],))
+    if not key:raise HTTPException(404,'등록된 Upbit 키가 없습니다.')
+    try:return engine.reconcile_only(key)
+    except ValueError as error:raise HTTPException(409,str(error)) from None
+
+
 @app.get("/api/upbit/key/status")
 def upbit_key_status(user: Annotated[dict, Depends(current_user)]):
     row=db.one("""SELECT EXISTS(SELECT 1 FROM tb_upbit_key
@@ -505,6 +513,8 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
     price_healthy = price_age is not None and price_age <= 150
     auto_on = bool(key and key.get("auto_on"))
     key_registered = bool(key)
+    unresolved_orders = db.all("""SELECT identifier,market,created_at FROM auto_order_requests
+        WHERE key_id=%s AND status IN ('PENDING','UNKNOWN') ORDER BY created_at""",(key['id'],)) if key else []
 
     next_decision_seconds = None
     if hasattr(engine, "scheduler") and engine.scheduler.running:
@@ -513,7 +523,10 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
             now_utc = datetime.now(timezone.utc)
             next_decision_seconds = max(0, int((job.next_run_time - now_utc).total_seconds()))
 
-    if not key_registered:
+    if unresolved_orders:
+        safety_summary = f"자동매매 일시 중단: 접수 확인되지 않은 주문 {len(unresolved_orders)}건"
+        safety_level = 'blocked'
+    elif not key_registered:
         safety_summary = "Upbit API 키가 등록되지 않았습니다."
         safety_level = "warning"
     elif not auto_on:
@@ -558,6 +571,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
             "today_change_rate": round(day_change_rate, 2) if day_change_rate is not None else None,
         },
         "safety": {
+            "unresolved_orders": unresolved_orders,
             "summary": safety_summary,
             "level": safety_level,
             "price_updated_at": latest_price,

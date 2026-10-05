@@ -311,6 +311,30 @@ def test_dashboard_requires_login():
     assert client.get("/api/dashboard").status_code == 401
 
 
+@pytest.mark.parametrize('role,status',[('USER',403),('ADMIN',403),('MASTER',200)])
+def test_reconcile_endpoint_master_only_and_lookup_only(monkeypatch,role,status):
+    authenticated(role);calls=[]
+    monkeypatch.setattr(main.db,'one',lambda query,params: {'id':1,'user_login_id':'master'})
+    monkeypatch.setattr(main.engine,'reconcile_only',lambda key: calls.append(key) or {'accepted':1,'rejected':0,'blocked':0})
+    monkeypatch.setattr(main.engine,'auto_order',lambda: pytest.fail('Never launch trading cycle'))
+    response=client.post('/api/upbit/auto-orders/reconcile')
+    assert response.status_code==status and len(calls)==int(status==200)
+
+
+def test_dashboard_unconfirmed_orders_override_healthy_state(monkeypatch):
+    authenticated('MASTER')
+    key={'id':1,'user_login_id':'master','access_key':'a','secret_key':'s','auto_on':True}
+    monkeypatch.setattr(main.db,'one',lambda sql,params=(): key if 'tb_upbit_key' in sql else None)
+    pending={'identifier':'auto-mock','market':'KRW-BTC','created_at':'2026-10-05T10:00:00Z'}
+    monkeypatch.setattr(main.db,'all',lambda sql,params=(): [pending] if 'auto_order_requests' in sql else [])
+    monkeypatch.setattr(main.engine,'account_snapshot',lambda *args: {'total_valuation':0,'assets':[]})
+    result=client.get('/api/dashboard')
+    assert result.status_code==200
+    safety=result.json()['safety']
+    assert safety['level']=='blocked' and safety['summary']=='자동매매 일시 중단: 접수 확인되지 않은 주문 1건'
+    assert safety['unresolved_orders']==[pending]
+
+
 def test_dashboard_returns_enriched_data(monkeypatch):
     authenticated("USER")
     monkeypatch.setattr(main.db, "one", lambda query, params=(): {
