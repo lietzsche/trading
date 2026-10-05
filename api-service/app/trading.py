@@ -21,6 +21,12 @@ from app.us_market import us_data, us_universe, is_us_symbol, chart_result, trai
 from app.credentials import upbit_credentials
 
 log = logging.getLogger(__name__)
+balance_log = logging.getLogger(f"{__name__}.balances")
+balance_log.setLevel(logging.INFO)
+if not balance_log.handlers:
+    balance_handler = logging.StreamHandler()
+    balance_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    balance_log.addHandler(balance_handler)
 
 
 class TradingEngine:
@@ -30,6 +36,8 @@ class TradingEngine:
         self.db, self.calculation_url, self.enabled = db, calculation_url.rstrip("/"), enabled
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
         self._auto_order_lock = threading.Lock()
+        self._stopping = threading.Event()
+        self._balance_notices = {}
         self._upbit_lock = threading.Lock()
         self._last_upbit_request = 0.0
         self.error_retention_days=max(1,min(3650,int(os.getenv('ERROR_LOG_RETENTION_DAYS','30'))))
@@ -68,10 +76,18 @@ class TradingEngine:
         self.scheduler.add_job(self.prune_errors,'date',id='initial-error-retention')
         log.info("Python trading scheduler started with %d jobs", len(jobs))
 
-    def stop(self):
+    def stop(self, timeout=20):
+        self._stopping.set()
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
-        self._upbit_client.close()
+        acquired = self._auto_order_lock.acquire(timeout=timeout)
+        try:
+            if not acquired:
+                log.warning("Order shutdown wait exceeded %s seconds; unresolved orders will be reconciled", timeout)
+            self._upbit_client.close()
+        finally:
+            if acquired:
+                self._auto_order_lock.release()
 
     def key_credentials(self, key, owner=None):
         return upbit_credentials(os.environ.get('SESSION_SECRET',''),owner or key.get('user_login_id'),key)
@@ -81,6 +97,8 @@ class TradingEngine:
         return self.private_upbit(method,path,access,secret,params)
 
     def run(self, source, operation, function):
+        if self._stopping.is_set():
+            return {"status": "SKIPPED", "reason": "stopping"}
         try:
             return function()
         except Exception as error:
@@ -504,8 +522,43 @@ class TradingEngine:
                 if attempt + 1 == attempts: raise
                 time.sleep(0.5 * (attempt + 1))
 
+    def unsellable_balances(self, accounts, chance_loader):
+        """Uncertain market/price/minimum data must never release the holdings gate."""
+        if not any(a.get('currency') != 'KRW' for a in accounts):
+            return {}
+        try:
+            codes = set(self._validated_upbit_codes(self.upbit_public('/v1/market/all')))
+            tickers = self.upbit_public('/v1/ticker/all', {'quote_currencies': 'KRW'})
+            prices = {r['market']: Decimal(str(r['trade_price'])) for r in tickers}
+            if not prices or any(not p.is_finite() or p <= 0 for p in prices.values()):
+                return {}
+        except Exception:
+            return {}
+        excluded = {}
+        for account in accounts:
+            currency = account.get('currency')
+            if currency == 'KRW':
+                continue
+            market = f'KRW-{currency}'
+            if market not in codes:
+                excluded[currency] = 'unsupported'
+                continue
+            try:
+                quantity = Decimal(str(account['balance'])) + Decimal(str(account['locked']))
+                if market not in prices or not quantity.is_finite() or quantity < 0:
+                    continue
+                chance = chance_loader(market)
+                minimum = Decimal(str(chance.get('market', {}).get('ask', {}).get('min_total') or 5000))
+                if minimum.is_finite() and minimum > 0 and quantity * prices[market] < minimum:
+                    excluded[currency] = 'dust'
+            except Exception:
+                continue
+        return excluded
+
     def account_snapshot(self, access, secret):
         accounts = self.private_upbit("GET", "/v1/accounts", access, secret)
+        excluded = self.unsellable_balances(accounts, lambda market: self.private_upbit(
+            'GET', '/v1/orders/chance', access, secret, {'market': market}))
         tickers = self.upbit_public("/v1/ticker/all", {"quote_currencies": "KRW"})
         prices = {row["market"].removeprefix("KRW-"): float(row["trade_price"]) for row in tickers}
         assets, total, unpriced = [], 0.0, []
@@ -530,7 +583,8 @@ class TradingEngine:
             else:
                 total += valuation
             assets.append({**account, "quantity": quantity, "current_price": current_price,
-                           "valuation": valuation, "purchase_amount": purchase, "profit_rate": profit_rate})
+                           "valuation": valuation, "purchase_amount": purchase, "profit_rate": profit_rate,
+                           "unsellable_reason": excluded.get(currency)})
         return {"total_valuation": total, "valuation_complete": not unpriced,
                 "unpriced_currencies": sorted(unpriced),
                 "assets": sorted(assets, key=lambda row: (row["valuation"] is not None,
@@ -538,9 +592,13 @@ class TradingEngine:
 
     def manual_market_sell(self, key, market, expected_available):
         """Sell the entire currently available balance once; never retry POST."""
+        if self._stopping.is_set():
+            raise ValueError("서비스 종료 중입니다. 잠시 후 다시 시도해 주세요.")
         if not self._auto_order_lock.acquire(blocking=False):
             raise ValueError("다른 주문을 처리 중입니다. 잠시 후 계좌를 새로고침하고 다시 시도해 주세요.")
         try:
+            if self._stopping.is_set():
+                raise ValueError("서비스 종료 중입니다. 잠시 후 다시 시도해 주세요.")
             if not isinstance(market, str) or not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", market):
                 raise ValueError("유효한 Upbit 원화 마켓이 아닙니다.")
             chance = self.private_for_key("GET", "/v1/orders/chance", key, {"market": market})
@@ -613,6 +671,8 @@ class TradingEngine:
             log.info("Skipping automatic orders: another run is already active")
             return {"status": "SKIPPED", "reason": "already_running"}
         try:
+            if self._stopping.is_set():
+                return {"status": "SKIPPED", "reason": "stopping"}
             return self.run("UPBIT", "AUTO_ORDER", self._auto_order)
         finally:
             self._auto_order_lock.release()
@@ -653,8 +713,17 @@ class TradingEngine:
                     WHERE id=%s AND access_key=%s AND secret_key=%s""",
                     (key["id"], key["access_key"], key["secret_key"]))
             raise
+        excluded = self.unsellable_balances(accounts, lambda market: self.private_for_key(
+            'GET', '/v1/orders/chance', key, {'market': market}))
+        today = datetime.now(timezone(timedelta(hours=9))).date()
+        for currency, reason in excluded.items():
+            notice_key = (key['id'], currency)
+            if self._balance_notices.get(notice_key) != today:
+                balance_log.info('Unsellable holding excluded from decision: %s (%s)', currency, reason)
+                self._balance_notices[notice_key] = today
         actions = self.calc("/v1/auto-trade/decide", {
-            "recommended_markets": markets, "balances": [{"currency": a["currency"]} for a in accounts],
+            "recommended_markets": markets, "balances": [{"currency": a["currency"]} for a in accounts
+                                                        if a['currency'] not in excluded],
             "minimum_recommendations": 3,
         })["actions"]
         recent_manual_sells = {row["market"] for row in self.db.all("""SELECT DISTINCT market
@@ -667,6 +736,8 @@ class TradingEngine:
             (key["user_login_id"],))}
         for action in actions:
             market = action["market"]
+            if market.removeprefix('KRW-') in excluded:
+                continue
             # Keep automatic trading enabled after a manual exit, but avoid
             # immediately buying back the same asset. The next ranked BUY can proceed.
             if action["side"] == "BUY" and market in recent_manual_sells:
@@ -715,9 +786,14 @@ class TradingEngine:
 
     def reconcile_only(self,key):
         # Same lock as scheduler/manual sell, but never launches an order cycle.
+        if self._stopping.is_set():
+            raise ValueError('서비스 종료 중입니다. 잠시 후 다시 확인해 주세요.')
         if not self._auto_order_lock.acquire(blocking=False):
             raise ValueError('다른 주문을 처리 중입니다. 잠시 후 다시 확인해 주세요.')
-        try:return self.reconcile_auto_orders(key)
+        try:
+            if self._stopping.is_set():
+                raise ValueError('서비스 종료 중입니다. 잠시 후 다시 확인해 주세요.')
+            return self.reconcile_auto_orders(key)
         finally:self._auto_order_lock.release()
 
     def reconcile_auto_orders(self,key):

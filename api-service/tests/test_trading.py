@@ -10,6 +10,128 @@ import pytest
 from app.trading import TradingEngine
 
 
+def test_stop_waits_for_order_before_client_close(trading_engine, monkeypatch):
+    closed = threading.Event()
+    monkeypatch.setattr(trading_engine._upbit_client, 'close', closed.set)
+    trading_engine._auto_order_lock.acquire()
+    worker = threading.Thread(target=trading_engine.stop)
+    worker.start()
+    assert trading_engine._stopping.wait(1)
+    assert not closed.wait(0.05)
+    trading_engine._auto_order_lock.release()
+    worker.join(1)
+    assert closed.is_set() and not worker.is_alive()
+    assert trading_engine.auto_order()['reason'] == 'stopping'
+
+
+def test_stop_timeout_closes_client_and_warns(trading_engine, monkeypatch, caplog):
+    closed = []
+    monkeypatch.setattr(trading_engine._upbit_client, 'close', lambda: closed.append(True))
+    trading_engine._auto_order_lock.acquire()
+    try:
+        trading_engine.stop(timeout=0.01)
+        assert closed == [True]
+        assert 'shutdown wait exceeded' in caplog.text
+    finally:
+        trading_engine._auto_order_lock.release()
+
+
+@pytest.mark.parametrize('currency,balance,locked,expected', [
+    ('OLD', '1', '0', {'OLD': 'unsupported'}),
+    ('BTC', '0.001', '0', {'BTC': 'dust'}),
+    ('BTC', '1', '0', {}),
+    ('BTC', '0', '1', {}),
+])
+def test_unsellable_classification_preserves_locked_holdings(trading_engine, monkeypatch,
+                                                           currency, balance, locked, expected):
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda path, *args:
+        [{'market': 'KRW-BTC', 'korean_name': '비트코인'}] if 'market/all' in path
+        else [{'market': 'KRW-BTC', 'trade_price': 10000}])
+    result = trading_engine.unsellable_balances([
+        {'currency': currency, 'balance': balance, 'locked': locked}],
+        lambda market: {'market': {'ask': {'min_total': '5000'}}})
+    assert result == expected
+
+
+@pytest.mark.parametrize('failure', ['market', 'ticker', 'chance'])
+def test_unsellable_lookup_failure_preserves_holdings(trading_engine, monkeypatch, failure):
+    def public(path, *args):
+        if failure == ('market' if 'market/all' in path else 'ticker'):
+            raise RuntimeError('unavailable')
+        return ([{'market': 'KRW-BTC', 'korean_name': '비트코인'}] if 'market/all' in path
+                else [{'market': 'KRW-BTC', 'trade_price': 1}])
+    monkeypatch.setattr(trading_engine, 'upbit_public', public)
+    def chance(market):
+        raise RuntimeError('unavailable')
+    assert trading_engine.unsellable_balances(
+        [{'currency': 'BTC', 'balance': '1', 'locked': '0'}], chance) == {}
+
+
+@pytest.mark.parametrize('currency,quantity,failed,expected_side', [
+    ('OLD', '1', False, 'bid'), ('ETH', '0.001', False, 'bid'),
+    ('ETH', '1', False, 'ask'), ('ETH', '0.001', True, 'ask'),
+    ('ETH', '1', False, 'hold'),
+])
+def test_unsellable_balances_buy_or_preserve_sell(trading_engine, monkeypatch, caplog,
+                                               currency, quantity, failed, expected_side):
+    accounts = [{'currency': 'KRW', 'balance': '10000', 'locked': '0'},
+                {'currency': currency, 'balance': quantity, 'locked': '0'}]
+    submitted = []
+    def public(path, *args):
+        if failed:
+            raise RuntimeError('market unavailable')
+        return ([{'market': 'KRW-BTC', 'korean_name': '비트코인'},
+                 {'market': 'KRW-ETH', 'korean_name': '이더리움'}] if 'market/all' in path
+                else [{'market': 'KRW-BTC', 'trade_price': 10000},
+                      {'market': 'KRW-ETH', 'trade_price': 10000}])
+    def private(method, path, key, params=None):
+        assert method == 'GET'
+        if path == '/v1/accounts':
+            return accounts
+        assert path == '/v1/orders/chance'
+        return {'bid_fee': '0.0005', 'ask_account': {'balance': quantity},
+                'market': {'bid': {'min_total': '5000'}, 'ask': {'min_total': '5000'}}}
+    def calculate(path, payload):
+        held = [r['currency'] for r in payload['balances'] if r['currency'] != 'KRW']
+        if held and f'KRW-{held[0]}' in payload['recommended_markets']:
+            return {'actions': []}
+        return {'actions': [{'market': f'KRW-{held[0]}', 'side': 'SELL'}] if held
+                else [{'market': 'KRW-BTC', 'side': 'BUY'}]}
+    monkeypatch.setattr(trading_engine, 'upbit_public', public)
+    monkeypatch.setattr(trading_engine, 'private_for_key', private)
+    monkeypatch.setattr(trading_engine, 'calc', calculate)
+    monkeypatch.setattr(trading_engine, '_submit_auto_order',
+                        lambda key, params: submitted.append(params) or {'uuid': 'mock'})
+    monkeypatch.setattr(trading_engine, 'save_order', lambda *args: None)
+    with caplog.at_level('INFO', logger='app.trading'):
+        for _ in range(2):
+            trading_engine._auto_order_for_key(trading_engine.db.keys[0],
+                                             ['KRW-BTC', 'KRW-XRP',
+                                              'KRW-ETH' if expected_side == 'hold' else 'KRW-SOL'])
+    assert [p['side'] for p in submitted] == ([] if expected_side == 'hold'
+                                             else [expected_side, expected_side])
+    assert caplog.text.count('Unsellable holding excluded') == int(expected_side == 'bid')
+    assert not any('trade_error_log' in sql for sql, _ in trading_engine.db.writes)
+
+
+@pytest.mark.parametrize('currency,quantity,reason', [
+    ('OLD', '1', 'unsupported'), ('BTC', '0.001', 'dust'), ('BTC', '1', None),
+])
+def test_snapshot_unsellable_badge_preserves_asset_valuation(trading_engine, monkeypatch,
+                                                          currency, quantity, reason):
+    monkeypatch.setattr(trading_engine, 'private_upbit', lambda method, path, *args:
+        [{'currency': currency, 'balance': quantity, 'locked': '0',
+          'avg_buy_price': '5000', 'unit_currency': 'KRW'}] if path == '/v1/accounts'
+        else {'market': {'ask': {'min_total': '5000'}}})
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda path, *args:
+        [{'market': 'KRW-BTC', 'korean_name': '비트코인'}] if 'market/all' in path
+        else [{'market': 'KRW-BTC', 'trade_price': 10000}])
+    result = trading_engine.account_snapshot('test', 'test')
+    assert len(result['assets']) == 1
+    assert result['assets'][0]['unsellable_reason'] == reason
+    assert result['total_valuation'] == (0 if currency == 'OLD' else float(quantity) * 10000)
+
+
 class NoopDatabase:
     def execute(self, *_):
         pass

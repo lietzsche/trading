@@ -98,9 +98,11 @@ async def lifespan(_: FastAPI):
     migrate_upbit_credentials(db,SESSION_SECRET)
     ai_service.start()
     engine.start()
-    yield
-    ai_service.stop()
-    engine.stop()
+    try:
+        yield
+    finally:
+        engine.stop()
+        ai_service.stop()
 
 
 app = FastAPI(title="Trading API", version="2.0.0", lifespan=lifespan)

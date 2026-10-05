@@ -635,6 +635,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
            <div className="coin-badge">{row.currency}</div>
            <div className="coin-names">
             <h3>{row.currency}</h3>
+            {row.unsellable_reason&&<small role="status">매도 불가 소액·미지원</small>}
             <small>보유 {formatQty(row.quantity)} · 매도 가능 {formatQty(row.balance)}</small>
            </div>
           </div>
@@ -704,7 +705,7 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
           <button className="btn-ai-ask" onClick={()=>onAskAI&&onAskAI(row.currency)}>
            <span>✨ AI에게 물어보기</span>
           </button>
-          {user?.user_role==='MASTER'&&available>0&&(
+          {user?.user_role==='MASTER'&&available>0&&!row.unsellable_reason&&(
            <button
             className="btn-safe-sell-open"
             onClick={e=>openSell(row,e)}
