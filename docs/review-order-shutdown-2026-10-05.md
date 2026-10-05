@@ -34,4 +34,9 @@
 
 ## 배포
 
-배포 결과는 확인 후 아래에 기록한다.
+- 기능 커밋: `0a79dde` — 종료 중 주문 보호와 매도 불가 잔고 판단 보완.
+- `./reup.sh` 성공. Named Tunnel 및 고정 URL 유지. calculation-service 빌드 단계는 전부 캐시였고 기존 컨테이너를 유지했다.
+- API 이미지: `sha256:5d7e450b0ac0a6b93ec948099c2a0d4a28042b13144506a589c79484e10ccd4c`.
+- API 컨테이너 healthy, 실제 StopTimeout=40 확인.
+- 외부 `https://trade.lietzsche.org/api/health`: HTTP 200, status/database/calculation 모두 UP.
+- 시작 로그 정상, 검수 시점 신규 오류 로그 없음. 실제 운영 주문을 검증 목적으로 실행하거나 운영 잔고를 변경하지 않았다.
