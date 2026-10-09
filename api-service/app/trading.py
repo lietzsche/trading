@@ -736,8 +736,6 @@ class TradingEngine:
             (key["user_login_id"],))}
         for action in actions:
             market = action["market"]
-            if market.removeprefix('KRW-') in excluded:
-                continue
             # Keep automatic trading enabled after a manual exit, but avoid
             # immediately buying back the same asset. The next ranked BUY can proceed.
             if action["side"] == "BUY" and market in recent_manual_sells:

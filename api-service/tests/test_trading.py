@@ -132,6 +132,42 @@ def test_snapshot_unsellable_badge_preserves_asset_valuation(trading_engine, mon
     assert result['total_valuation'] == (0 if currency == 'OLD' else float(quantity) * 10000)
 
 
+def test_dust_btc_still_buys_first_recommended_btc(trading_engine, monkeypatch):
+    accounts = [{'currency': 'KRW', 'balance': '10000', 'locked': '0'},
+                {'currency': 'BTC', 'balance': '0.001', 'locked': '0'}]
+    recommendations = ['KRW-BTC', 'KRW-ETH', 'KRW-SOL']
+    submitted = []
+    monkeypatch.setattr(trading_engine, 'upbit_public', lambda path, *args:
+        [{'market': code, 'korean_name': code} for code in recommendations]
+        if path == '/v1/market/all' else
+        [{'market': code, 'trade_price': 10000} for code in recommendations])
+    def private(method, path, key, params=None):
+        assert method == 'GET'
+        if path == '/v1/accounts':
+            return accounts
+        assert path == '/v1/orders/chance'
+        return {'bid_fee': '0.0005', 'market': {
+            'ask': {'min_total': '5000'}, 'bid': {'min_total': '5000'}}}
+    def calculate(path, payload):
+        assert path == '/v1/auto-trade/decide'
+        assert payload['balances'] == [{'currency': 'KRW'}]
+        assert payload['recommended_markets'] == recommendations
+        return {'actions': [{'market': market, 'side': 'BUY'} for market in recommendations]}
+    def submit(key, params):
+        submitted.append(params)
+        accounts[0]['balance'] = '0'
+        return {'uuid': 'mock-btc-order'}
+    monkeypatch.setattr(trading_engine, 'private_for_key', private)
+    monkeypatch.setattr(trading_engine, 'calc', calculate)
+    monkeypatch.setattr(trading_engine, '_submit_auto_order', submit)
+    monkeypatch.setattr(trading_engine, 'save_order', lambda *args: None)
+    trading_engine._auto_order_for_key(trading_engine.db.keys[0], recommendations)
+    assert len(submitted) == 1
+    assert submitted[0]['market'] == 'KRW-BTC'
+    assert submitted[0]['side'] == 'bid'
+    assert submitted[0]['price'] == '9995.0'
+
+
 class NoopDatabase:
     def execute(self, *_):
         pass
