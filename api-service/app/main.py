@@ -474,15 +474,22 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
                         ai_sell_count += 1
 
     rec_by_code = {row["code"]: row for row in recommendations}
+    total_val = float(snapshot.get("total_valuation") or 0)
     enriched_assets = []
     for asset in snapshot["assets"]:
         currency = asset.get("currency")
         row = dict(asset)
+        val = row.get("valuation")
+        if val is not None and total_val > 0:
+            row["weight_pct"] = round(float(val) * 100 / total_val, 1)
         if currency != "KRW":
             code = f"KRW-{currency}"
             rec = rec_by_code.get(code)
             ai_dec = ai_actions_by_code.get(code)
+            row["in_recommendations"] = bool(rec)
             if rec:
+                if rec.get("name"):
+                    row["name"] = rec["name"]
                 min_price = float(rec["minimum_selling_price"])
                 exp_price = float(rec["expected_selling_price"])
                 row["target_price"] = exp_price

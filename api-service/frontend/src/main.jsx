@@ -413,10 +413,12 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
  const incomplete=snapshot?.valuation_complete===false;
  const performance=snapshot?.performance||{};
  const safety=snapshot?.safety||{};
- const aiSummary=snapshot?.ai_summary||{};
- const notifications=snapshot?.notifications||[];
+ const notifications=(snapshot?.notifications||[]).filter(item=>!['no-key','auto-off','price-delay'].includes(item.id));
  const todayOrders=snapshot?.today_orders||[];
- const money=(value,digits=0)=>value==null?'시세 확인 불가':`₩ ${number(value,digits)}`;
+ const recentOrders=snapshot?.recent_orders||[];
+ const showingTodayOrders=todayOrders.length>0;
+ const displayOrders=showingTodayOrders?todayOrders:recentOrders;
+ const recNames=Object.fromEntries((snapshot?.recommendations||[]).map(r=>[String(r.code||'').replace(/^KRW-/,''),r.name]));
 
  async function sell(){
   if(!sellTarget||sellLock.current)return;
@@ -473,8 +475,17 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
  const safetyLevel=safety.level==='blocked'?'blocked':!keyRegistered?'warning':!autoOn?'neutral':!safety?.price_healthy?'delayed':'healthy';
 
  const coinAssets=assets.filter(a=>a.currency!=='KRW');
+ const activeCoinAssets=coinAssets.filter(a=>!a.unsellable_reason);
+ const unsellableCoinAssets=coinAssets.filter(a=>Boolean(a.unsellable_reason));
  const krwAsset=assets.find(a=>a.currency==='KRW');
- const visibleAssets=filter==='coins'?coinAssets:filter==='krw'?(krwAsset?[krwAsset]:[]):assets;
+ const visibleAssets=filter==='coins'?activeCoinAssets:filter==='krw'?(krwAsset?[krwAsset]:[]):[...(krwAsset?[krwAsset]:[]),...activeCoinAssets];
+ const showUnsellableGroup=filter!=='krw'&&unsellableCoinAssets.length>0;
+
+ const totalValuation=Number(snapshot?.total_valuation||0);
+ const krwValuation=Number(krwAsset?.valuation??krwAsset?.balance??0);
+ const coinValuation=Math.max(0,totalValuation-krwValuation);
+ const coinRatio=totalValuation>0?Math.min(100,Math.max(0,(coinValuation/totalValuation)*100)):0;
+ const krwRatio=totalValuation>0?Math.max(0,100-coinRatio):0;
 
  return (
   <div className="dashboard-stack" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
@@ -500,6 +511,18 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
       )}
      </div>
     </div>
+
+    {totalValuation>0&&(
+     <div className="hero-allocation" aria-label="자산 비중 요약">
+      <div className="hero-allocation-labels">
+       <span>코인 <b>{formatKrw(coinValuation)}</b> ({number(coinRatio,1)}%)</span>
+       <span>원화 <b>{formatKrw(krwValuation)}</b> ({number(krwRatio,1)}%)</span>
+      </div>
+      <div className="hero-allocation-track" aria-hidden="true">
+       <div className="hero-allocation-coin" style={{width:`${coinRatio}%`}} />
+      </div>
+     </div>
+    )}
 
     <div className="hero-submetrics">
      <div className="submetric-item">
@@ -593,159 +616,208 @@ function Account({snapshot,reload,setError,user,onAskAI,onNavigate,onReconcile,r
      </div>
     </div>
 
-    {!visibleAssets.length?(
+    {!visibleAssets.length&&!showUnsellableGroup?(
      <Empty
       text="표시할 보유 자산이 없습니다."
       action={onNavigate?{label:'추천 종목 둘러보기 →',onClick:()=>onNavigate('upbit')}:undefined}
      />
     ):(
-     <div className="holdings-grid">
-      {visibleAssets.map(row=>{
-       const available=Number(row.balance||0);
-       const isKrw=row.currency==='KRW';
-       const isSellAction=row.ai_action==='SELL';
+     <>
+      {visibleAssets.length>0&&(
+       <div className="holdings-grid">
+        {visibleAssets.map(row=>{
+         const available=Number(row.balance||0);
+         const isKrw=row.currency==='KRW';
+         const isSellAction=row.ai_action==='SELL';
+         const weightPct=row.weight_pct??(totalValuation>0&&row.valuation!=null?Number(((Number(row.valuation)*100)/totalValuation).toFixed(1)):null);
 
-       if(isKrw){
-        return (
-         <article className="holding-card krw-cash-card" key="KRW">
-          <div className="holding-card-top">
-           <div className="coin-identity">
-            <div className="coin-badge krw-badge">₩</div>
-            <div className="coin-names">
-             <h3>원화 예수금 (KRW)</h3>
-             <small>주문 가능 원화 잔고</small>
+         if(isKrw){
+          return (
+           <article className="holding-card krw-cash-card" key="KRW">
+            <div className="holding-card-top">
+             <div className="coin-identity">
+              <div className="coin-badge krw-badge">₩</div>
+              <div className="coin-names">
+               <div className="coin-title-row">
+                <h3>원화 예수금 (KRW)</h3>
+                {weightPct!=null&&<span className="coin-meta-pill">비중 {number(weightPct,1)}%</span>}
+               </div>
+               <small>주문 가능 원화 잔고</small>
+              </div>
+             </div>
+             <div className="coin-valuation-block">
+              <span className="coin-valuation-amount">{formatKrw(row.balance)}</span>
+              <small className="coin-cash-desc">보유액 100% 매수 가능</small>
+             </div>
+            </div>
+           </article>
+          );
+         }
+
+         const coinName=row.name||recNames[row.currency];
+         const inRec=Boolean(row.in_recommendations||row.target_price);
+
+         return (
+          <article
+           className={`holding-card ${isSellAction?'has-sell-alert':''}`}
+           key={row.currency}
+          >
+           <div className="holding-card-top">
+            <div className="coin-identity">
+             <div className="coin-badge">{row.currency}</div>
+             <div className="coin-names">
+              <div className="coin-title-row">
+               <h3>{coinName?`${coinName} (${row.currency})`:row.currency}</h3>
+               {weightPct!=null&&<span className="coin-meta-pill">비중 {number(weightPct,1)}%</span>}
+               {inRec&&<span className="coin-meta-pill rec-active">추천 {row.renewal_cnt??0}단계</span>}
+              </div>
+              {row.unsellable_reason&&<small role="status">매도 불가 소액·미지원</small>}
+              <small>보유 {formatQty(row.quantity)} · 매도 가능 {formatQty(row.balance)}</small>
+             </div>
+            </div>
+            <div className="coin-valuation-block">
+             <span className="coin-valuation-amount">{formatKrw(row.valuation)}</span>
+             {row.profit_rate!=null&&(
+              <span className={`coin-return-badge ${Number(row.profit_rate)>0?'up':Number(row.profit_rate)<0?'down':'neutral'}`}>
+               {Number(row.profit_rate)>0?'▲ +':Number(row.profit_rate)<0?'▼ ':''}{number(row.profit_rate)}%
+              </span>
+             )}
             </div>
            </div>
-           <div className="coin-valuation-block">
-            <span className="coin-valuation-amount">{formatKrw(row.balance)}</span>
-            <small className="coin-cash-desc">보유액 100% 매수 가능</small>
-           </div>
-          </div>
-         </article>
-        );
-       }
 
-       return (
-        <article
-         className={`holding-card ${isSellAction?'has-sell-alert':''}`}
-         key={row.currency}
-        >
-         <div className="holding-card-top">
-          <div className="coin-identity">
-           <div className="coin-badge">{row.currency}</div>
-           <div className="coin-names">
-            <h3>{row.currency}</h3>
-            {row.unsellable_reason&&<small role="status">매도 불가 소액·미지원</small>}
-            <small>보유 {formatQty(row.quantity)} · 매도 가능 {formatQty(row.balance)}</small>
+           <div className="holding-prices-grid">
+            <div><small>현재가</small><strong>{formatPrice(row.current_price)}</strong></div>
+            <div><small>평균 매수가</small><strong>{formatPrice(row.avg_buy_price)}</strong></div>
+            <div>
+             <small>평가 손익</small>
+             <strong className={(row.valuation-row.purchase_amount)>=0?'profit-pos':'profit-neg'}>
+              {row.valuation&&row.purchase_amount?`${(row.valuation-row.purchase_amount)>0?'+':''}${formatKrw(row.valuation-row.purchase_amount)}`:'—'}
+             </strong>
+            </div>
            </div>
-          </div>
-          <div className="coin-valuation-block">
-           <span className="coin-valuation-amount">{formatKrw(row.valuation)}</span>
-           {row.profit_rate!=null&&(
-            <span className={`coin-return-badge ${Number(row.profit_rate)>0?'up':Number(row.profit_rate)<0?'down':'neutral'}`}>
-             {Number(row.profit_rate)>0?'▲ +':Number(row.profit_rate)<0?'▼ ':''}{number(row.profit_rate)}%
-            </span>
+
+           {row.target_price&&(
+            <div className="targets-section holding-targets-inline">
+             <div className="targets-header-line">
+              <span className="stop-text">
+               손절 {formatPrice(row.stop_loss_price)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
+              </span>
+              <span className="target-text">
+               목표 {formatPrice(row.target_price)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
+              </span>
+             </div>
+             <div className="targets-track">
+              <div className="targets-fill" style={{width:`${Math.max(0,Math.min(100,row.target_progress||0))}%`}} />
+             </div>
+             <div className="targets-footer-line">
+              <span>목표 도달 {number(row.target_progress||0,0)}%</span>
+              {row.renewal_cnt!=null&&<span>추천 갱신 {row.renewal_cnt}단계</span>}
+             </div>
+            </div>
            )}
-          </div>
-         </div>
 
-         <div className="holding-prices-grid">
-          <div><small>현재가</small><strong>{formatPrice(row.current_price)}</strong></div>
-          <div><small>평균 매수가</small><strong>{formatPrice(row.avg_buy_price)}</strong></div>
-           <div>
-            <small>평가 손익</small>
-            <strong className={(row.valuation-row.purchase_amount)>=0?'profit-pos':'profit-neg'}>
-             {row.valuation&&row.purchase_amount?`${(row.valuation-row.purchase_amount)>0?'+':''}${formatKrw(row.valuation-row.purchase_amount)}`:'—'}
-            </strong>
-           </div>
-         </div>
-
-         {row.target_price&&(
-          <details className="holding-targets-details">
-           <summary className="holding-targets-summary">
-            <span className="holding-targets-summary-title">목표·손절 기준</span>
-            <span className="holding-targets-summary-val">
-             목표 {formatPrice(row.target_price)} · 손절 {formatPrice(row.stop_loss_price)}
-            </span>
-           </summary>
-           <div className="targets-section">
-            <div className="targets-header-line">
-             <span className="stop-text">
-              손절 {formatPrice(row.stop_loss_price)} ({row.distance_to_stop_pct!=null?`-${number(row.distance_to_stop_pct)}%`:'—'})
-             </span>
-             <span className="target-text">
-              목표 {formatPrice(row.target_price)} ({row.distance_to_target_pct!=null?`+${number(row.distance_to_target_pct)}%`:'—'})
-             </span>
+           {row.ai_action&&(
+            <div className={`ai-insight-box ${String(row.ai_action).toLowerCase()}`}>
+             <div className="ai-insight-header">
+              <span className="ai-meta-text">AI 분석 판단</span>
+              <span className={`ai-tag ${String(row.ai_action).toLowerCase()}`}>
+               {row.ai_action==='SELL'?'매도 검토':row.ai_action==='HOLD'?'보유 권장':'관망'}
+              </span>
+             </div>
+             {row.ai_reason&&<p className="ai-reason-text">{row.ai_reason}</p>}
+             {row.ai_confidence&&<span className="ai-meta-text">근거 확신도 {row.ai_confidence}%</span>}
             </div>
-            <div className="targets-track">
-             <div className="targets-fill" style={{width:`${Math.max(0,Math.min(100,row.target_progress||0))}%`}} />
-            </div>
-            <div className="targets-footer-line">
-             <span>목표 도달 {number(row.target_progress||0,0)}%</span>
-             {row.renewal_cnt!=null&&<span>추천 갱신 {row.renewal_cnt}단계</span>}
-            </div>
-           </div>
-          </details>
-         )}
+           )}
 
-         {row.ai_action&&(
-          <div className={`ai-insight-box ${String(row.ai_action).toLowerCase()}`}>
-           <div className="ai-insight-header">
-            <span className="ai-meta-text">AI 분석 판단</span>
-            <span className={`ai-tag ${String(row.ai_action).toLowerCase()}`}>
-             {row.ai_action==='SELL'?'매도 검토':row.ai_action==='HOLD'?'보유 권장':'관망'}
-            </span>
+           <div className="holding-safe-actions">
+            <button className="btn-ai-ask" onClick={()=>onAskAI&&onAskAI(row.currency)}>
+             <span>✨ AI에게 물어보기</span>
+            </button>
+            {user?.user_role==='MASTER'&&available>0&&!row.unsellable_reason&&(
+             <button
+              className="btn-safe-sell-open"
+              onClick={e=>openSell(row,e)}
+              title="안전 매도 주문 창 열기"
+             >
+              <span>🛡️ 매도 검토</span>
+             </button>
+            )}
            </div>
-           {row.ai_reason&&<p className="ai-reason-text">{row.ai_reason}</p>}
-           {row.ai_confidence&&<span className="ai-meta-text">근거 확신도 {row.ai_confidence}%</span>}
-          </div>
-         )}
+          </article>
+         );
+        })}
+       </div>
+      )}
 
-         <div className="holding-safe-actions">
-          <button className="btn-ai-ask" onClick={()=>onAskAI&&onAskAI(row.currency)}>
-           <span>✨ AI에게 물어보기</span>
-          </button>
-          {user?.user_role==='MASTER'&&available>0&&!row.unsellable_reason&&(
-           <button
-            className="btn-safe-sell-open"
-            onClick={e=>openSell(row,e)}
-            title="안전 매도 주문 창 열기"
-           >
-            <span>🛡️ 매도 검토</span>
-           </button>
-          )}
-         </div>
-        </article>
-       );
-      })}
-     </div>
+      {showUnsellableGroup&&(
+       <details className="unsellable-holdings-group" open={visibleAssets.length===0}>
+        <summary className="unsellable-holdings-summary">
+         <span>매도 불가 소액·미지원 자산 ({unsellableCoinAssets.length}건)</span>
+         <small>최소 주문 금액 미만 또는 원화 마켓 미지원</small>
+        </summary>
+        <div className="unsellable-holdings-list">
+         {unsellableCoinAssets.map(row=>{
+          const coinName=row.name||recNames[row.currency];
+          return (
+           <article className="unsellable-holding-item" key={row.currency}>
+            <div className="coin-identity">
+             <div className="coin-badge">{row.currency}</div>
+             <div className="coin-names">
+              <h3>{coinName?`${coinName} (${row.currency})`:row.currency}</h3>
+              <small role="status">매도 불가 소액·미지원</small>
+              <small>보유 {formatQty(row.quantity)}</small>
+             </div>
+            </div>
+            <div className="coin-valuation-block">
+             <span className="coin-valuation-amount">{row.valuation!=null?formatKrw(row.valuation):'시세 미지원'}</span>
+             {row.current_price!=null&&<small className="coin-cash-desc">현재가 {formatPrice(row.current_price)}</small>}
+            </div>
+           </article>
+          );
+         })}
+        </div>
+       </details>
+      )}
+     </>
     )}
    </section>
 
    <section className="today-orders-card" aria-labelledby="today-orders-title">
     <div className="today-orders-top">
-     <h2 id="today-orders-title">오늘 체결된 주문 ({todayOrders.length}건)</h2>
+     <h2 id="today-orders-title">
+      {showingTodayOrders
+       ?`오늘 체결된 주문 (${todayOrders.length}건)`
+       :recentOrders.length>0
+       ?`오늘 체결 0건 · 최근 주문 (${recentOrders.length}건)`
+       :'오늘 체결된 주문 (0건)'}
+     </h2>
      {onNavigate&&(
       <button className="quiet compact" onClick={()=>onNavigate('orders')}>
        전체 내역 보기 →
       </button>
      )}
     </div>
-    {todayOrders.length>0?(
+    {displayOrders.length>0?(
      <div className="today-orders-table">
-      {todayOrders.map(order=>(
-       <div key={order.uuid} className="today-order-item">
-        <div className="today-order-left">
-         <span className={`order-badge-side ${order.side}`}>{display('side',order.side)}</span>
-         <strong>{order.market}</strong>
-         <small>{display('created_at',order.created_at)}</small>
+      {displayOrders.map(order=>{
+       const stateInfo=orderStatus(order);
+       return (
+        <div key={order.uuid} className="today-order-item">
+         <div className="today-order-left">
+          <span className={`order-badge-side ${order.side}`}>{display('side',order.side)}</span>
+          <strong>{order.market}</strong>
+          {!showingTodayOrders&&(
+           <span className="order-state-chip">{stateInfo?.label||display('state',order.state)}</span>
+          )}
+          <small>{display('created_at',order.created_at)}</small>
+         </div>
+         <div className="today-order-right">
+          <span>체결 {formatQty(order.executed_volume)}</span>
+          <span>{order.price?`단가 ${formatPrice(order.price)}`:'시장가'}</span>
+         </div>
         </div>
-        <div className="today-order-right">
-         <span>체결 {formatQty(order.executed_volume)}</span>
-         <span>{order.price?`단가 ${formatPrice(order.price)}`:'시장가'}</span>
-        </div>
-       </div>
-      ))}
+       );
+      })}
      </div>
     ):(
      <p className="summary" style={{margin:0}}>오늘 체결 완료된 주문이 아직 없습니다.</p>

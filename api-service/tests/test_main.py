@@ -377,6 +377,11 @@ def test_dashboard_returns_enriched_data(monkeypatch):
     assert "ai_summary" in data
     assert data["ai_summary"]["sell_count"] == 1
     btc = next(a for a in data["assets"] if a["currency"] == "BTC")
+    krw = next(a for a in data["assets"] if a["currency"] == "KRW")
+    assert btc["name"] == "비트코인"
+    assert btc["in_recommendations"] is True
+    assert btc["weight_pct"] == 90.9
+    assert krw["weight_pct"] == 9.1
     assert btc["target_price"] == 110000000.0
     assert btc["stop_loss_price"] == 95000000.0
     assert btc["ai_action"] == "SELL"

@@ -22,7 +22,7 @@
   padding: 9px 16px;
   background: var(--surface-raised);
   border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-lg);
   color: var(--accent);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -112,6 +112,45 @@
   background: rgba(138, 150, 168, 0.1);
   color: var(--text-secondary);
   border: 1px solid rgba(138, 150, 168, 0.2);
+}
+
+.hero-allocation {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.hero-allocation-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-allocation-labels b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hero-allocation-track {
+  height: 6px;
+  background: var(--surface-overlay);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.hero-allocation-coin {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  transition: width 0.25s ease;
 }
 
 .hero-submetrics {
@@ -292,7 +331,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-lg);
   font-size: var(--text-sm);
 }
 
@@ -422,7 +461,7 @@
 .coin-badge {
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   display: grid;
@@ -430,11 +469,38 @@
   font-weight: 700;
   font-size: var(--text-xs);
   color: var(--accent);
+  flex-shrink: 0;
 }
 
 .coin-names {
   display: grid;
-  gap: 1px;
+  gap: 2px;
+}
+
+.coin-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.coin-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.coin-meta-pill.rec-active {
+  background: var(--accent-surface);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .coin-names h3 {
@@ -531,41 +597,9 @@
 }
 
 /* Strategic Targets Bar (목표가/손절가) */
-.holding-targets-details {
+.holding-targets-inline {
   border-top: 1px solid var(--border-subtle);
-  padding-top: 8px;
-}
-
-.holding-targets-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  cursor: pointer;
-  min-height: 24px;
-  padding: 4px 0;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  user-select: none;
-}
-
-.holding-targets-summary:hover {
-  color: var(--text-primary);
-}
-
-.holding-targets-summary-title {
-  color: var(--text-tertiary);
-  font-weight: 600;
-}
-
-.holding-targets-summary-val {
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
-.holding-targets-details[open] .targets-section {
-  padding-top: 8px;
+  padding-top: 10px;
 }
 
 .targets-section {
@@ -740,6 +774,53 @@
   border-color: var(--border-strong);
 }
 
+/* Unsellable Holdings Collapsible Group */
+.unsellable-holdings-group {
+  margin-top: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 4px 16px;
+}
+
+.unsellable-holdings-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 8px 0;
+}
+
+.unsellable-holdings-summary small {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.unsellable-holdings-list {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.unsellable-holding-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
 /* --------------------------------------------------------------------------
    5. Safe Market Sell Modal with Fail-Safe Slide-to-Confirm
    -------------------------------------------------------------------------- */
@@ -829,7 +910,7 @@
   gap: 9px;
   background: var(--surface-sunken);
   padding: 12px 14px;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-md);
   border: 1px solid var(--surface-raised);
   font-size: var(--text-sm);
   margin: 0;
@@ -861,7 +942,7 @@
 .safe-sell-warning-box {
   background: var(--state-warning-surface);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   font-size: var(--text-xs);
   color: var(--text-primary);
@@ -976,7 +1057,7 @@
   background: var(--surface-raised);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
@@ -1029,7 +1110,7 @@
     padding: 10px 14px;
     background: var(--surface-sunken);
     border: 1px solid var(--surface-raised);
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-radius: var(--radius-md);
     font-size: var(--text-sm);
 }
 
@@ -1037,6 +1118,17 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
+}
+
+.order-state-chip {
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
 }
 
 .order-badge-side {
@@ -1075,9 +1167,14 @@
   }
     .safety-bar-right {
         width: 100%;
-        justify-content: flex-end;
+        justify-content: space-between;
+        flex-wrap: wrap;
   }
-    .safety-bar-right button {
+    .safety-bar-right .auto-switch-wrap {
+        width: 100%;
+        justify-content: space-between;
+  }
+    .safety-bar-right button:not(.auto-switch) {
         width: 100%;
   }
     .holdings-header {
