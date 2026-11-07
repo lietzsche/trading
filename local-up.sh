@@ -2,7 +2,12 @@
 set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
-[[ -s .env ]] || { echo "오류: cp .env.example .env 후 POSTGRES_PASSWORD를 설정하세요." >&2; exit 1; }
+if [[ ! -s .env ]]; then
+  umask 077
+  printf 'POSTGRES_USER=bion_user\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=postgres\n' \
+    "$(openssl rand -hex 32)" > .env
+  echo "강한 로컬 DB 비밀번호로 .env를 생성했습니다."
+fi
 if [[ ! -s .runtime.env ]]; then
   umask 077
   printf 'SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" > .runtime.env

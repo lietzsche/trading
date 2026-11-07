@@ -18,11 +18,11 @@ Upbit KRW 마켓에서 **40일 단순 이동평균(MA40)** 한 가지 기준으�
 Docker와 Docker Compose v2, OpenSSL이 필요합니다.
 
 ```bash
-cp .env.example .env
-# .env의 POSTGRES_PASSWORD를 충분히 긴 값으로 변경
 chmod +x local-up.sh
 ./local-up.sh
 ```
+
+`.env`가 없으면 `local-up.sh`가 강한 임의 PostgreSQL 비밀번호를 생성합니다. 직접 관리하려면 `.env.example`을 복사해 먼저 설정해도 됩니다.
 
 브라우저에서 `http://localhost:8001`을 엽니다. 최초 실행에서는 회원가입이 열리므로 첫 계정을 만든 뒤, 운영 시에는 `SIGNUP_ENABLED=false`로 실행하는 것을 권장합니다.
 
