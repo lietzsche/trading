@@ -17,7 +17,6 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.rows import dict_row
 from app.trading import TradingEngine
-from app.ai import AIService, create_router
 from app.us_market import is_us_symbol
 from app.auth_security import authenticate
 from app.credentials import encrypt_upbit, migrate_upbit_credentials
@@ -91,18 +90,17 @@ class Database:
 
 db = Database()
 engine = TradingEngine(db, CALCULATION_SERVICE_URL, TRADING_ENABLED)
+_public_ip_cache = {"value": None, "checked_at": 0.0}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     migrate_upbit_credentials(db,SESSION_SECRET)
-    ai_service.start()
     engine.start()
     try:
         yield
     finally:
         engine.stop()
-        ai_service.stop()
 
 
 app = FastAPI(title="Trading API", version="2.0.0", lifespan=lifespan)
@@ -182,6 +180,22 @@ def dependency_health():
 def health():
     state = dependency_health()
     return JSONResponse(state, status_code=200 if state["status"] == "UP" else 503)
+
+
+@app.get("/api/system/public-ip")
+def public_ip(_: Annotated[dict, Depends(current_user)]):
+    """Public egress IP that must be allow-listed in the Upbit API key."""
+    if _public_ip_cache["value"] and time.monotonic() - _public_ip_cache["checked_at"] < 300:
+        return {"public_ip": _public_ip_cache["value"], "cached": True}
+    for url in ("https://api64.ipify.org", "https://checkip.amazonaws.com"):
+        try:
+            value = httpx.get(url, timeout=4).text.strip()
+            ip_address(value)
+            _public_ip_cache.update(value=value, checked_at=time.monotonic())
+            return {"public_ip": value, "cached": False}
+        except (httpx.HTTPError, ValueError):
+            continue
+    raise HTTPException(503, "서버의 공인 IP를 확인하지 못했습니다. 서버에서 직접 확인해 주세요.")
 
 
 @app.post("/api/auth/login")
@@ -459,20 +473,6 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
           AND (state = 'done' OR (executed_volume IS NOT NULL AND executed_volume::numeric > 0))
         ORDER BY id DESC LIMIT 10""", (user["user_login_id"],))
 
-    latest_ai = db.one("""SELECT id, result, created_at, completed_at FROM ai_analyses
-        WHERE user_id=%s AND market='upbit' AND status='COMPLETED'
-        ORDER BY id DESC LIMIT 1""", (user["id"],))
-    ai_actions_by_code = {}
-    ai_sell_count = 0
-    if latest_ai and isinstance(latest_ai.get("result"), dict):
-        actions = latest_ai["result"].get("portfolio_actions") or []
-        if isinstance(actions, list):
-            for act in actions:
-                if isinstance(act, dict) and "code" in act:
-                    ai_actions_by_code[act["code"]] = act
-                    if act.get("action") == "SELL":
-                        ai_sell_count += 1
-
     rec_by_code = {row["code"]: row for row in recommendations}
     total_val = float(snapshot.get("total_valuation") or 0)
     enriched_assets = []
@@ -485,7 +485,6 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
         if currency != "KRW":
             code = f"KRW-{currency}"
             rec = rec_by_code.get(code)
-            ai_dec = ai_actions_by_code.get(code)
             row["in_recommendations"] = bool(rec)
             if rec:
                 if rec.get("name"):
@@ -502,10 +501,6 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
                     row["distance_to_stop_pct"] = round((curr - min_price) * 100 / curr, 2)
                     span = exp_price - min_price
                     row["target_progress"] = max(0, min(100, round((curr - min_price) * 100 / span, 1))) if span > 0 else 0
-            if ai_dec:
-                row["ai_action"] = ai_dec.get("action")
-                row["ai_reason"] = ai_dec.get("reason")
-                row["ai_confidence"] = ai_dec.get("confidence")
         enriched_assets.append(row)
     snapshot["assets"] = enriched_assets
 
@@ -519,7 +514,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
         except ValueError:
             pass
 
-    price_healthy = price_age is not None and price_age <= 150
+    price_healthy = price_age is not None and price_age <= 450
     auto_on = bool(key and key.get("auto_on"))
     key_registered = bool(key)
     unresolved_orders = db.all("""SELECT identifier,market,created_at FROM auto_order_requests
@@ -527,7 +522,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
 
     next_decision_seconds = None
     if hasattr(engine, "scheduler") and engine.scheduler.running:
-        job = engine.scheduler.get_job("trading-2")
+        job = engine.scheduler.get_job("trading-1")
         if job and job.next_run_time:
             now_utc = datetime.now(timezone.utc)
             next_decision_seconds = max(0, int((job.next_run_time - now_utc).total_seconds()))
@@ -559,8 +554,6 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
     if latest_price and not price_healthy:
         mins = max(1, int(price_age / 60)) if price_age else 1
         notifications.append({"id": "price-delay", "level": "warning", "title": "가격 갱신 지연", "message": f"가격 데이터가 {mins}분째 지연되고 있습니다."})
-    if ai_sell_count > 0:
-        notifications.append({"id": "ai-sell", "level": "caution", "title": "AI 매도 검토", "message": f"보유 종목 중 {ai_sell_count}개에 대해 AI가 매도 검토를 제안했습니다."})
     if latest_error:
         notifications.append({"id": "recent-error", "level": "error", "title": f"{latest_error.get('source', '')} 오류", "message": latest_error.get("operation") or "오류가 기록되었습니다."})
 
@@ -588,12 +581,6 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
             "price_healthy": price_healthy,
             "next_decision_seconds": next_decision_seconds,
             "latest_error": latest_error,
-        },
-        "ai_summary": {
-            "sell_count": ai_sell_count,
-            "total_actions": len(ai_actions_by_code),
-            "latest_at": latest_ai["completed_at"] if latest_ai else None,
-            "latest_id": latest_ai["id"] if latest_ai else None,
         },
         "notifications": notifications,
     }
@@ -756,8 +743,20 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
     return {"ok": True, "note": "Python 스케줄러가 다음 계산부터 새 설정을 사용합니다."}
 
 
-ai_service = AIService(lambda: db, engine, CALCULATION_SERVICE_URL, SESSION_SECRET, SettingUpdate)
-app.include_router(create_router(ai_service, admin_user, master_user))
+# This branch intentionally exposes only the endpoints needed by the Upbit
+# MA40 trader. Legacy stock, dividend, AI, mail, user-admin and tunable-strategy
+# routes remain out of the public API even when an old database still has their
+# tables.
+_MA40_API_PATHS = {
+    "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+    "/api/auth/config", "/api/auth/join",
+    "/api/dashboard", "/api/orders", "/api/admin/system", "/api/admin/errors",
+    "/api/system/public-ip",
+    "/api/upbit/key/status", "/api/upbit/key", "/api/upbit/accounts",
+    "/api/upbit/auto", "/api/upbit/auto-orders/reconcile",
+}
+app.router.routes[:] = [route for route in app.router.routes if not getattr(route, "path", "").startswith("/api/")
+                        or route.path in _MA40_API_PATHS]
 
 
 @app.get("/api/{path:path}", include_in_schema=False)

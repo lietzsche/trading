@@ -17,7 +17,6 @@ import httpx
 import jwt
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup
-from app.us_market import us_data, us_universe, is_us_symbol, chart_result, trailing_dividend, USRateLimited
 from app.credentials import upbit_credentials
 
 log = logging.getLogger(__name__)
@@ -49,30 +48,15 @@ class TradingEngine:
             log.warning("Trading scheduler is disabled")
             return
         jobs = [
-            (self.collect_upbit, "interval", {"minutes": 15}),
-            (self.update_upbit, "interval", {"minutes": 1}),
+            (self.collect_upbit, "interval", {"minutes": 5}),
             (self.auto_order, "interval", {"seconds": 30}),
-            (self.collect_stock, "cron", {"day_of_week": "mon-fri", "hour": 8, "minute": 10}),
-            (self.update_stock, "cron", {"day_of_week": "mon-fri", "hour": "8-15", "minute": "*"}),
-            (self.collect_us_stock,"cron",{"day_of_week":"mon-fri","hour":8,"minute":30,"timezone":"America/New_York"}),
-            (self.update_us_stock,"cron",{"day_of_week":"mon-fri","hour":"9-16","minute":"*/5","timezone":"America/New_York"}),
-            (self.save_us_stock_history,"cron",{"day_of_week":"mon-fri","hour":17,"minute":30,"timezone":"America/New_York"}),
-            (self.collect_us_dividends,"cron",{"hour":18,"minute":0,"timezone":"America/New_York"}),
             (self.prune_errors,"interval",{"hours":1}),
-            (self.save_stock_history, "cron", {"day_of_week": "mon-fri", "hour": 17, "minute": 30}),
-            (self.save_upbit_history, "cron", {"hour": 17, "minute": 30}),
-            (self.collect_dividends, "cron", {"hour": 17, "minute": 30}),
-            (self.send_hourly_summary, "cron", {"minute": 0}),
         ]
         for index, (function, trigger, options) in enumerate(jobs):
             self.scheduler.add_job(function, trigger, id=f"trading-{index}", max_instances=1,
                                    coalesce=True, misfire_grace_time=30, **options)
         self.scheduler.start()
-        if not self.db.one("SELECT id FROM dividend_stock WHERE deleted_at IS NULL LIMIT 1"):
-            self.scheduler.add_job(self.collect_dividends, "date", id="seed-dividends")
-        if not self.db.one("SELECT id FROM stock_history_label WHERE code LIKE %s AND deleted_at IS NULL LIMIT 1",('US:%',)):
-            self.scheduler.add_job(self.collect_us_stock,'date',id='seed-us-stock')
-            self.scheduler.add_job(self.collect_us_dividends,'date',id='seed-us-dividends')
+        self.scheduler.add_job(self.collect_upbit, "date", id="seed-upbit")
         self.scheduler.add_job(self.prune_errors,'date',id='initial-error-retention')
         log.info("Python trading scheduler started with %d jobs", len(jobs))
 
@@ -212,7 +196,7 @@ class TradingEngine:
                     VALUES(nextval('upbit_history_label_seq'),%s,%s,%s,NULL,NULL)""",
                     (code, market["korean_name"], self.now()))
             try:
-                prices = self.upbit_prices(code, setting["highest_price_reference_days"])
+                prices = self.upbit_prices(code, 41)
                 instruments.append({"code": code, "name": market["korean_name"], "prices": prices})
             except Exception as error:
                 self.record_error("UPBIT", "FETCH_PRICE", error)
@@ -222,17 +206,23 @@ class TradingEngine:
             "volume_check": setting["is_volume_check"], "amplitude_check": False,
         })["selected_codes"]
         by_code = {item["code"]: item for item in instruments}
+        self.db.execute("""UPDATE upbit SET deleted_at=%s,updated_at=%s
+            WHERE deleted_at IS NULL AND NOT (code=ANY(%s))""", (now, now, selected))
         for code in selected:
-            if self.db.one("SELECT id FROM upbit WHERE code=%s AND deleted_at IS NULL", (code,)):
-                continue
             item, close = by_code[code], by_code[code]["prices"][0]["close"]
-            low = close * (1 + setting["expected_low_percentage"] / 100)
-            high = close * (1 + setting["expected_high_percentage"] / 100)
+            ma40 = sum(price["close"] for price in item["prices"][1:41]) / 40
+            existing = self.db.one("SELECT id FROM upbit WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
+            if existing:
+                self.db.execute("""UPDATE upbit SET name=%s,minimum_selling_price=%s,
+                    expected_selling_price=%s,temp_price=%s,setting_price=%s,deleted_at=NULL,
+                    updated_at=%s WHERE id=%s""", (item["name"], ma40, ma40, close, ma40,
+                    now, existing["id"]))
+                continue
             self.db.execute("""INSERT INTO upbit(id,code,name,origin_minimum_selling_price,
                 origin_expected_selling_price,minimum_selling_price,expected_selling_price,temp_price,
                 setting_price,pricing_reference_date,renewal_cnt,created_at,deleted_at,updated_at)
                 VALUES(nextval('upbit_seq'),%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,NULL,NULL)""",
-                (code, item["name"], low, high, low, high, close, close, self.now(), self.now()))
+                (code, item["name"], ma40, ma40, ma40, ma40, close, ma40, self.now(), self.now()))
 
     def update_upbit(self):
         return self.run("UPBIT", "SCHEDULE_UPDATE", lambda: self._update_positions("upbit", self.upbit_prices))
@@ -724,7 +714,7 @@ class TradingEngine:
         actions = self.calc("/v1/auto-trade/decide", {
             "recommended_markets": markets, "balances": [{"currency": a["currency"]} for a in accounts
                                                         if a['currency'] not in excluded],
-            "minimum_recommendations": 3,
+            "minimum_recommendations": 1,
         })["actions"]
         recent_manual_sells = {row["market"] for row in self.db.all("""SELECT DISTINCT market
             FROM upbit_order_history
