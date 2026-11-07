@@ -353,6 +353,8 @@ class MailTarget(BaseModel):
 def join(payload: JoinRequest):
     if not SIGNUP_ENABLED:
         raise HTTPException(403,'회원가입이 비활성화되어 있습니다.')
+    if db.one("SELECT id FROM tb_user WHERE deleted_at IS NULL LIMIT 1"):
+        raise HTTPException(403, "최초 계정이 이미 생성되어 회원가입이 잠겼습니다.")
     if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (payload.login_id,)):
         raise HTTPException(409, "이미 사용 중인 아이디입니다.")
     password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
