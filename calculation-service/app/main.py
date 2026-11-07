@@ -54,6 +54,19 @@ class AutoTradeResponse(BaseModel):
     actions: list[TradeAction]
 
 
+class BacktestCandle(BaseModel):
+    date: str
+    open: FiniteFloat = Field(gt=0)
+    close: FiniteFloat = Field(gt=0)
+
+
+class BacktestRequest(BaseModel):
+    candles: list[BacktestCandle]
+    initial_capital: FiniteFloat = Field(default=1_000_000, gt=0)
+    fee_bps: FiniteFloat = Field(default=5, ge=0, le=1000)
+    slippage_bps: FiniteFloat = Field(default=10, ge=0, le=1000)
+
+
 app = FastAPI(title="Upbit MA40 Calculation Service", version="1.0.0")
 
 
@@ -92,3 +105,43 @@ def decide_auto_trade(request: AutoTradeRequest) -> AutoTradeResponse:
         return AutoTradeResponse(actions=[TradeAction(side="BUY", market=market)
                                           for market in recommendations])
     return AutoTradeResponse(actions=[])
+
+
+@app.post("/v1/backtests/ma40")
+def backtest_ma40(request: BacktestRequest):
+    rows = sorted(request.candles, key=lambda row: row.date)
+    fee, slip = request.fee_bps / 10_000, request.slippage_bps / 10_000
+    cash, quantity, trades, curve = float(request.initial_capital), 0.0, [], []
+    entry_cost = None
+    for index, row in enumerate(rows):
+        if index:
+            previous = rows[index - 1]
+            history = rows[max(0, index - 41):index - 1]
+            desired = len(history) == MA_PERIOD and previous.close >= sum(item.close for item in history) / MA_PERIOD
+            if desired and quantity == 0:
+                price = row.open * (1 + slip)
+                quantity = cash * (1 - fee) / price
+                entry_cost, cash = float(request.initial_capital) if not trades else cash, 0.0
+                trades.append({"date": row.date, "side": "BUY", "price": price, "value": quantity * price})
+            elif not desired and quantity > 0:
+                price = row.open * (1 - slip)
+                cash = quantity * price * (1 - fee)
+                trades.append({"date": row.date, "side": "SELL", "price": price, "value": cash})
+                quantity, entry_cost = 0.0, None
+        equity = cash + quantity * row.close
+        curve.append({"date": row.date, "equity": equity})
+    if rows and quantity > 0:
+        price = rows[-1].close * (1 - slip)
+        cash = quantity * price * (1 - fee)
+        trades.append({"date": rows[-1].date, "side": "SELL", "price": price, "value": cash, "forced": True})
+        curve[-1]["equity"] = cash
+    final = cash if rows else float(request.initial_capital)
+    peak, max_drawdown = 0.0, 0.0
+    for point in curve:
+        peak = max(peak, point["equity"])
+        if peak:
+            max_drawdown = max(max_drawdown, (peak - point["equity"]) * 100 / peak)
+    return {"ma_period": MA_PERIOD, "initial_capital": request.initial_capital, "final_equity": final,
+            "return_pct": (final / request.initial_capital - 1) * 100,
+            "max_drawdown_pct": max_drawdown, "trade_count": len([t for t in trades if t["side"] == "SELL"]),
+            "trades": trades, "curve": curve}

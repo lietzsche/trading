@@ -49,6 +49,14 @@ class AutoUpdate(BaseModel):
     auto_on: bool
 
 
+class BacktestRun(BaseModel):
+    market: str = Field(default="KRW-BTC", pattern=r"^KRW-[A-Z0-9]{1,20}$")
+    days: int = Field(default=180, ge=60, le=200)
+    initial_capital: float = Field(default=1_000_000, gt=0, le=1_000_000_000_000)
+    fee_bps: float = Field(default=5, ge=0, le=1000)
+    slippage_bps: float = Field(default=10, ge=0, le=1000)
+
+
 class SettingUpdate(BaseModel):
     expected_high_percentage: int = Field(ge=1, le=1000)
     expected_low_percentage: int = Field(ge=-99, le=1000)
@@ -196,6 +204,21 @@ def public_ip(_: Annotated[dict, Depends(current_user)]):
         except (httpx.HTTPError, ValueError):
             continue
     raise HTTPException(503, "서버의 공인 IP를 확인하지 못했습니다. 서버에서 직접 확인해 주세요.")
+
+
+@app.post("/api/backtest")
+def run_backtest(payload: BacktestRun, _: Annotated[dict, Depends(current_user)]):
+    try:
+        rows = engine.upbit_public("/v1/candles/days", {"market": payload.market, "count": payload.days})
+        candles = [{"date": row["candle_date_time_kst"][:10], "open": row["opening_price"],
+                    "close": row["trade_price"]} for row in rows]
+        result = engine.calc("/v1/backtests/ma40", {"candles": candles,
+            "initial_capital": payload.initial_capital, "fee_bps": payload.fee_bps,
+            "slippage_bps": payload.slippage_bps})
+        return {"market": payload.market, "days": len(candles), **result}
+    except httpx.HTTPError as error:
+        engine.record_error("UPBIT", "BACKTEST", error)
+        raise HTTPException(502, "백테스트 시세를 불러오지 못했습니다.") from None
 
 
 @app.post("/api/auth/login")
@@ -754,6 +777,7 @@ _MA40_API_PATHS = {
     "/api/auth/config", "/api/auth/join",
     "/api/dashboard", "/api/orders", "/api/admin/system", "/api/admin/errors",
     "/api/system/public-ip",
+    "/api/backtest",
     "/api/upbit/key/status", "/api/upbit/key", "/api/upbit/accounts",
     "/api/upbit/auto", "/api/upbit/auto-orders/reconcile",
 }

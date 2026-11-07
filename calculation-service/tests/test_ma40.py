@@ -42,3 +42,15 @@ def test_auto_trade_buys_with_one_signal_and_sells_below_ma40():
     }).json()
     assert buy == {"actions": [{"side": "BUY", "market": "KRW-BTC"}]}
     assert sell == {"actions": [{"side": "SELL", "market": "KRW-BTC"}]}
+
+
+def test_backtest_uses_next_open_and_reports_costs():
+    candles=[]
+    for index in range(45):
+        close=100 if index < 41 else 110
+        candles.append({"date":f"2026-01-{index+1:02d}","open":120 if index==41 else close,"close":close})
+    result=client.post('/v1/backtests/ma40',json={"candles":candles,"initial_capital":1000000,
+        "fee_bps":5,"slippage_bps":10}).json()
+    assert result['ma_period']==40
+    assert result['trades'][0]['side']=='BUY' and result['trades'][0]['price']==120*1.001
+    assert result['trade_count']==1 and result['final_equity'] < 1000000
