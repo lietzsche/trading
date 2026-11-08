@@ -52,9 +52,16 @@ class AutoUpdate(BaseModel):
 class BacktestRun(BaseModel):
     market: str = Field(default="KRW-BTC", pattern=r"^KRW-[A-Z0-9]{1,20}$")
     days: int = Field(default=180, ge=60, le=200)
+    ma_period: int = Field(default=40, ge=2, le=199)
     initial_capital: float = Field(default=1_000_000, gt=0, le=1_000_000_000_000)
     fee_bps: float = Field(default=5, ge=0, le=1000)
     slippage_bps: float = Field(default=10, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def validate_backtest_window(self):
+        if self.days < self.ma_period + 2:
+            raise ValueError("테스트 기간은 기준 봉 수보다 최소 2일 길어야 합니다.")
+        return self
 
 
 class SettingUpdate(BaseModel):
@@ -213,7 +220,7 @@ def run_backtest(payload: BacktestRun, _: Annotated[dict, Depends(current_user)]
         candles = [{"date": row["candle_date_time_kst"][:10], "open": row["opening_price"],
                     "close": row["trade_price"]} for row in rows]
         result = engine.calc("/v1/backtests/ma40", {"candles": candles,
-            "initial_capital": payload.initial_capital, "fee_bps": payload.fee_bps,
+            "ma_period": payload.ma_period, "initial_capital": payload.initial_capital, "fee_bps": payload.fee_bps,
             "slippage_bps": payload.slippage_bps})
         return {"market": payload.market, "days": len(candles), **result}
     except httpx.HTTPError as error:

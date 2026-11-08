@@ -62,6 +62,7 @@ class BacktestCandle(BaseModel):
 
 class BacktestRequest(BaseModel):
     candles: list[BacktestCandle]
+    ma_period: int = Field(default=MA_PERIOD, ge=2, le=199)
     initial_capital: FiniteFloat = Field(default=1_000_000, gt=0)
     fee_bps: FiniteFloat = Field(default=5, ge=0, le=1000)
     slippage_bps: FiniteFloat = Field(default=10, ge=0, le=1000)
@@ -110,14 +111,15 @@ def decide_auto_trade(request: AutoTradeRequest) -> AutoTradeResponse:
 @app.post("/v1/backtests/ma40")
 def backtest_ma40(request: BacktestRequest):
     rows = sorted(request.candles, key=lambda row: row.date)
+    period = request.ma_period
     fee, slip = request.fee_bps / 10_000, request.slippage_bps / 10_000
     cash, quantity, trades, curve = float(request.initial_capital), 0.0, [], []
     entry_cost = None
     for index, row in enumerate(rows):
         if index:
             previous = rows[index - 1]
-            history = rows[max(0, index - 41):index - 1]
-            desired = len(history) == MA_PERIOD and previous.close >= sum(item.close for item in history) / MA_PERIOD
+            history = rows[max(0, index - period - 1):index - 1]
+            desired = len(history) == period and previous.close >= sum(item.close for item in history) / period
             if desired and quantity == 0:
                 price = row.open * (1 + slip)
                 quantity = cash * (1 - fee) / price
@@ -136,12 +138,20 @@ def backtest_ma40(request: BacktestRequest):
         trades.append({"date": rows[-1].date, "side": "SELL", "price": price, "value": cash, "forced": True})
         curve[-1]["equity"] = cash
     final = cash if rows else float(request.initial_capital)
+    benchmark_pct = 0.0
+    benchmark_start = period + 1
+    if len(rows) > benchmark_start:
+        benchmark_buy = rows[benchmark_start].open * (1 + slip)
+        benchmark_quantity = request.initial_capital * (1 - fee) / benchmark_buy
+        benchmark_final = benchmark_quantity * rows[-1].close * (1 - slip) * (1 - fee)
+        benchmark_pct = (benchmark_final / request.initial_capital - 1) * 100
     peak, max_drawdown = 0.0, 0.0
     for point in curve:
         peak = max(peak, point["equity"])
         if peak:
             max_drawdown = max(max_drawdown, (peak - point["equity"]) * 100 / peak)
-    return {"ma_period": MA_PERIOD, "initial_capital": request.initial_capital, "final_equity": final,
-            "return_pct": (final / request.initial_capital - 1) * 100,
+    return {"ma_period": period, "initial_capital": request.initial_capital, "final_equity": final,
+            "return_pct": (final / request.initial_capital - 1) * 100, "benchmark_return_pct": benchmark_pct,
+            "excess_return_pct": (final / request.initial_capital - 1) * 100 - benchmark_pct,
             "max_drawdown_pct": max_drawdown, "trade_count": len([t for t in trades if t["side"] == "SELL"]),
             "trades": trades, "curve": curve}

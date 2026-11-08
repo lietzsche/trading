@@ -49,8 +49,17 @@ def test_backtest_uses_next_open_and_reports_costs():
     for index in range(45):
         close=100 if index < 41 else 110
         candles.append({"date":f"2026-01-{index+1:02d}","open":120 if index==41 else close,"close":close})
-    result=client.post('/v1/backtests/ma40',json={"candles":candles,"initial_capital":1000000,
+    result=client.post('/v1/backtests/ma40',json={"candles":candles,"initial_capital":1000000,"ma_period":40,
         "fee_bps":5,"slippage_bps":10}).json()
     assert result['ma_period']==40
     assert result['trades'][0]['side']=='BUY' and result['trades'][0]['price']==120*1.001
     assert result['trade_count']==1 and result['final_equity'] < 1000000
+    assert 'benchmark_return_pct' in result and 'excess_return_pct' in result
+
+
+def test_backtest_accepts_a_configurable_moving_average_period():
+    candles=[{"date":f"2026-02-{index+1:02d}","open":100,"close":100 if index<6 else 110}
+             for index in range(10)]
+    result=client.post('/v1/backtests/ma40',json={"candles":candles,"ma_period":5}).json()
+    assert result['ma_period']==5
+    assert result['trade_count']==1
