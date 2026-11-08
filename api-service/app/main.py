@@ -64,6 +64,11 @@ class BacktestRun(BaseModel):
         return self
 
 
+class MarketStrategyUpdate(BaseModel):
+    market: str = Field(pattern=r"^KRW-[A-Z0-9]{1,20}$")
+    ma_period: int = Field(ge=2, le=199)
+
+
 class SettingUpdate(BaseModel):
     expected_high_percentage: int = Field(ge=1, le=1000)
     expected_low_percentage: int = Field(ge=-99, le=1000)
@@ -226,6 +231,28 @@ def run_backtest(payload: BacktestRun, _: Annotated[dict, Depends(current_user)]
     except httpx.HTTPError as error:
         engine.record_error("UPBIT", "BACKTEST", error)
         raise HTTPException(502, "백테스트 시세를 불러오지 못했습니다.") from None
+
+
+@app.get("/api/strategies")
+def market_strategies(_: Annotated[dict, Depends(current_user)]):
+    return {"default_ma_period": 40, "items": db.all(
+        "SELECT market,ma_period,updated_at FROM upbit_strategy_settings ORDER BY market")}
+
+
+@app.put("/api/strategies")
+def save_market_strategy(payload: MarketStrategyUpdate, _: Annotated[dict, Depends(current_user)]):
+    db.execute("""INSERT INTO upbit_strategy_settings(market,ma_period,updated_at)
+        VALUES(%s,%s,CURRENT_TIMESTAMP) ON CONFLICT(market) DO UPDATE
+        SET ma_period=EXCLUDED.ma_period,updated_at=CURRENT_TIMESTAMP""", (payload.market, payload.ma_period))
+    return {"ok": True, "market": payload.market, "ma_period": payload.ma_period,
+            "note": "다음 신호 수집부터 적용됩니다."}
+
+
+@app.delete("/api/strategies/{market}", status_code=204)
+def delete_market_strategy(market: str, _: Annotated[dict, Depends(current_user)]):
+    if not market.startswith("KRW-"):
+        raise HTTPException(422, "올바른 KRW 마켓을 입력해 주세요.")
+    db.execute("DELETE FROM upbit_strategy_settings WHERE market=%s", (market,))
 
 
 @app.post("/api/auth/login")
@@ -490,9 +517,10 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
     day_change = snapshot["total_valuation"] - float(baseline["total_valuation"]) if baseline else None
     day_change_rate = (day_change * 100 / float(baseline["total_valuation"])) if (baseline and float(baseline["total_valuation"]) > 0 and day_change is not None) else None
 
-    recommendations = db.all("""SELECT code,name,temp_price,minimum_selling_price,expected_selling_price,
-        setting_price,renewal_cnt,updated_at FROM upbit WHERE deleted_at IS NULL ORDER BY renewal_cnt DESC,
-        (expected_selling_price-temp_price)/NULLIF(expected_selling_price-minimum_selling_price,0) ASC NULLS LAST,id DESC""")
+    recommendations = db.all("""SELECT u.code,u.name,u.temp_price,u.minimum_selling_price,u.expected_selling_price,
+        u.setting_price,u.renewal_cnt,u.updated_at,COALESCE(s.ma_period,40) AS ma_period FROM upbit u
+        LEFT JOIN upbit_strategy_settings s ON s.market=u.code WHERE u.deleted_at IS NULL ORDER BY u.renewal_cnt DESC,
+        (u.expected_selling_price-u.temp_price)/NULLIF(u.expected_selling_price-u.minimum_selling_price,0) ASC NULLS LAST,u.id DESC""")
 
     recent_orders = db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
         FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 5""",
@@ -785,6 +813,7 @@ _MA40_API_PATHS = {
     "/api/dashboard", "/api/orders", "/api/admin/system", "/api/admin/errors",
     "/api/system/public-ip",
     "/api/backtest",
+    "/api/strategies", "/api/strategies/{market}",
     "/api/upbit/key/status", "/api/upbit/key", "/api/upbit/accounts",
     "/api/upbit/auto", "/api/upbit/auto-orders/reconcile",
 }

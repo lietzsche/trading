@@ -20,6 +20,7 @@ class Instrument(BaseModel):
     code: str
     name: str = ""
     prices: list[Price]
+    ma_period: int = Field(default=MA_PERIOD, ge=2, le=199)
 
 
 class SelectionRequest(BaseModel):
@@ -88,11 +89,12 @@ def select_recommendations(request: SelectionRequest) -> SelectionResponse:
 
 def _above_ma40(instrument: Instrument) -> bool:
     # Upbit returns newest first. prices[0] is today's still-forming candle.
-    if len(instrument.prices) < MA_PERIOD + 1:
+    period = instrument.ma_period
+    if len(instrument.prices) < period + 1:
         return False
     current = instrument.prices[0].close
-    completed = [row.close for row in instrument.prices[1 : MA_PERIOD + 1]]
-    return current > 0 and all(close > 0 for close in completed) and current >= sum(completed) / MA_PERIOD
+    completed = [row.close for row in instrument.prices[1 : period + 1]]
+    return current > 0 and all(close > 0 for close in completed) and current >= sum(completed) / period
 
 
 @app.post("/v1/auto-trade/decide", response_model=AutoTradeResponse)

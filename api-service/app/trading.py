@@ -177,6 +177,8 @@ class TradingEngine:
     def _collect_upbit(self):
         setting = self.setting("upbit")
         markets = self.upbit_public("/v1/market/all", {"isDetails": "false"})
+        strategy_periods = {row["market"]: row["ma_period"] for row in
+                            self.db.all("SELECT market,ma_period FROM upbit_strategy_settings")}
         codes = self._validated_upbit_codes(markets)
         now = self.now()
         self.db.execute("""UPDATE upbit SET deleted_at=%s,updated_at=%s
@@ -196,8 +198,10 @@ class TradingEngine:
                     VALUES(nextval('upbit_history_label_seq'),%s,%s,%s,NULL,NULL)""",
                     (code, market["korean_name"], self.now()))
             try:
-                prices = self.upbit_prices(code, 41)
-                instruments.append({"code": code, "name": market["korean_name"], "prices": prices})
+                period = strategy_periods.get(code, 40)
+                prices = self.upbit_prices(code, period + 1)
+                instruments.append({"code": code, "name": market["korean_name"], "prices": prices,
+                                    "ma_period": period})
             except Exception as error:
                 self.record_error("UPBIT", "FETCH_PRICE", error)
         selected = self.calc("/v1/recommendations/select", {
@@ -210,19 +214,20 @@ class TradingEngine:
             WHERE deleted_at IS NULL AND NOT (code=ANY(%s))""", (now, now, selected))
         for code in selected:
             item, close = by_code[code], by_code[code]["prices"][0]["close"]
-            ma40 = sum(price["close"] for price in item["prices"][1:41]) / 40
+            period = item["ma_period"]
+            average = sum(price["close"] for price in item["prices"][1:period + 1]) / period
             existing = self.db.one("SELECT id FROM upbit WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
             if existing:
                 self.db.execute("""UPDATE upbit SET name=%s,minimum_selling_price=%s,
                     expected_selling_price=%s,temp_price=%s,setting_price=%s,deleted_at=NULL,
-                    updated_at=%s WHERE id=%s""", (item["name"], ma40, ma40, close, ma40,
+                    updated_at=%s WHERE id=%s""", (item["name"], average, average, close, average,
                     now, existing["id"]))
                 continue
             self.db.execute("""INSERT INTO upbit(id,code,name,origin_minimum_selling_price,
                 origin_expected_selling_price,minimum_selling_price,expected_selling_price,temp_price,
                 setting_price,pricing_reference_date,renewal_cnt,created_at,deleted_at,updated_at)
                 VALUES(nextval('upbit_seq'),%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,NULL,NULL)""",
-                (code, item["name"], ma40, ma40, ma40, ma40, close, ma40, self.now(), self.now()))
+                (code, item["name"], average, average, average, average, close, average, self.now(), self.now()))
 
     def update_upbit(self):
         return self.run("UPBIT", "SCHEDULE_UPDATE", lambda: self._update_positions("upbit", self.upbit_prices))

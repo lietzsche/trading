@@ -21,6 +21,13 @@ def test_uses_current_price_against_40_completed_candles():
     assert select(bars(99)) == []
 
 
+def test_live_signal_accepts_a_period_per_instrument():
+    short = bars(101)[:6]
+    response=client.post('/v1/recommendations/select',json={
+        'instruments':[{'code':'KRW-BTC','prices':short,'ma_period':5}]})
+    assert response.json()['selected_codes']==['KRW-BTC']
+
+
 def test_requires_40_completed_candles_and_rejects_zero_prices():
     assert select(bars(101)[:-1]) == []
     invalid = bars(101)

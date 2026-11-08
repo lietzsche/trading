@@ -91,7 +91,7 @@ services:
       PGDATABASE: ${POSTGRES_DB:-postgres}
     volumes:
       - ./db/migrations:/migrations:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V000__ma40_base.sql", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V006__portfolio_dashboard.sql", "-f", "/migrations/V009__error_retention_index.sql", "-f", "/migrations/V010__error_repeat_aggregation.sql", "-f", "/migrations/V011__auth_security.sql", "-f", "/migrations/V012__auto_order_requests.sql", "-f", "/migrations/V013__upbit_ciphertext_capacity.sql"]
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/migrations/V000__ma40_base.sql", "-f", "/migrations/V001__active_recommendation_uniqueness.sql", "-f", "/migrations/V006__portfolio_dashboard.sql", "-f", "/migrations/V009__error_retention_index.sql", "-f", "/migrations/V010__error_repeat_aggregation.sql", "-f", "/migrations/V011__auth_security.sql", "-f", "/migrations/V012__auto_order_requests.sql", "-f", "/migrations/V013__upbit_ciphertext_capacity.sql", "-f", "/migrations/V014__market_strategy_settings.sql"]
     depends_on:
       postgres:
         condition: service_healthy
