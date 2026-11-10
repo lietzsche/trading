@@ -1,12 +1,12 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {api, ApiError, createRequestGate, errorMessage, orderStatus} from './api';
+import {api, ApiError, createRequestGate, displayOrderStatus, errorMessage, orderStatus} from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('API errors', () => {
   it('renders FastAPI field validation errors without stringifying objects', () => {
-    expect(errorMessage([{loc: ['body', 'expected_high_percentage'], type: 'greater_than', ctx: {gt: 0}, msg: 'Input should be greater than 0'}], 422))
-      .toBe('목표 상승률: 0보다 큰 값을 입력해 주세요.');
+    expect(errorMessage([{loc: ['body', 'fee_bps'], type: 'greater_than', ctx: {gt: 0}, msg: 'Input should be greater than 0'}], 422))
+      .toBe('편도 수수료: 0보다 큰 값을 입력해 주세요.');
   });
   it('uses a safe fallback for an unexpected error body', () => {
     expect(errorMessage({internal: 'not a public message'}, 502)).toContain('502');
@@ -50,5 +50,15 @@ describe('cancelled order labels', () => {
   it('leaves an unfilled cancellation and a completed order unchanged', () => {
     expect(orderStatus({state: 'cancel', executed_volume: '0'})).toBeNull();
     expect(orderStatus({state: 'done', executed_volume: '3'})).toBeNull();
+  });
+});
+
+describe('order status localization', () => {
+  it('translates standard and partially executed order states into Korean', () => {
+    expect(displayOrderStatus({state: 'wait'})).toBe('대기');
+    expect(displayOrderStatus({state: 'done'})).toBe('체결');
+    expect(displayOrderStatus({state: 'cancel', executed_volume: '0'})).toBe('취소');
+    expect(displayOrderStatus({state: 'cancel', side: 'bid', ord_type: 'price', executed_volume: '1'})).toBe('체결 있음 · 잔액 취소');
+    expect(displayOrderStatus({state: 'cancel', side: 'ask', ord_type: 'limit', executed_volume: '1'})).toBe('일부 체결 · 취소');
   });
 });

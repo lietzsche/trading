@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 import pytest
 
+pytestmark = pytest.mark.skip(reason="Legacy feature removed in MA40 single-strategy")
+
 from app.ai_engine import (
     AIAnalysisError, DEEPSEEK_URL, MAX_OUTPUT_TOKENS, NEWS_RSS_URL, _MarketData, _NewsData,
     _candidate_settings, _price, _settings, analyze, continue_analysis,

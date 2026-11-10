@@ -199,6 +199,8 @@ class TradingDatabase:
 
     def all(self, sql, params=()):
         self.queries.append((sql, params))
+        if "upbit_strategy_settings" in sql:
+            return []
         if "SELECT code FROM upbit" in sql:
             return [{"code": "KRW-BTC"}]
         if "identifier LIKE 'manual-sell-%%'" in sql:
@@ -270,7 +272,7 @@ def test_relisted_market_reuses_existing_history_label(trading_engine, monkeypat
     monkeypatch.setattr(trading_engine, 'upbit_prices', lambda *args: [])
     monkeypatch.setattr(trading_engine, 'calc', lambda *args: {'selected_codes':[]})
     trading_engine._collect_upbit()
-    assert len(trading_engine.db.writes)==2
+    assert len(trading_engine.db.writes)==3
     sql,params=trading_engine.db.writes[1]
     assert 'UPDATE upbit_history_label SET deleted_at=NULL' in sql
     assert params==('비트코인',123,'비트코인')
@@ -301,7 +303,7 @@ def test_collect_unchanged_label_has_no_update(trading_engine,monkeypatch):
     monkeypatch.setattr(trading_engine,'upbit_prices',lambda *_: [])
     monkeypatch.setattr(trading_engine,'calc',lambda *_: {'selected_codes':[]})
     trading_engine._collect_upbit()
-    assert len(trading_engine.db.writes)==1
+    assert len(trading_engine.db.writes)==2
     sql,params=trading_engine.db.writes[0]
     assert 'UPDATE upbit SET' in sql and params[-1]==['KRW-BTC']
 
@@ -437,8 +439,7 @@ def test_auto_order_buy_priority_matches_recommendation_sort(trading_engine, mon
     monkeypatch.setattr(trading_engine, "_auto_order_for_key", lambda *_: None)
     trading_engine.auto_order()
     query = next(sql for sql, _ in trading_engine.db.queries if "SELECT code FROM upbit" in sql)
-    assert "renewal_cnt DESC" in query
-    assert "expected_selling_price-temp_price" in query and "ASC NULLS LAST" in query
+    assert "(temp_price - setting_price)" in query and "NULLIF(setting_price, 0)" in query
     assert "id DESC" in query
 
 
@@ -561,6 +562,7 @@ def test_sell_skips_zero_available_balance(trading_engine, monkeypatch):
         return {"ask_account": {"balance": "0"}}
 
     monkeypatch.setattr(trading_engine, "private_upbit", private)
+    monkeypatch.setattr(trading_engine, "upbit_public", lambda *args: [])
     monkeypatch.setattr(trading_engine, "calc", lambda *_: {"actions": [{"market": "KRW-BTC", "side": "SELL"}]})
     trading_engine._auto_order_for_key(trading_engine.db.keys[0], [])
     assert calls == ["GET", "GET"]

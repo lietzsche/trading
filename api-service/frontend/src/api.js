@@ -1,12 +1,18 @@
-const fieldLabels = {
-  login_id: '아이디', password: '비밀번호', name: '이름', email: '이메일',
-  access_key: 'Access Key', secret_key: 'Secret Key',
-  expected_high_percentage: '목표 상승률', expected_low_percentage: '허용 하락률',
-  highest_price_reference_days: '분석 기간', volume_check: '거래량 조건',
-  api_key: 'DeepSeek API 키', model: '분석 모델', daily_request_limit: '하루 분석 횟수',
-  daily_token_limit: '하루 토큰 한도', prompt: '분석 요청', symbols: '분석 종목',
-  fee_bps: '편도 수수료', slippage_bps: '편도 체결 가격 차이',
-  question: '후속 질문',
+export const fieldLabels = {
+  login_id: '아이디',
+  password: '비밀번호',
+  name: '이름',
+  email: '이메일',
+  access_key: 'Access Key',
+  secret_key: 'Secret Key',
+  fee_bps: '편도 수수료',
+  slippage_bps: '편도 체결 가격 차이',
+  ma_period: '기준 봉 수',
+  market: '종목 / 마켓',
+  days: '테스트 기간',
+  initial_capital: '초기 자금',
+  volume: '수량',
+  price: '가격',
 };
 
 export class ApiError extends Error {
@@ -82,4 +88,13 @@ export function orderStatus(row) {
   return marketBuy
     ? {label: '체결 있음 · 잔액 취소', note: '시장가 매수에서 체결되지 않은 주문 잔액이 취소되었습니다. 실제 체결 수량을 확인해 주세요.'}
     : {label: '일부 체결 · 취소', note: '일부 수량이 체결된 후 나머지 주문이 취소되었습니다.'};
+}
+
+export function displayOrderStatus(row) {
+  const partial = orderStatus(row);
+  if (partial) return partial.label;
+  if (row.state === 'wait') return '대기';
+  if (row.state === 'done') return '체결';
+  if (row.state === 'cancel') return '취소';
+  return row.state || '—';
 }

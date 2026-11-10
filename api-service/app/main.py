@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -16,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.rows import dict_row
-from app.trading import TradingEngine
+from app.trading import TradingEngine, sort_recommendation_rows
 from app.us_market import is_us_symbol
 from app.auth_security import authenticate
 from app.credentials import encrypt_upbit, migrate_upbit_credentials
@@ -49,8 +50,12 @@ class AutoUpdate(BaseModel):
     auto_on: bool
 
 
+CandleIntervalType = Literal["15m", "30m", "60m", "240m", "days", "weeks"]
+
+
 class BacktestRun(BaseModel):
     market: str = Field(default="KRW-BTC", pattern=r"^KRW-[A-Z0-9]{1,20}$")
+    candle_interval: CandleIntervalType = Field(default="days")
     days: int = Field(default=180, ge=60, le=200)
     ma_period: int = Field(default=40, ge=2, le=199)
     initial_capital: float = Field(default=1_000_000, gt=0, le=1_000_000_000_000)
@@ -65,8 +70,63 @@ class BacktestRun(BaseModel):
 
 
 class MarketStrategyUpdate(BaseModel):
-    market: str = Field(pattern=r"^KRW-[A-Z0-9]{1,20}$")
-    ma_period: int = Field(ge=2, le=199)
+    market: str = Field(default="__GLOBAL__", pattern=r"^(__GLOBAL__|KRW-[A-Z0-9]{1,20})$")
+    candle_interval: CandleIntervalType = Field(default="days")
+    ma_period: int = Field(default=40, ge=2, le=199)
+    days: int = Field(default=180, ge=60, le=200)
+    initial_capital: float = Field(default=1_000_000, gt=0, le=1_000_000_000_000)
+    fee_bps: float = Field(default=5, ge=0, le=1000)
+    slippage_bps: float = Field(default=10, ge=0, le=1000)
+    auto_trade: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_strategy_window(self):
+        if self.days < self.ma_period + 2:
+            raise ValueError("백테스트 기간은 기준 봉 수보다 최소 2일 길어야 합니다.")
+        return self
+
+
+class MarketAutoTradeUpdate(BaseModel):
+    market: str | None = Field(default=None, pattern=r"^KRW-[A-Z0-9]{1,20}$")
+    markets: list[str] | None = None
+    auto_trade: bool
+
+    @model_validator(mode="after")
+    def validate_targets(self):
+        targets: list[str] = []
+        if self.market:
+            targets.append(self.market)
+        if self.markets:
+            for item in self.markets:
+                if not isinstance(item, str) or not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", item):
+                    raise ValueError("올바른 KRW 마켓을 입력해 주세요.")
+                if item not in targets:
+                    targets.append(item)
+        if not targets:
+            raise ValueError("대상 마켓을 1개 이상 지정해 주세요.")
+        self.markets = targets
+        if not self.market:
+            self.market = targets[0]
+        return self
+
+
+RecommendationSortType = Literal[
+    "spread_desc",
+    "bt_return_desc",
+    "bt_excess_desc",
+    "bt_mdd_asc",
+    "bt_win_rate_desc",
+]
+
+
+class RecommendationPrefsUpdate(BaseModel):
+    sort_by: RecommendationSortType = Field(default="spread_desc")
+    exclude_negative_bt: bool = Field(default=False)
+
+
+class BatchBacktestRequest(BaseModel):
+    markets: list[str] | None = None
+    force: bool = False
 
 
 class SettingUpdate(BaseModel):
@@ -116,6 +176,30 @@ _public_ip_cache = {"value": None, "checked_at": 0.0}
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     migrate_upbit_credentials(db,SESSION_SECRET)
+    try:
+        db.execute("""UPDATE tb_user SET user_role='MASTER'
+            WHERE deleted_at IS NULL AND (SELECT COUNT(*) FROM tb_user WHERE deleted_at IS NULL) = 1""")
+        db.execute("""ALTER TABLE upbit_strategy_settings
+            ADD COLUMN IF NOT EXISTS candle_interval VARCHAR(16) NOT NULL DEFAULT 'days',
+            ADD COLUMN IF NOT EXISTS days INTEGER NOT NULL DEFAULT 180,
+            ADD COLUMN IF NOT EXISTS initial_capital DOUBLE PRECISION NOT NULL DEFAULT 1000000,
+            ADD COLUMN IF NOT EXISTS fee_bps DOUBLE PRECISION NOT NULL DEFAULT 5,
+            ADD COLUMN IF NOT EXISTS slippage_bps DOUBLE PRECISION NOT NULL DEFAULT 10,
+            ADD COLUMN IF NOT EXISTS auto_trade BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS sort_by VARCHAR(32) NOT NULL DEFAULT 'spread_desc',
+            ADD COLUMN IF NOT EXISTS exclude_negative_bt BOOLEAN NOT NULL DEFAULT FALSE""")
+        db.execute("""ALTER TABLE upbit
+            ADD COLUMN IF NOT EXISTS bt_return_pct DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS bt_benchmark_pct DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS bt_excess_pct DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS bt_mdd_pct DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS bt_trade_count INTEGER,
+            ADD COLUMN IF NOT EXISTS bt_win_rate_pct DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS bt_candle_interval VARCHAR(16),
+            ADD COLUMN IF NOT EXISTS bt_ma_period INTEGER,
+            ADD COLUMN IF NOT EXISTS bt_updated_at VARCHAR(255)""")
+    except Exception:
+        pass
     engine.start()
     try:
         yield
@@ -166,6 +250,14 @@ def current_user(session: Annotated[str | None, Cookie()] = None) -> dict:
     )
     if not user or user.get('session_version',0) != signed['version']:
         raise HTTPException(401, "사용자를 찾을 수 없습니다.")
+    if user.get("user_role") == "USER":
+        try:
+            cnt = db.one("SELECT COUNT(*) AS c FROM tb_user WHERE deleted_at IS NULL")
+            if cnt and (cnt.get("c") == 1 or cnt.get("count") == 1):
+                db.execute("UPDATE tb_user SET user_role='MASTER' WHERE id=%s", (user["id"],))
+                user["user_role"] = "MASTER"
+        except Exception:
+            pass
     return user
 
 
@@ -218,39 +310,348 @@ def public_ip(_: Annotated[dict, Depends(current_user)]):
     raise HTTPException(503, "서버의 공인 IP를 확인하지 못했습니다. 서버에서 직접 확인해 주세요.")
 
 
+def get_global_strategy_settings() -> dict:
+    defaults = {
+        "candle_interval": "days",
+        "ma_period": 40,
+        "days": 180,
+        "initial_capital": 1_000_000.0,
+        "fee_bps": 5.0,
+        "slippage_bps": 10.0,
+        "sort_by": "spread_desc",
+        "exclude_negative_bt": False,
+    }
+    try:
+        rows = db.all("SELECT * FROM upbit_strategy_settings ORDER BY CASE WHEN market='__GLOBAL__' THEN 0 ELSE 1 END, updated_at DESC")
+    except Exception:
+        rows = []
+    if not rows or not isinstance(rows[0], dict):
+        return defaults
+    row = rows[0]
+    candle_interval = str(row.get("candle_interval") or "days")
+    if candle_interval not in {"15m", "30m", "60m", "240m", "days", "weeks"}:
+        candle_interval = "days"
+    ma_period = int(row.get("ma_period") or 40)
+    raw_days = int(row.get("days") or 180)
+    days = min(200, max(60, ma_period + 2, raw_days))
+    sort_by = str(row.get("sort_by") or "spread_desc")
+    if sort_by not in {"spread_desc", "bt_return_desc", "bt_excess_desc", "bt_mdd_asc", "bt_win_rate_desc"}:
+        sort_by = "spread_desc"
+    return {
+        "candle_interval": candle_interval,
+        "ma_period": ma_period,
+        "days": days,
+        "initial_capital": float(row.get("initial_capital") or 1_000_000.0),
+        "fee_bps": float(row.get("fee_bps") if row.get("fee_bps") is not None else 5.0),
+        "slippage_bps": float(row.get("slippage_bps") if row.get("slippage_bps") is not None else 10.0),
+        "sort_by": sort_by,
+        "exclude_negative_bt": bool(row.get("exclude_negative_bt") or False),
+    }
+
+
 @app.post("/api/backtest")
 def run_backtest(payload: BacktestRun, _: Annotated[dict, Depends(current_user)]):
+    global_cfg = get_global_strategy_settings()
+    explicit = payload.model_fields_set
+    candle_interval = payload.candle_interval if "candle_interval" in explicit else global_cfg["candle_interval"]
+    ma_period = payload.ma_period if "ma_period" in explicit else global_cfg["ma_period"]
+    days = payload.days if "days" in explicit else max(global_cfg["days"], ma_period + 2)
+    initial_capital = payload.initial_capital if "initial_capital" in explicit else global_cfg["initial_capital"]
+    fee_bps = payload.fee_bps if "fee_bps" in explicit else global_cfg["fee_bps"]
+    slippage_bps = payload.slippage_bps if "slippage_bps" in explicit else global_cfg["slippage_bps"]
+    is_intraday = candle_interval in {"15m", "30m", "60m", "240m"}
+    candle_path = engine.upbit_candle_path(candle_interval)
     try:
-        rows = engine.upbit_public("/v1/candles/days", {"market": payload.market, "count": payload.days})
-        candles = [{"date": row["candle_date_time_kst"][:10], "open": row["opening_price"],
-                    "close": row["trade_price"]} for row in rows]
+        rows = engine.upbit_public(candle_path, {"market": payload.market, "count": days})
+        candles = [{
+            "date": (
+                str(row["candle_date_time_kst"])[:16].replace("T", " ")
+                if is_intraday
+                else str(row["candle_date_time_kst"])[:10]
+            ),
+            "open": row["opening_price"],
+            "close": row["trade_price"],
+        } for row in rows]
         result = engine.calc("/v1/backtests/ma40", {"candles": candles,
-            "ma_period": payload.ma_period, "initial_capital": payload.initial_capital, "fee_bps": payload.fee_bps,
-            "slippage_bps": payload.slippage_bps})
-        return {"market": payload.market, "days": len(candles), **result}
+            "ma_period": ma_period, "initial_capital": initial_capital, "fee_bps": fee_bps,
+            "slippage_bps": slippage_bps})
+        if "win_rate_pct" not in result:
+            trades = result.get("trades") or []
+            sells = [t for t in trades if isinstance(t, dict) and t.get("side") == "SELL"]
+            buys = [t for t in trades if isinstance(t, dict) and t.get("side") == "BUY"]
+            wins = 0
+            for idx_s, sell in enumerate(sells):
+                buy_val = float(buys[idx_s].get("value") or initial_capital) if idx_s < len(buys) else float(initial_capital)
+                if float(sell.get("value") or 0) > buy_val:
+                    wins += 1
+            result = {
+                **result,
+                "win_rate_pct": round(wins * 100.0 / len(sells), 2) if sells else 0.0,
+            }
+        try:
+            now_str = engine.now()
+            db.execute(
+                """UPDATE upbit
+                   SET bt_return_pct=%s, bt_benchmark_pct=%s, bt_excess_pct=%s,
+                       bt_mdd_pct=%s, bt_trade_count=%s, bt_win_rate_pct=%s,
+                       bt_candle_interval=%s, bt_ma_period=%s, bt_updated_at=%s
+                   WHERE code=%s AND deleted_at IS NULL""",
+                (
+                    round(float(result.get("return_pct") or 0.0), 2),
+                    round(float(result.get("benchmark_return_pct") or 0.0), 2),
+                    round(float(result.get("excess_return_pct") or 0.0), 2),
+                    round(float(result.get("max_drawdown_pct") or 0.0), 2),
+                    int(result.get("trade_count") or 0),
+                    round(float(result.get("win_rate_pct") or 0.0), 2),
+                    candle_interval,
+                    ma_period,
+                    now_str,
+                    payload.market,
+                ),
+            )
+        except Exception:
+            pass
+        return {
+            "market": payload.market,
+            "candle_interval": candle_interval,
+            "days": len(candles),
+            "ma_period": ma_period,
+            **result,
+        }
     except httpx.HTTPError as error:
         engine.record_error("UPBIT", "BACKTEST", error)
         raise HTTPException(502, "백테스트 시세를 불러오지 못했습니다.") from None
 
 
+@app.post("/api/backtest/batch")
+def run_batch_backtest(payload: BatchBacktestRequest, _: Annotated[dict, Depends(current_user)]):
+    global_cfg = get_global_strategy_settings()
+    candle_interval = global_cfg["candle_interval"]
+    ma_period = global_cfg["ma_period"]
+    days = max(global_cfg["days"], ma_period + 2)
+    initial_capital = global_cfg["initial_capital"]
+    fee_bps = global_cfg["fee_bps"]
+    slippage_bps = global_cfg["slippage_bps"]
+    try:
+        rows = db.all(
+            """SELECT code, bt_return_pct, bt_candle_interval, bt_ma_period
+               FROM upbit WHERE deleted_at IS NULL ORDER BY id DESC"""
+        )
+    except Exception:
+        rows = db.all("SELECT code FROM upbit WHERE deleted_at IS NULL")
+    target_set = set(payload.markets) if payload.markets else None
+    candidates = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("code"):
+            continue
+        code = row["code"]
+        if target_set is not None and code not in target_set:
+            continue
+        if (
+            not payload.force
+            and row.get("bt_return_pct") is not None
+            and row.get("bt_candle_interval") == candle_interval
+            and int(row.get("bt_ma_period") or 0) == ma_period
+        ):
+            continue
+        candidates.append(code)
+    updated = []
+    now_str = engine.now()
+    for code in candidates[:60]:
+        try:
+            prices = (
+                engine.upbit_prices(code, days)
+                if candle_interval == "days"
+                else engine.upbit_prices(code, days, candle_interval)
+            )
+            if not prices:
+                continue
+            bt = engine.evaluate_ma_backtest(prices, ma_period, initial_capital, fee_bps, slippage_bps)
+            try:
+                db.execute(
+                    """UPDATE upbit
+                       SET bt_return_pct=%s, bt_benchmark_pct=%s, bt_excess_pct=%s,
+                           bt_mdd_pct=%s, bt_trade_count=%s, bt_win_rate_pct=%s,
+                           bt_candle_interval=%s, bt_ma_period=%s, bt_updated_at=%s
+                       WHERE code=%s AND deleted_at IS NULL""",
+                    (
+                        bt["bt_return_pct"],
+                        bt["bt_benchmark_pct"],
+                        bt["bt_excess_pct"],
+                        bt["bt_mdd_pct"],
+                        bt["bt_trade_count"],
+                        bt["bt_win_rate_pct"],
+                        candle_interval,
+                        ma_period,
+                        now_str,
+                        code,
+                    ),
+                )
+            except Exception:
+                pass
+            updated.append({
+                "code": code,
+                **bt,
+                "bt_candle_interval": candle_interval,
+                "bt_ma_period": ma_period,
+                "bt_updated_at": now_str,
+            })
+        except Exception as error:
+            engine.record_error("UPBIT", "BATCH_BACKTEST", error)
+    items_by_code = {row["code"]: row for row in updated}
+    return {"ok": True, "updated_count": len(updated), "items": items_by_code}
+
+
+@app.put("/api/upbit/recommendation-prefs")
+def update_recommendation_prefs(payload: RecommendationPrefsUpdate, _: Annotated[dict, Depends(current_user)]):
+    global_cfg = get_global_strategy_settings()
+    try:
+        db.execute(
+            """INSERT INTO upbit_strategy_settings(
+                   market, candle_interval, ma_period, days, initial_capital, fee_bps, slippage_bps,
+                   sort_by, exclude_negative_bt, updated_at
+               )
+               VALUES('__GLOBAL__', %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+               ON CONFLICT(market) DO UPDATE SET
+                 sort_by=EXCLUDED.sort_by,
+                 exclude_negative_bt=EXCLUDED.exclude_negative_bt,
+                 updated_at=CURRENT_TIMESTAMP""",
+            (
+                global_cfg["candle_interval"],
+                global_cfg["ma_period"],
+                global_cfg["days"],
+                global_cfg["initial_capital"],
+                global_cfg["fee_bps"],
+                global_cfg["slippage_bps"],
+                payload.sort_by,
+                payload.exclude_negative_bt,
+            ),
+        )
+    except Exception:
+        db.execute(
+            """INSERT INTO upbit_strategy_settings(market, ma_period, sort_by, exclude_negative_bt, updated_at)
+               VALUES('__GLOBAL__', %s, %s, %s, CURRENT_TIMESTAMP)
+               ON CONFLICT(market) DO UPDATE SET
+                 sort_by=EXCLUDED.sort_by,
+                 exclude_negative_bt=EXCLUDED.exclude_negative_bt,
+                 updated_at=CURRENT_TIMESTAMP""",
+            (global_cfg["ma_period"], payload.sort_by, payload.exclude_negative_bt),
+        )
+    return {
+        "ok": True,
+        "sort_by": payload.sort_by,
+        "exclude_negative_bt": payload.exclude_negative_bt,
+    }
+
+
 @app.get("/api/strategies")
 def market_strategies(_: Annotated[dict, Depends(current_user)]):
-    return {"default_ma_period": 40, "items": db.all(
-        "SELECT market,ma_period,updated_at FROM upbit_strategy_settings ORDER BY market")}
+    global_cfg = get_global_strategy_settings()
+    items = [r for r in db.all("SELECT market,ma_period,updated_at FROM upbit_strategy_settings ORDER BY market")
+             if isinstance(r, dict) and r.get("market") != "__GLOBAL__"]
+    return {
+        **global_cfg,
+        "default_ma_period": global_cfg["ma_period"],
+        "items": items,
+    }
 
 
 @app.put("/api/strategies")
 def save_market_strategy(payload: MarketStrategyUpdate, _: Annotated[dict, Depends(current_user)]):
-    db.execute("""INSERT INTO upbit_strategy_settings(market,ma_period,updated_at)
-        VALUES(%s,%s,CURRENT_TIMESTAMP) ON CONFLICT(market) DO UPDATE
-        SET ma_period=EXCLUDED.ma_period,updated_at=CURRENT_TIMESTAMP""", (payload.market, payload.ma_period))
-    return {"ok": True, "market": payload.market, "ma_period": payload.ma_period,
-            "note": "다음 신호 수집부터 적용됩니다."}
+    prev_cfg = get_global_strategy_settings()
+    if payload.market == "__GLOBAL__":
+        try:
+            db.execute("DELETE FROM upbit_strategy_settings WHERE market <> '__GLOBAL__' AND COALESCE(auto_trade, false) = false")
+            db.execute(
+                "UPDATE upbit_strategy_settings SET ma_period=%s, candle_interval=%s, updated_at=CURRENT_TIMESTAMP WHERE market <> '__GLOBAL__'",
+                (payload.ma_period, payload.candle_interval),
+            )
+        except Exception:
+            try:
+                db.execute("UPDATE upbit_strategy_settings SET ma_period=%s, updated_at=CURRENT_TIMESTAMP WHERE market <> '__GLOBAL__'", (payload.ma_period,))
+            except Exception:
+                db.execute("DELETE FROM upbit_strategy_settings WHERE market <> '__GLOBAL__'")
+    try:
+        db.execute(
+            """INSERT INTO upbit_strategy_settings(market,candle_interval,ma_period,days,initial_capital,fee_bps,slippage_bps,updated_at)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+               ON CONFLICT(market) DO UPDATE SET
+                 candle_interval=EXCLUDED.candle_interval,
+                 ma_period=EXCLUDED.ma_period,
+                 days=EXCLUDED.days,
+                 initial_capital=EXCLUDED.initial_capital,
+                 fee_bps=EXCLUDED.fee_bps,
+                 slippage_bps=EXCLUDED.slippage_bps,
+                 updated_at=CURRENT_TIMESTAMP""",
+            (payload.market, payload.candle_interval, payload.ma_period, payload.days, payload.initial_capital, payload.fee_bps, payload.slippage_bps),
+        )
+    except Exception:
+        db.execute(
+            """INSERT INTO upbit_strategy_settings(market,ma_period,updated_at)
+               VALUES(%s,%s,CURRENT_TIMESTAMP) ON CONFLICT(market) DO UPDATE
+               SET ma_period=EXCLUDED.ma_period,updated_at=CURRENT_TIMESTAMP""",
+            (payload.market, payload.ma_period),
+        )
+    recollect_started = False
+    if payload.market == "__GLOBAL__" and getattr(engine, "enabled", False):
+        changed = (
+            prev_cfg.get("candle_interval") != payload.candle_interval
+            or prev_cfg.get("ma_period") != payload.ma_period
+        )
+        engine.trigger_collect_upbit(clear_stale=changed)
+        recollect_started = True
+    return {
+        "ok": True,
+        "market": payload.market,
+        "candle_interval": payload.candle_interval,
+        "ma_period": payload.ma_period,
+        "days": payload.days,
+        "initial_capital": payload.initial_capital,
+        "fee_bps": payload.fee_bps,
+        "slippage_bps": payload.slippage_bps,
+        "recollect_started": recollect_started,
+        "note": "변경된 캔들 기준으로 추천 신호를 즉시 재계산합니다." if recollect_started else "다음 신호 수집 및 백테스트부터 적용됩니다.",
+    }
+
+
+@app.post("/api/upbit/recollect")
+def recollect_upbit_signals(_: Annotated[dict, Depends(current_user)]):
+    res = engine.trigger_collect_upbit(clear_stale=False)
+    return {"ok": True, **res, "signal_collection": engine.collection_status()}
+
+
+@app.put("/api/upbit/auto-markets")
+def update_market_auto_trade(payload: MarketAutoTradeUpdate, _: Annotated[dict, Depends(current_user)]):
+    global_cfg = get_global_strategy_settings()
+    targets = payload.markets or ([payload.market] if payload.market else [])
+    for target in targets:
+        try:
+            db.execute(
+                """INSERT INTO upbit_strategy_settings(market,ma_period,auto_trade,updated_at)
+                   VALUES(%s,%s,%s,CURRENT_TIMESTAMP)
+                   ON CONFLICT(market) DO UPDATE SET
+                     auto_trade=EXCLUDED.auto_trade,
+                     updated_at=CURRENT_TIMESTAMP""",
+                (target, global_cfg["ma_period"], payload.auto_trade),
+            )
+        except Exception:
+            db.execute(
+                """INSERT INTO upbit_strategy_settings(market,ma_period,updated_at)
+                   VALUES(%s,%s,CURRENT_TIMESTAMP) ON CONFLICT(market) DO UPDATE
+                   SET ma_period=EXCLUDED.ma_period,updated_at=CURRENT_TIMESTAMP""",
+                (target, global_cfg["ma_period"]),
+            )
+    return {
+        "ok": True,
+        "market": payload.market,
+        "markets": targets,
+        "auto_trade": payload.auto_trade,
+    }
 
 
 @app.delete("/api/strategies/{market}", status_code=204)
 def delete_market_strategy(market: str, _: Annotated[dict, Depends(current_user)]):
-    if not market.startswith("KRW-"):
+    if market != "__GLOBAL__" and not market.startswith("KRW-"):
         raise HTTPException(422, "올바른 KRW 마켓을 입력해 주세요.")
     db.execute("DELETE FROM upbit_strategy_settings WHERE market=%s", (market,))
 
@@ -417,7 +818,7 @@ def join(payload: JoinRequest):
     password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
     now = engine.now()
     db.execute("""INSERT INTO tb_user(id,user_login_id,user_password,user_name,user_role,user_email,user_phone,
-        created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'USER',%s,%s,%s,NULL,NULL)""",
+        created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'MASTER',%s,%s,%s,NULL,NULL)""",
         (payload.login_id, password, payload.name, payload.email, payload.phone, now))
     return {"ok": True}
 
@@ -506,21 +907,122 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
     valued = sum(float(row.get("valuation") or 0) for row in snapshot["assets"] if row.get("currency") != "KRW")
     unrealized = valued - invested if invested else None
     db.execute("""INSERT INTO portfolio_daily_snapshot(user_id,snapshot_date,total_valuation,purchase_amount,unrealized_profit)
-        VALUES(%s,CURRENT_DATE,%s,%s,%s) ON CONFLICT(user_id,snapshot_date) DO NOTHING""",
+        VALUES(%s,CURRENT_DATE,%s,%s,%s) ON CONFLICT(user_id,snapshot_date) DO UPDATE SET
+        total_valuation = CASE WHEN portfolio_daily_snapshot.total_valuation <= 0 THEN EXCLUDED.total_valuation ELSE portfolio_daily_snapshot.total_valuation END,
+        purchase_amount = COALESCE(portfolio_daily_snapshot.purchase_amount, EXCLUDED.purchase_amount),
+        unrealized_profit = COALESCE(portfolio_daily_snapshot.unrealized_profit, EXCLUDED.unrealized_profit)""",
         (user["id"], snapshot["total_valuation"], invested or None, unrealized))
 
     prior_snapshot = db.one("""SELECT total_valuation FROM portfolio_daily_snapshot
-        WHERE user_id=%s AND snapshot_date < CURRENT_DATE
+        WHERE user_id=%s AND snapshot_date < CURRENT_DATE AND total_valuation > 0
         ORDER BY snapshot_date DESC LIMIT 1""", (user["id"],))
     baseline = prior_snapshot or db.one("""SELECT total_valuation FROM portfolio_daily_snapshot
-        WHERE user_id=%s AND snapshot_date = CURRENT_DATE""", (user["id"],))
-    day_change = snapshot["total_valuation"] - float(baseline["total_valuation"]) if baseline else None
-    day_change_rate = (day_change * 100 / float(baseline["total_valuation"])) if (baseline and float(baseline["total_valuation"]) > 0 and day_change is not None) else None
+        WHERE user_id=%s AND snapshot_date = CURRENT_DATE AND total_valuation > 0""", (user["id"],))
+    baseline_val = float(baseline["total_valuation"]) if baseline and baseline.get("total_valuation") else 0.0
+    day_change = (snapshot["total_valuation"] - baseline_val) if (baseline_val > 0 and snapshot["total_valuation"] > 0) else None
+    day_change_rate = (day_change * 100 / baseline_val) if (baseline_val > 0 and day_change is not None) else None
 
-    recommendations = db.all("""SELECT u.code,u.name,u.temp_price,u.minimum_selling_price,u.expected_selling_price,
-        u.setting_price,u.renewal_cnt,u.updated_at,COALESCE(s.ma_period,40) AS ma_period FROM upbit u
-        LEFT JOIN upbit_strategy_settings s ON s.market=u.code WHERE u.deleted_at IS NULL ORDER BY u.renewal_cnt DESC,
-        (u.expected_selling_price-u.temp_price)/NULLIF(u.expected_selling_price-u.minimum_selling_price,0) ASC NULLS LAST,u.id DESC""")
+    strategy_settings = get_global_strategy_settings()
+    try:
+        auto_rows = db.all("SELECT market FROM upbit_strategy_settings WHERE auto_trade=true AND market <> '__GLOBAL__' ORDER BY market")
+        auto_trade_markets = [r["market"] for r in auto_rows if isinstance(r, dict) and r.get("market")]
+    except Exception:
+        auto_trade_markets = []
+    auto_trade_set = set(auto_trade_markets)
+    raw_recommendations = db.all("""SELECT u.id,u.code,u.name,u.temp_price,u.minimum_selling_price,u.expected_selling_price,
+        u.setting_price,u.renewal_cnt,u.updated_at,
+        u.bt_return_pct,u.bt_benchmark_pct,u.bt_excess_pct,u.bt_mdd_pct,u.bt_trade_count,
+        u.bt_win_rate_pct,u.bt_candle_interval,u.bt_ma_period,u.bt_updated_at,
+        COALESCE(s.ma_period,40) AS ma_period,
+        COALESCE(s.auto_trade,false) AS auto_trade FROM upbit u
+        LEFT JOIN upbit_strategy_settings s ON s.market=u.code WHERE u.deleted_at IS NULL
+        ORDER BY ((u.temp_price - u.setting_price) / NULLIF(u.setting_price, 0)) DESC NULLS LAST, u.id DESC""")
+    prelim_recommendations = []
+    for r in raw_recommendations:
+        row_copy = dict(r)
+        if not row_copy.get("ma_period") or row_copy.get("ma_period") == 40:
+            row_copy["ma_period"] = strategy_settings["ma_period"]
+        row_copy["candle_interval"] = strategy_settings["candle_interval"]
+        temp_p = float(row_copy.get("temp_price") or 0)
+        set_p = float(row_copy.get("setting_price") or 0)
+        row_copy["spread_pct"] = round((temp_p - set_p) * 100.0 / set_p, 2) if set_p > 0 else None
+        for bt_key in (
+            "bt_return_pct",
+            "bt_benchmark_pct",
+            "bt_excess_pct",
+            "bt_mdd_pct",
+            "bt_trade_count",
+            "bt_win_rate_pct",
+            "bt_candle_interval",
+            "bt_ma_period",
+            "bt_updated_at",
+        ):
+            row_copy.setdefault(bt_key, None)
+        is_enabled = bool(row_copy.get("auto_trade")) or (row_copy.get("code") in auto_trade_set)
+        row_copy["auto_trade"] = is_enabled
+        prelim_recommendations.append(row_copy)
+
+    sorted_recommendations = sort_recommendation_rows(
+        prelim_recommendations, strategy_settings.get("sort_by", "spread_desc")
+    )
+    recommendations = []
+    auto_rank = 0
+    exclude_neg = bool(strategy_settings.get("exclude_negative_bt"))
+    for row_copy in sorted_recommendations:
+        is_enabled = bool(row_copy.get("auto_trade"))
+        bt_ret = row_copy.get("bt_return_pct")
+        if exclude_neg and bt_ret is not None and float(bt_ret) < 0:
+            row_copy["auto_trade_excluded_reason"] = "negative_bt"
+            row_copy["auto_trade_rank"] = None
+        elif is_enabled:
+            row_copy["auto_trade_excluded_reason"] = None
+            auto_rank += 1
+            row_copy["auto_trade_rank"] = auto_rank
+        else:
+            row_copy["auto_trade_excluded_reason"] = None
+            row_copy["auto_trade_rank"] = None
+        recommendations.append(row_copy)
+
+    active_rec_codes = {row.get("code") for row in recommendations if row.get("code")}
+    missing_auto_codes = [m for m in auto_trade_markets if m not in active_rec_codes]
+    inactive_auto_trade_items = []
+    if missing_auto_codes:
+        try:
+            meta_rows = db.all(
+                """SELECT m.code,
+                          COALESCE(u.name, l.name, m.code) AS name,
+                          u.temp_price,
+                          u.setting_price,
+                          u.updated_at,
+                          u.deleted_at
+                   FROM unnest(%s::text[]) AS m(code)
+                   LEFT JOIN LATERAL (
+                       SELECT name, temp_price, setting_price, updated_at, deleted_at
+                       FROM upbit WHERE code = m.code ORDER BY id DESC LIMIT 1
+                   ) u ON TRUE
+                   LEFT JOIN LATERAL (
+                       SELECT name, deleted_at
+                       FROM upbit_history_label WHERE code = m.code ORDER BY id DESC LIMIT 1
+                   ) l ON TRUE""",
+                (missing_auto_codes,),
+            )
+        except Exception:
+            meta_rows = []
+        by_meta = {r["code"]: r for r in meta_rows if isinstance(r, dict) and r.get("code")}
+        for code in missing_auto_codes:
+            info = by_meta.get(code, {})
+            inactive_auto_trade_items.append({
+                "code": code,
+                "name": info.get("name") or code,
+                "temp_price": info.get("temp_price"),
+                "setting_price": info.get("setting_price"),
+                "updated_at": info.get("updated_at"),
+                "deleted_at": info.get("deleted_at"),
+                "candle_interval": strategy_settings["candle_interval"],
+                "ma_period": strategy_settings["ma_period"],
+                "auto_trade": True,
+                "status": "SIGNAL_DROPPED",
+            })
 
     recent_orders = db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
         FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 5""",
@@ -546,6 +1048,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
             code = f"KRW-{currency}"
             rec = rec_by_code.get(code)
             row["in_recommendations"] = bool(rec)
+            row["auto_trade"] = bool((rec and rec.get("auto_trade")) or (code in auto_trade_set))
             if rec:
                 if rec.get("name"):
                     row["name"] = rec["name"]
@@ -621,6 +1124,10 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
         **snapshot,
         "auto_on": auto_on,
         "key_registered": key_registered,
+        "strategy_settings": strategy_settings,
+        "signal_collection": engine.collection_status() if hasattr(engine, "collection_status") else {"running": False},
+        "auto_trade_markets": auto_trade_markets,
+        "inactive_auto_trade_items": inactive_auto_trade_items,
         "recommendations": recommendations,
         "recent_orders": recent_orders,
         "today_orders": today_orders,
@@ -634,6 +1141,7 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
         },
         "safety": {
             "unresolved_orders": unresolved_orders,
+            "unresolved_count": len(unresolved_orders),
             "summary": safety_summary,
             "level": safety_level,
             "price_updated_at": latest_price,
@@ -652,7 +1160,17 @@ def market_sell(payload: MarketSellRequest, user: Annotated[dict, Depends(master
     if not key:
         raise HTTPException(404, "등록된 Upbit 키가 없습니다.")
     try:
-        return engine.manual_market_sell(key, payload.market, payload.expected_available_quantity)
+        result = engine.manual_market_sell(key, payload.market, payload.expected_available_quantity)
+        try:
+            db.execute(
+                "UPDATE upbit_strategy_settings SET auto_trade=false, updated_at=CURRENT_TIMESTAMP WHERE market=%s AND auto_trade=true",
+                (payload.market,),
+            )
+        except Exception:
+            pass
+        if isinstance(result, dict):
+            return {**result, "auto_trade_disabled": True}
+        return result
     except ValueError as error:
         raise HTTPException(409, str(error)) from None
     except httpx.HTTPError as error:
@@ -809,20 +1327,22 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
 # tables.
 _MA40_API_PATHS = {
     "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-    "/api/auth/config", "/api/auth/join",
+    "/api/auth/config", "/api/auth/join", "/api/profile",
     "/api/dashboard", "/api/orders", "/api/admin/system", "/api/admin/errors",
     "/api/system/public-ip",
-    "/api/backtest",
+    "/api/backtest", "/api/backtest/batch",
     "/api/strategies", "/api/strategies/{market}",
     "/api/upbit/key/status", "/api/upbit/key", "/api/upbit/accounts",
-    "/api/upbit/auto", "/api/upbit/auto-orders/reconcile",
+    "/api/upbit/auto", "/api/upbit/auto-markets", "/api/upbit/recommendation-prefs",
+    "/api/upbit/recollect", "/api/upbit/auto-orders/reconcile",
+    "/api/upbit/orders/market-sell",
 }
 app.router.routes[:] = [route for route in app.router.routes if not getattr(route, "path", "").startswith("/api/")
                         or route.path in _MA40_API_PATHS]
 
 
-@app.get("/api/{path:path}", include_in_schema=False)
-@app.get("/api", include_in_schema=False)
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], include_in_schema=False)
+@app.api_route("/api", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], include_in_schema=False)
 def missing_api(path: str = ""):
     raise HTTPException(404, "API 경로를 찾을 수 없습니다.")
 
@@ -830,8 +1350,10 @@ def missing_api(path: str = ""):
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
+    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], include_in_schema=False)
+    def spa(request: Request, path: str = ""):
+        if request.method not in ("GET", "HEAD"):
+            raise HTTPException(404, "경로를 찾을 수 없습니다.")
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
             return FileResponse(candidate, headers={"Cache-Control": "no-cache"})

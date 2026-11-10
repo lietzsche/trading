@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" fill="none">
+  <defs>
+    <linearGradient id="bgw" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1325" />
+      <stop offset="100%" stop-color="#070B14" />
+    </linearGradient>
+    <linearGradient id="accentw" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bgw)" />
+  <rect x="48" y="40" width="1184" height="88" rx="20" fill="#111C33" stroke="#1E293B" stroke-width="2" />
+  <rect x="72" y="58" width="52" height="52" rx="14" fill="url(#accentw)" />
+  <text x="142" y="80" fill="#38BDF8" font-family="sans-serif" font-size="14" font-weight="700">UPBIT KRW QUANT SYSTEM</text>
+  <text x="142" y="106" fill="#F8FAFC" font-family="sans-serif" font-size="24" font-weight="800">MA40 오토 트레이더 — 이동평균 돌파·백테스트 자동매매</text>
+  <rect x="48" y="152" width="576" height="520" rx="24" fill="#111C33" stroke="#1E293B" stroke-width="2" />
+  <text x="80" y="206" fill="#F8FAFC" font-family="sans-serif" font-size="24" font-weight="800">백테스트 수익률 정렬 &amp; 마이너스 필터</text>
+  <path d="M84 560 C210 540 310 470 420 380 C490 320 540 280 584 250" stroke="url(#accentw)" stroke-width="8" stroke-linecap="round" />
+  <circle cx="420" cy="380" r="12" fill="#FFFFFF" stroke="#10B981" stroke-width="5" />
+  <rect x="656" y="152" width="576" height="248" rx="24" fill="#111C33" stroke="#10B981" stroke-width="2" />
+  <text x="688" y="206" fill="#34D399" font-family="sans-serif" font-size="20" font-weight="700">KRW-BTC · 매수 1순위 · 자동매수 켜짐</text>
+  <text x="688" y="256" fill="#F8FAFC" font-family="sans-serif" font-size="32" font-weight="800">비트코인 · 백테스트 +38.40%</text>
+  <text x="688" y="306" fill="#94A3B8" font-family="sans-serif" font-size="20">초과수익 +14.2%p · 최대낙폭 8.4% · 승률 75%</text>
+  <rect x="656" y="424" width="576" height="248" rx="24" fill="#111C33" stroke="#1E293B" stroke-width="2" />
+  <text x="688" y="478" fill="#38BDF8" font-family="sans-serif" font-size="20" font-weight="700">다중 타임프레임 &amp; 리스크 제어</text>
+  <text x="688" y="528" fill="#F8FAFC" font-family="sans-serif" font-size="28" font-weight="800">30분봉 · 1시간봉 · 4시간봉 · 일봉 · 주봉</text>
+  <text x="688" y="578" fill="#94A3B8" font-family="sans-serif" font-size="20">마이너스 수익률 자동매수 차단 · 신호 이탈 즉시 매도</text>
+</svg>

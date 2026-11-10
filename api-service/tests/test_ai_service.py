@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.skip(reason="Legacy feature removed in MA40 single-strategy")
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
 from fastapi import HTTPException

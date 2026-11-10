@@ -28,6 +28,47 @@ if not balance_log.handlers:
     balance_log.addHandler(balance_handler)
 
 
+def sort_recommendation_rows(rows: list[dict], sort_by: str = "spread_desc") -> list[dict]:
+    def _num(val, default: float = -1e9) -> float:
+        return float(val) if val is not None else default
+
+    def _spread(row: dict) -> float:
+        if row.get("spread_pct") is not None:
+            return float(row["spread_pct"])
+        temp = float(row.get("temp_price") or 0)
+        setting = float(row.get("setting_price") or 0)
+        if setting > 0:
+            return (temp - setting) * 100.0 / setting
+        return -1e9
+
+    def _key(row: dict):
+        row_id = int(row.get("id") or 0)
+        spread = _spread(row)
+        if sort_by == "bt_return_desc":
+            return (row.get("bt_return_pct") is not None, _num(row.get("bt_return_pct"), -1e9), spread, row_id)
+        if sort_by == "bt_excess_desc":
+            return (row.get("bt_excess_pct") is not None, _num(row.get("bt_excess_pct"), -1e9), spread, row_id)
+        if sort_by == "bt_mdd_asc":
+            return (
+                row.get("bt_mdd_pct") is not None,
+                -_num(row.get("bt_mdd_pct"), 1e9),
+                _num(row.get("bt_return_pct"), -1e9),
+                spread,
+                row_id,
+            )
+        if sort_by == "bt_win_rate_desc":
+            return (
+                row.get("bt_win_rate_pct") is not None,
+                _num(row.get("bt_win_rate_pct"), -1e9),
+                _num(row.get("bt_return_pct"), -1e9),
+                spread,
+                row_id,
+            )
+        return (spread, row_id)
+
+    return sorted(rows, key=_key, reverse=True)
+
+
 class TradingEngine:
     """Owns collection, recommendation updates and Upbit order execution."""
 
@@ -39,6 +80,8 @@ class TradingEngine:
         self._balance_notices = {}
         self._upbit_lock = threading.Lock()
         self._last_upbit_request = 0.0
+        self._collect_generation = 0
+        self._collect_state = {"running": False, "done": 0, "total": 0, "candle_interval": "days", "ma_period": 40}
         self.error_retention_days=max(1,min(3650,int(os.getenv('ERROR_LOG_RETENTION_DAYS','30'))))
         self.error_max_records=max(100,min(1000000,int(os.getenv('ERROR_LOG_MAX_RECORDS','10000'))))
         self._upbit_client = httpx.Client(timeout=15, headers={"User-Agent": "Trading/2.0"})
@@ -165,11 +208,291 @@ class TradingEngine:
             time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else max(1, attempt + 1))
         response.raise_for_status()
 
-    def upbit_prices(self, market, count):
-        rows = self.upbit_public("/v1/candles/days", {"market": market, "count": min(count, 200)})
+    @staticmethod
+    def upbit_candle_path(candle_interval: str | None = "days") -> str:
+        paths = {
+            "15m": "/v1/candles/minutes/15",
+            "30m": "/v1/candles/minutes/30",
+            "60m": "/v1/candles/minutes/60",
+            "240m": "/v1/candles/minutes/240",
+            "days": "/v1/candles/days",
+            "weeks": "/v1/candles/weeks",
+        }
+        return paths.get(str(candle_interval or "days"), "/v1/candles/days")
+
+    def upbit_prices(self, market, count, candle_interval="days"):
+        path = self.upbit_candle_path(candle_interval)
+        rows = self.upbit_public(path, {"market": market, "count": min(count, 200)})
         return [{"close": r["trade_price"], "open": r["opening_price"], "high": r["high_price"],
                  "low": r["low_price"], "diff": r.get("change_price", 0),
                  "volume": r["candle_acc_trade_volume"]} for r in rows]
+
+    @staticmethod
+    def evaluate_ma_backtest(
+        prices: list[dict],
+        ma_period: int,
+        initial_capital: float = 1_000_000.0,
+        fee_bps: float = 5.0,
+        slippage_bps: float = 10.0,
+    ) -> dict:
+        rows = [
+            {"open": float(p["open"]), "close": float(p["close"])}
+            for p in reversed(prices or [])
+            if isinstance(p, dict) and float(p.get("open") or 0) > 0 and float(p.get("close") or 0) > 0
+        ]
+        period = max(2, int(ma_period or 40))
+        init_cap = float(initial_capital or 1_000_000.0)
+        fee = float(fee_bps if fee_bps is not None else 5.0) / 10_000.0
+        slip = float(slippage_bps if slippage_bps is not None else 10.0) / 10_000.0
+        cash, quantity = init_cap, 0.0
+        has_traded = False
+        entry_cost = None
+        sell_count = 0
+        win_count = 0
+        curve = []
+        for index, row in enumerate(rows):
+            if index > 0:
+                previous = rows[index - 1]
+                history = rows[max(0, index - period - 1) : index - 1]
+                desired = (
+                    len(history) == period
+                    and previous["close"] >= sum(item["close"] for item in history) / period
+                )
+                if desired and quantity == 0:
+                    price = row["open"] * (1 + slip)
+                    quantity = cash * (1 - fee) / price
+                    entry_cost = init_cap if not has_traded else cash
+                    cash = 0.0
+                    has_traded = True
+                elif not desired and quantity > 0:
+                    price = row["open"] * (1 - slip)
+                    cash = quantity * price * (1 - fee)
+                    sell_count += 1
+                    if entry_cost is not None and cash > entry_cost:
+                        win_count += 1
+                    quantity, entry_cost = 0.0, None
+            equity = cash + quantity * row["close"]
+            curve.append(equity)
+        if rows and quantity > 0:
+            price = rows[-1]["close"] * (1 - slip)
+            cash = quantity * price * (1 - fee)
+            sell_count += 1
+            if entry_cost is not None and cash > entry_cost:
+                win_count += 1
+            curve[-1] = cash
+        final = cash if rows else init_cap
+        return_pct = (final / init_cap - 1.0) * 100.0
+        benchmark_pct = 0.0
+        benchmark_start = period + 1
+        if len(rows) > benchmark_start:
+            benchmark_buy = rows[benchmark_start]["open"] * (1 + slip)
+            benchmark_quantity = init_cap * (1 - fee) / benchmark_buy
+            benchmark_final = benchmark_quantity * rows[-1]["close"] * (1 - slip) * (1 - fee)
+            benchmark_pct = (benchmark_final / init_cap - 1.0) * 100.0
+        peak, max_drawdown = 0.0, 0.0
+        for equity in curve:
+            peak = max(peak, equity)
+            if peak > 0:
+                max_drawdown = max(max_drawdown, (peak - equity) * 100.0 / peak)
+        return {
+            "bt_return_pct": round(return_pct, 2),
+            "bt_benchmark_pct": round(benchmark_pct, 2),
+            "bt_excess_pct": round(return_pct - benchmark_pct, 2),
+            "bt_mdd_pct": round(max_drawdown, 2),
+            "bt_trade_count": sell_count,
+            "bt_win_rate_pct": round(win_count * 100.0 / sell_count, 2) if sell_count > 0 else 0.0,
+        }
+
+    def collection_status(self):
+        return dict(self._collect_state)
+
+    def trigger_collect_upbit(self, clear_stale=False):
+        self._collect_generation += 1
+        gen = self._collect_generation
+        if clear_stale:
+            try:
+                now = self.now()
+                self.db.execute("UPDATE upbit SET deleted_at=%s, updated_at=%s WHERE deleted_at IS NULL", (now, now))
+            except Exception:
+                pass
+        worker = threading.Thread(
+            target=self._run_incremental_collect,
+            args=(gen,),
+            daemon=True,
+        )
+        worker.start()
+        return {"started": True, "generation": gen}
+
+    def _run_incremental_collect(self, gen: int):
+        if self._stopping.is_set():
+            return
+        try:
+            setting = self.setting("upbit")
+            markets = self.upbit_public("/v1/market/all", {"isDetails": "false"})
+            codes = self._validated_upbit_codes(markets)
+            rows = [row for row in self.db.all("SELECT * FROM upbit_strategy_settings")
+                    if isinstance(row, dict) and "market" in row]
+            strategy_periods = {row["market"]: int(row.get("ma_period") or 40) for row in rows}
+            strategy_intervals = {row["market"]: str(row.get("candle_interval") or "days") for row in rows}
+            default_period = int(strategy_periods.get("__GLOBAL__", 40))
+            default_interval = str(strategy_intervals.get("__GLOBAL__", "days") or "days")
+            global_row = next((row for row in rows if row.get("market") == "__GLOBAL__"), {})
+            bt_cfg = {
+                "days": max(60, min(200, int(global_row.get("days") or 180))),
+                "initial_capital": float(global_row.get("initial_capital") or 1_000_000.0),
+                "fee_bps": float(global_row.get("fee_bps") if global_row.get("fee_bps") is not None else 5.0),
+                "slippage_bps": float(global_row.get("slippage_bps") if global_row.get("slippage_bps") is not None else 10.0),
+                "candle_interval": default_interval,
+            }
+            priority_markets = {
+                row["market"] for row in rows if row.get("auto_trade") and row.get("market") != "__GLOBAL__"
+            }
+            krw_markets = [m for m in markets if isinstance(m, dict) and str(m.get("market", "")).startswith("KRW-")]
+            krw_markets.sort(key=lambda m: (0 if m["market"] in priority_markets else 1))
+            total = len(krw_markets)
+            self._collect_state = {
+                "running": True,
+                "done": 0,
+                "total": total,
+                "candle_interval": default_interval,
+                "ma_period": default_period,
+            }
+            now = self.now()
+            self.db.execute("""UPDATE upbit SET deleted_at=%s,updated_at=%s
+                WHERE deleted_at IS NULL AND NOT (code=ANY(%s))""", (now, now, codes))
+
+            batch_instruments = []
+            for idx, market in enumerate(krw_markets, start=1):
+                if self._stopping.is_set() or gen != self._collect_generation:
+                    return
+                code = market["market"]
+                try:
+                    period = int(strategy_periods.get(code, default_period))
+                    interval = str(strategy_intervals.get(code, default_interval) or default_interval)
+                    prices = (
+                        self.upbit_prices(code, period + 1)
+                        if interval == "days"
+                        else self.upbit_prices(code, period + 1, interval)
+                    )
+                    batch_instruments.append({
+                        "code": code,
+                        "name": market["korean_name"],
+                        "prices": prices,
+                        "ma_period": period,
+                        "candle_interval": interval,
+                    })
+                except Exception as error:
+                    self.record_error("UPBIT", "FETCH_PRICE", error)
+
+                self._collect_state = {
+                    "running": True,
+                    "done": idx,
+                    "total": total,
+                    "candle_interval": default_interval,
+                    "ma_period": default_period,
+                }
+
+                if len(batch_instruments) >= 20 or idx == total:
+                    if gen != self._collect_generation:
+                        return
+                    self._flush_upbit_batch(batch_instruments, setting, bt_cfg)
+                    batch_instruments = []
+        except Exception as error:
+            log.exception("Incremental UPBIT collection failed")
+            self.record_error("UPBIT", "SCHEDULE_SAVE", error)
+        finally:
+            if gen == self._collect_generation:
+                self._collect_state = {
+                    **self._collect_state,
+                    "running": False,
+                }
+
+    def _flush_upbit_batch(self, batch_instruments, setting, bt_cfg=None):
+        if not batch_instruments:
+            return
+        cfg = bt_cfg or {}
+        backtest_days = max(60, min(200, int(cfg.get("days") or 180)))
+        initial_capital = float(cfg.get("initial_capital") or 1_000_000.0)
+        fee_bps = float(cfg.get("fee_bps") if cfg.get("fee_bps") is not None else 5.0)
+        slippage_bps = float(cfg.get("slippage_bps") if cfg.get("slippage_bps") is not None else 10.0)
+        default_interval = str(cfg.get("candle_interval") or "days")
+        selected = set(self.calc("/v1/recommendations/select", {
+            "instruments": batch_instruments,
+            "low_percentage": setting["expected_low_percentage"],
+            "high_percentage": setting["expected_high_percentage"],
+            "volume_check": setting["is_volume_check"],
+            "amplitude_check": False,
+        })["selected_codes"])
+        now = self.now()
+        unselected = [item["code"] for item in batch_instruments if item["code"] not in selected]
+        if unselected:
+            self.db.execute(
+                "UPDATE upbit SET deleted_at=%s, updated_at=%s WHERE deleted_at IS NULL AND code=ANY(%s)",
+                (now, now, unselected),
+            )
+        by_code = {item["code"]: item for item in batch_instruments}
+        for code in selected:
+            item = by_code[code]
+            close = item["prices"][0]["close"]
+            period = item["ma_period"]
+            average = sum(price["close"] for price in item["prices"][1:period + 1]) / period
+            interval = str(item.get("candle_interval") or default_interval)
+            bt_prices = item["prices"]
+            if len(bt_prices) < backtest_days:
+                try:
+                    bt_prices = (
+                        self.upbit_prices(code, backtest_days)
+                        if interval == "days"
+                        else self.upbit_prices(code, backtest_days, interval)
+                    )
+                except Exception:
+                    bt_prices = item["prices"]
+            bt = self.evaluate_ma_backtest(bt_prices, period, initial_capital, fee_bps, slippage_bps)
+            existing = self.db.one("SELECT id FROM upbit WHERE code=%s ORDER BY id DESC LIMIT 1", (code,))
+            if existing:
+                try:
+                    self.db.execute(
+                        """UPDATE upbit SET name=%s,minimum_selling_price=%s,
+                            expected_selling_price=%s,temp_price=%s,setting_price=%s,
+                            bt_return_pct=%s,bt_benchmark_pct=%s,bt_excess_pct=%s,bt_mdd_pct=%s,
+                            bt_trade_count=%s,bt_win_rate_pct=%s,bt_candle_interval=%s,bt_ma_period=%s,
+                            bt_updated_at=%s,deleted_at=NULL,updated_at=%s WHERE id=%s""",
+                        (
+                            item["name"], average, average, close, average,
+                            bt["bt_return_pct"], bt["bt_benchmark_pct"], bt["bt_excess_pct"], bt["bt_mdd_pct"],
+                            bt["bt_trade_count"], bt["bt_win_rate_pct"], interval, period,
+                            now, now, existing["id"],
+                        ),
+                    )
+                except Exception:
+                    self.db.execute("""UPDATE upbit SET name=%s,minimum_selling_price=%s,
+                        expected_selling_price=%s,temp_price=%s,setting_price=%s,deleted_at=NULL,
+                        updated_at=%s WHERE id=%s""", (item["name"], average, average, close, average,
+                        now, existing["id"]))
+                continue
+            try:
+                self.db.execute(
+                    """INSERT INTO upbit(id,code,name,origin_minimum_selling_price,
+                        origin_expected_selling_price,minimum_selling_price,expected_selling_price,temp_price,
+                        setting_price,pricing_reference_date,renewal_cnt,
+                        bt_return_pct,bt_benchmark_pct,bt_excess_pct,bt_mdd_pct,
+                        bt_trade_count,bt_win_rate_pct,bt_candle_interval,bt_ma_period,bt_updated_at,
+                        created_at,deleted_at,updated_at)
+                        VALUES(nextval('upbit_seq'),%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL)""",
+                    (
+                        code, item["name"], average, average, average, average, close, average,
+                        self.now(),
+                        bt["bt_return_pct"], bt["bt_benchmark_pct"], bt["bt_excess_pct"], bt["bt_mdd_pct"],
+                        bt["bt_trade_count"], bt["bt_win_rate_pct"], interval, period, now,
+                        self.now(),
+                    ),
+                )
+            except Exception:
+                self.db.execute("""INSERT INTO upbit(id,code,name,origin_minimum_selling_price,
+                    origin_expected_selling_price,minimum_selling_price,expected_selling_price,temp_price,
+                    setting_price,pricing_reference_date,renewal_cnt,created_at,deleted_at,updated_at)
+                    VALUES(nextval('upbit_seq'),%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,NULL,NULL)""",
+                    (code, item["name"], average, average, average, average, close, average, self.now(), self.now()))
 
     def collect_upbit(self):
         return self.run("UPBIT", "SCHEDULE_SAVE", self._collect_upbit)
@@ -177,9 +500,17 @@ class TradingEngine:
     def _collect_upbit(self):
         setting = self.setting("upbit")
         markets = self.upbit_public("/v1/market/all", {"isDetails": "false"})
-        strategy_periods = {row["market"]: row["ma_period"] for row in
-                            self.db.all("SELECT market,ma_period FROM upbit_strategy_settings")}
         codes = self._validated_upbit_codes(markets)
+        try:
+            rows = [row for row in self.db.all("SELECT market,ma_period,candle_interval FROM upbit_strategy_settings")
+                    if isinstance(row, dict) and "market" in row]
+        except Exception:
+            rows = [row for row in self.db.all("SELECT market,ma_period FROM upbit_strategy_settings")
+                    if isinstance(row, dict) and "market" in row]
+        strategy_periods = {row["market"]: row["ma_period"] for row in rows}
+        strategy_intervals = {row["market"]: str(row.get("candle_interval") or "days") for row in rows}
+        default_period = int(strategy_periods.get("__GLOBAL__", 40))
+        default_interval = str(strategy_intervals.get("__GLOBAL__", "days") or "days")
         now = self.now()
         self.db.execute("""UPDATE upbit SET deleted_at=%s,updated_at=%s
             WHERE deleted_at IS NULL AND NOT (code=ANY(%s))""", (now,now,codes))
@@ -198,8 +529,13 @@ class TradingEngine:
                     VALUES(nextval('upbit_history_label_seq'),%s,%s,%s,NULL,NULL)""",
                     (code, market["korean_name"], self.now()))
             try:
-                period = strategy_periods.get(code, 40)
-                prices = self.upbit_prices(code, period + 1)
+                period = strategy_periods.get(code, default_period)
+                interval = strategy_intervals.get(code, default_interval)
+                prices = (
+                    self.upbit_prices(code, period + 1)
+                    if interval == "days"
+                    else self.upbit_prices(code, period + 1, interval)
+                )
                 instruments.append({"code": code, "name": market["korean_name"], "prices": prices,
                                     "ma_period": period})
             except Exception as error:
@@ -234,7 +570,7 @@ class TradingEngine:
 
     @staticmethod
     def stock_prices(code, count):
-        if is_us_symbol(code):return us_data.prices(code,count)
+        if isinstance(code, str) and code.startswith("US:"): return []
         prices, cursor = [], None
         while len(prices) < min(count, 200):
             params = {"size": min(100, count - len(prices))}
@@ -285,7 +621,6 @@ class TradingEngine:
                                     "prices": self.stock_prices(label["code"], setting["highest_price_reference_days"])})
             except Exception as error:
                 self.record_error('STOCK_US' if region=='US' else 'STOCK','FETCH_PRICE',error)
-                if isinstance(error,USRateLimited):break
         if not instruments:return {'status':'ERROR'}
         selected = self.calc("/v1/recommendations/select", {
             "instruments": instruments, "low_percentage": setting["expected_low_percentage"],
@@ -352,7 +687,6 @@ class TradingEngine:
                 saved+=1
             except Exception as error:
                 self.record_error('STOCK_US','FETCH_DIVIDEND',error)
-                if isinstance(error,USRateLimited):break
         return saved
 
     @staticmethod
@@ -461,8 +795,6 @@ class TradingEngine:
                      price["high"],price["low"],price["volume"],self.now()))
             except Exception as error:
                 self.record_error('STOCK_US' if region == 'US' else source.upper(),"SAVE_HISTORY_ITEM",error)
-                if isinstance(error, USRateLimited):
-                    break
 
     def _update_positions(self, table, price_loader,region=None):
         setting = self.setting(table)
@@ -476,8 +808,6 @@ class TradingEngine:
                 prices = price_loader(item["code"], 1)
             except Exception as error:
                 self.record_error('STOCK_US' if region == 'US' else table.upper(), "UPDATE_PRICE_ITEM", error)
-                if isinstance(error, USRateLimited):
-                    break
                 continue
             payload.append({"code":item["code"],"name":item["name"],"prices":prices,
                 "expected_selling_price":item["expected_selling_price"],"minimum_selling_price":item["minimum_selling_price"],
@@ -668,6 +998,8 @@ class TradingEngine:
         try:
             if self._stopping.is_set():
                 return {"status": "SKIPPED", "reason": "stopping"}
+            if self._collect_state.get("running"):
+                return {"status": "SKIPPED", "reason": "collecting_signals"}
             return self.run("UPBIT", "AUTO_ORDER", self._auto_order)
         finally:
             self._auto_order_lock.release()
@@ -677,23 +1009,66 @@ class TradingEngine:
         # order must exactly match the recommendation screen's priority order.
         markets = [row["code"] for row in self.db.all("""SELECT code FROM upbit
             WHERE deleted_at IS NULL
-            ORDER BY renewal_cnt DESC,
-                     (expected_selling_price-temp_price)
-                       / NULLIF(expected_selling_price-minimum_selling_price,0) ASC NULLS LAST,
+            ORDER BY ((temp_price - setting_price) / NULLIF(setting_price, 0)) DESC NULLS LAST,
                      id DESC""")]
+        try:
+            allowed_rows = self.db.all(
+                "SELECT market FROM upbit_strategy_settings WHERE auto_trade=true AND market <> '__GLOBAL__'"
+            )
+            self._buy_allowed_markets = {
+                row["market"] for row in allowed_rows if isinstance(row, dict) and row.get("market")
+            }
+        except Exception:
+            self._buy_allowed_markets = set()
+        try:
+            strategy_rows = [
+                row for row in self.db.all("SELECT * FROM upbit_strategy_settings")
+                if isinstance(row, dict) and "market" in row
+            ]
+            if strategy_rows:
+                if not self._buy_allowed_markets:
+                    self._buy_allowed_markets = {
+                        row["market"] for row in strategy_rows
+                        if row.get("auto_trade") and row.get("market") != "__GLOBAL__"
+                    }
+                global_row = next((r for r in strategy_rows if r.get("market") == "__GLOBAL__"), {})
+                sort_by = str(global_row.get("sort_by") or "spread_desc")
+                exclude_negative_bt = bool(global_row.get("exclude_negative_bt") or False)
+                if sort_by != "spread_desc" or exclude_negative_bt:
+                    rec_rows = self.db.all(
+                        """SELECT code, temp_price, setting_price, bt_return_pct, bt_excess_pct,
+                                  bt_mdd_pct, bt_win_rate_pct, id
+                           FROM upbit WHERE deleted_at IS NULL"""
+                    )
+                    if rec_rows and isinstance(rec_rows[0], dict) and "code" in rec_rows[0]:
+                        sorted_rows = sort_recommendation_rows(rec_rows, sort_by)
+                        markets = [r["code"] for r in sorted_rows if r.get("code")]
+                        if exclude_negative_bt:
+                            neg_markets = {
+                                r["code"] for r in sorted_rows
+                                if r.get("code")
+                                and r.get("bt_return_pct") is not None
+                                and float(r.get("bt_return_pct")) < 0
+                            }
+                            self._buy_allowed_markets = self._buy_allowed_markets - neg_markets
+        except Exception:
+            pass
         keys = self.db.all("""SELECT k.* FROM tb_upbit_key k
             JOIN tb_user u ON u.user_login_id=k.user_login_id
             WHERE k.auto_on=true AND u.deleted_at IS NULL""")
         completed, failed = 0, 0
-        for key in keys:
-            try:
-                self._auto_order_for_key(key, markets)
-                completed += 1
-            except Exception as error:
-                # A failed credential/provider request must not starve other users.
-                failed += 1
-                log.exception("Automatic orders failed for key id %s", key["id"])
-                self.record_error("UPBIT", f"AUTO_ORDER_ACCOUNT_{key['id']}", error)
+        try:
+            for key in keys:
+                try:
+                    self._auto_order_for_key(key, markets)
+                    completed += 1
+                except Exception as error:
+                    # A failed credential/provider request must not starve other users.
+                    failed += 1
+                    log.exception("Automatic orders failed for key id %s", key["id"])
+                    self.record_error("UPBIT", f"AUTO_ORDER_ACCOUNT_{key['id']}", error)
+        finally:
+            self._buy_allowed_markets = None
         return {"status": "PARTIAL" if failed else "OK", "completed_accounts": completed,
                 "failed_accounts": failed}
 
@@ -729,8 +1104,13 @@ class TradingEngine:
                     THEN created_at::timestamptz
                   END >= CURRENT_TIMESTAMP - INTERVAL '10 minutes'""",
             (key["user_login_id"],))}
+        buy_allowed = getattr(self, "_buy_allowed_markets", None)
         for action in actions:
             market = action["market"]
+            # Only buy markets explicitly enabled by the user on the recommendation cards.
+            # SELL actions on held coins that drop below MA are always allowed for safety.
+            if action["side"] == "BUY" and buy_allowed is not None and market not in buy_allowed:
+                continue
             # Keep automatic trading enabled after a manual exit, but avoid
             # immediately buying back the same asset. The next ranked BUY can proceed.
             if action["side"] == "BUY" and market in recent_manual_sells:
@@ -741,6 +1121,15 @@ class TradingEngine:
             except httpx.HTTPStatusError as error:
                 if not self._missing_upbit_market(error):
                     raise
+                if buy_allowed is not None and market in buy_allowed:
+                    buy_allowed.discard(market)
+                    try:
+                        self.db.execute(
+                            "UPDATE upbit_strategy_settings SET auto_trade=false, updated_at=CURRENT_TIMESTAMP WHERE market=%s",
+                            (market,),
+                        )
+                    except Exception:
+                        pass
                 self.record_error('UPBIT',f'AUTO_ORDER_MARKET_{market}',error)
                 continue
             if action["side"] == "BUY":
@@ -772,6 +1161,15 @@ class TradingEngine:
             except httpx.HTTPStatusError as error:
                 if not self._missing_upbit_market(error):
                     raise
+                if buy_allowed is not None and market in buy_allowed:
+                    buy_allowed.discard(market)
+                    try:
+                        self.db.execute(
+                            "UPDATE upbit_strategy_settings SET auto_trade=false, updated_at=CURRENT_TIMESTAMP WHERE market=%s",
+                            (market,),
+                        )
+                    except Exception:
+                        pass
                 self.record_error('UPBIT',f'AUTO_ORDER_MARKET_{market}',error)
                 continue
             self.save_order(key["user_login_id"], order)

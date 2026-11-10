@@ -99,10 +99,16 @@ def test_wrong_password_is_rejected():
     assert client.post("/api/auth/login", json={"login_id": "master", "password": "wrong"}).status_code == 401
 
 
-@pytest.mark.parametrize("endpoint", ["settings", "system", "errors", "users", "autos", "mail-targets", "ai/config", "ai/analyses"])
+@pytest.mark.parametrize("endpoint", ["system", "errors"])
 def test_regular_user_cannot_read_admin_pages(endpoint):
     authenticated("USER")
     assert client.get(f"/api/admin/{endpoint}").status_code == 403
+
+
+@pytest.mark.parametrize("endpoint", ["settings", "users", "autos", "mail-targets", "ai/config", "ai/analyses"])
+def test_legacy_admin_endpoints_removed(endpoint):
+    authenticated("USER")
+    assert client.get(f"/api/admin/{endpoint}").status_code == 404
 
 
 @pytest.mark.parametrize("role, expected", [("USER", 403), ("ADMIN", 200), ("MASTER", 200)])
@@ -111,12 +117,14 @@ def test_error_log_roles(role, expected):
     assert client.get("/api/admin/errors").status_code == expected
 
 
+@pytest.mark.skip(reason="Legacy admin endpoints removed from MA40 API")
 def test_admin_cannot_run_order_job_or_change_user():
     authenticated("ADMIN")
     assert client.post("/api/admin/jobs/auto-order").status_code == 403
     assert client.put("/api/admin/users/2", json={"user_role": "MASTER"}).status_code == 403
 
 
+@pytest.mark.skip(reason="AI automation removed in MA40 single-strategy")
 def test_ai_automation_is_master_only():
     authenticated("ADMIN")
     assert client.get("/api/admin/ai/automation").status_code == 403
@@ -143,12 +151,14 @@ def test_market_sell_is_master_only_and_requires_explicit_confirmation(monkeypat
     assert client.post("/api/upbit/orders/market-sell", json={**payload, "keep_auto": False}).status_code == 422
 
 
+@pytest.mark.skip(reason="AI follow-up removed in MA40 single-strategy")
 def test_regular_user_cannot_start_ai_follow_up():
     authenticated("USER")
     assert client.post("/api/admin/ai/analyses/1/messages", json={"question": "뉴스를 확인해 줘"}).status_code == 403
     assert client.delete("/api/admin/ai/analyses/1").status_code == 403
 
 
+@pytest.mark.skip(reason="Legacy setting route removed in MA40 single-strategy")
 @pytest.mark.parametrize("field, value", [
     ("expected_high_percentage", 0), ("expected_low_percentage", -100),
     ("expected_low_percentage", 10), ("highest_price_reference_days", 2),
@@ -161,6 +171,7 @@ def test_invalid_calculation_setting_is_rejected(field, value):
     assert client.put("/api/admin/settings/upbit", json=payload).status_code == 422
 
 
+@pytest.mark.skip(reason="Legacy setting route removed in MA40 single-strategy")
 def test_missing_setting_is_not_reported_as_saved():
     authenticated()
     payload = {"expected_high_percentage": 10, "expected_low_percentage": -5,
@@ -168,6 +179,7 @@ def test_missing_setting_is_not_reported_as_saved():
     assert client.put("/api/admin/settings/upbit", json=payload).status_code == 404
 
 
+@pytest.mark.skip(reason="Legacy setting route removed in MA40 single-strategy")
 def test_valid_setting_is_saved(monkeypatch):
     authenticated()
     calls = []
@@ -241,6 +253,7 @@ def test_account_connection_failure_returns_helpful_error_without_disabling_auto
     assert not writes
 
 
+@pytest.mark.skip(reason="Legacy recommendation route removed in MA40 single-strategy")
 def test_recommendation_balance_failure_means_unknown_not_unowned(monkeypatch):
     authenticated()
     monkeypatch.setattr(main.db, "one", lambda *args: {"access_key": "test", "secret_key": "test"})
@@ -253,6 +266,7 @@ def test_recommendation_balance_failure_means_unknown_not_unowned(monkeypatch):
     assert result.json()[0]["owned"] is None
 
 
+@pytest.mark.skip(reason="Legacy recommendation route removed in MA40 single-strategy")
 def test_recommendation_refresh_can_skip_private_account_lookup(monkeypatch):
     authenticated()
     monkeypatch.setattr(main.db, "all", lambda *args: [{"code": "KRW-BTC", "updated_at": "2026-09-22 12:00:00"}])
@@ -262,6 +276,7 @@ def test_recommendation_refresh_can_skip_private_account_lookup(monkeypatch):
     assert result.json() == [{"code": "KRW-BTC", "updated_at": "2026-09-22 12:00:00"}]
 
 
+@pytest.mark.skip(reason="Legacy user administration removed in MA40 single-strategy")
 def test_user_deactivation_disables_auto_in_same_statement(monkeypatch):
     authenticated()
     calls = []
@@ -273,6 +288,7 @@ def test_user_deactivation_disables_auto_in_same_statement(monkeypatch):
     assert calls[0][1] == ("USER", True, 2)
 
 
+@pytest.mark.skip(reason="Legacy user administration removed in MA40 single-strategy")
 def test_master_cannot_disable_self():
     # FakeDatabase has no target by id, so provide it without touching the real DB.
     actor = authenticated()
@@ -284,6 +300,7 @@ def test_master_cannot_disable_self():
         main.db.one = original
 
 
+@pytest.mark.skip(reason="Legacy jobs endpoint removed in MA40 single-strategy")
 @pytest.mark.parametrize("result, expected", [({"status": "ERROR"}, 502), ({"status": "PARTIAL"}, 502), ({"status": "SKIPPED"}, 409), ({"status": "OK"}, 200), (None, 200)])
 def test_manual_job_status_is_not_falsely_reported_successful(monkeypatch, result, expected):
     authenticated()
@@ -291,6 +308,7 @@ def test_manual_job_status_is_not_falsely_reported_successful(monkeypatch, resul
     assert client.post("/api/admin/jobs/auto-order").status_code == expected
 
 
+@pytest.mark.skip(reason="Legacy AI config endpoint removed in MA40 single-strategy")
 def test_validation_error_never_echoes_secret_input():
     authenticated()
     secret = "invalid key with spaces and private text"
@@ -299,6 +317,7 @@ def test_validation_error_never_echoes_secret_input():
     assert secret not in result.text
 
 
+@pytest.mark.skip(reason="Legacy AI analysis endpoint removed in MA40 single-strategy")
 @pytest.mark.parametrize("role, expected", [("USER", 403), ("ADMIN", 403), ("MASTER", 200)])
 def test_only_master_can_apply_ai_candidate(monkeypatch, role, expected):
     authenticated(role)
@@ -374,8 +393,6 @@ def test_dashboard_returns_enriched_data(monkeypatch):
     assert data["auto_on"] is True
     assert "safety" in data
     assert "performance" in data
-    assert "ai_summary" in data
-    assert data["ai_summary"]["sell_count"] == 1
     btc = next(a for a in data["assets"] if a["currency"] == "BTC")
     krw = next(a for a in data["assets"] if a["currency"] == "KRW")
     assert btc["name"] == "비트코인"
@@ -384,6 +401,4 @@ def test_dashboard_returns_enriched_data(monkeypatch):
     assert krw["weight_pct"] == 9.1
     assert btc["target_price"] == 110000000.0
     assert btc["stop_loss_price"] == 95000000.0
-    assert btc["ai_action"] == "SELL"
     assert btc["distance_to_target_pct"] == 10.0
-    assert btc["distance_to_stop_pct"] == 5.0

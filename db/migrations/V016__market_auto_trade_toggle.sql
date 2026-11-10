@@ -1,0 +1,2 @@
+ALTER TABLE upbit_strategy_settings
+    ADD COLUMN IF NOT EXISTS auto_trade BOOLEAN NOT NULL DEFAULT FALSE;

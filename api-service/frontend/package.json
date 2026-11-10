@@ -11,9 +11,6 @@
     "@vitejs/plugin-react": "6.1.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-markdown": "^10.1.0",
-    "remark-cjk-friendly": "2.3.1",
-    "remark-gfm": "^4.0.1",
     "vite": "8.2.2"
   },
   "devDependencies": {

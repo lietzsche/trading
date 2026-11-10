@@ -117,6 +117,7 @@ def backtest_ma40(request: BacktestRequest):
     fee, slip = request.fee_bps / 10_000, request.slippage_bps / 10_000
     cash, quantity, trades, curve = float(request.initial_capital), 0.0, [], []
     entry_cost = None
+    win_count = 0
     for index, row in enumerate(rows):
         if index:
             previous = rows[index - 1]
@@ -130,6 +131,8 @@ def backtest_ma40(request: BacktestRequest):
             elif not desired and quantity > 0:
                 price = row.open * (1 - slip)
                 cash = quantity * price * (1 - fee)
+                if entry_cost is not None and cash > entry_cost:
+                    win_count += 1
                 trades.append({"date": row.date, "side": "SELL", "price": price, "value": cash})
                 quantity, entry_cost = 0.0, None
         equity = cash + quantity * row.close
@@ -137,6 +140,8 @@ def backtest_ma40(request: BacktestRequest):
     if rows and quantity > 0:
         price = rows[-1].close * (1 - slip)
         cash = quantity * price * (1 - fee)
+        if entry_cost is not None and cash > entry_cost:
+            win_count += 1
         trades.append({"date": rows[-1].date, "side": "SELL", "price": price, "value": cash, "forced": True})
         curve[-1]["equity"] = cash
     final = cash if rows else float(request.initial_capital)
@@ -152,8 +157,10 @@ def backtest_ma40(request: BacktestRequest):
         peak = max(peak, point["equity"])
         if peak:
             max_drawdown = max(max_drawdown, (peak - point["equity"]) * 100 / peak)
+    sell_count = len([t for t in trades if t["side"] == "SELL"])
+    win_rate_pct = round(win_count * 100.0 / sell_count, 2) if sell_count > 0 else 0.0
     return {"ma_period": period, "initial_capital": request.initial_capital, "final_equity": final,
             "return_pct": (final / request.initial_capital - 1) * 100, "benchmark_return_pct": benchmark_pct,
             "excess_return_pct": (final / request.initial_capital - 1) * 100 - benchmark_pct,
-            "max_drawdown_pct": max_drawdown, "trade_count": len([t for t in trades if t["side"] == "SELL"]),
-            "trades": trades, "curve": curve}
+            "max_drawdown_pct": max_drawdown, "trade_count": sell_count,
+            "win_rate_pct": win_rate_pct, "trades": trades, "curve": curve}

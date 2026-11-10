@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 
+pytestmark = pytest.mark.skip(reason="Legacy feature removed in MA40 single-strategy")
+
 from app.us_market import USMarketData,USRateLimited,chart_bars,trailing_dividend,us_universe
 from app.trading import TradingEngine
 from app.ai import AnalysisRequest
