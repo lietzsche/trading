@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS deal_settings (
  expected_low_percentage INTEGER NOT NULL DEFAULT -1,highest_price_reference_days INTEGER NOT NULL DEFAULT 41,
  is_volume_check BOOLEAN NOT NULL DEFAULT FALSE,created_at VARCHAR(255),updated_at VARCHAR(255),deleted_at VARCHAR(255)
 );
-INSERT INTO deal_settings(name,highest_price_reference_days) VALUES('upbit',41) ON CONFLICT(name) DO NOTHING;
+INSERT INTO deal_settings (id, name, expected_high_percentage, expected_low_percentage, highest_price_reference_days, is_volume_check, created_at)
+SELECT COALESCE((SELECT MAX(id) FROM deal_settings), 0) + 1, 'upbit', 1, -1, 41, FALSE, CURRENT_TIMESTAMP::text
+WHERE NOT EXISTS (SELECT 1 FROM deal_settings WHERE name = 'upbit');
 CREATE TABLE IF NOT EXISTS upbit_history_label (
  id BIGINT PRIMARY KEY DEFAULT nextval('upbit_history_label_seq'),code VARCHAR(100) NOT NULL,name VARCHAR(255),
  created_at VARCHAR(255),updated_at VARCHAR(255),deleted_at VARCHAR(255)
