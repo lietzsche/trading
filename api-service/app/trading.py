@@ -966,21 +966,32 @@ class TradingEngine:
         finally:
             self._auto_order_lock.release()
 
-    def sync_orders(self, login_id, access, secret):
-        uuids = [row["uuid"] for row in self.db.all(
-            "SELECT uuid FROM upbit_order_history WHERE login_id=%s AND uuid IS NOT NULL ORDER BY id DESC LIMIT 100",
-            (login_id,))]
-        if not uuids:
-            return
+    def sync_order_uuids(self, login_id, access, secret, uuids, target_db=None):
+        store = target_db or self.db
+        synced = []
         for start in range(0, len(uuids), 100):
             orders = self.private_upbit("GET", "/v1/orders/uuids", access, secret,
                                         {"uuids[]": uuids[start:start + 100]})
+            if not isinstance(orders, list):
+                continue
             for order in orders:
-                self.db.execute("""UPDATE upbit_order_history SET state=%s,price=%s,volume=%s,
+                if not isinstance(order, dict) or not order.get("uuid"):
+                    continue
+                store.execute("""UPDATE upbit_order_history SET state=%s,price=%s,volume=%s,
                     remaining_volume=%s,executed_volume=%s,paid_fee=%s,trades_count=%s,updated_at=%s
                     WHERE login_id=%s AND uuid=%s""", (order.get("state"), order.get("price"),
                     order.get("volume"), order.get("remaining_volume"), order.get("executed_volume"),
                     order.get("paid_fee"), order.get("trades_count"), self.now(), login_id, order.get("uuid")))
+                synced.append(order)
+        return synced
+
+    def sync_orders(self, login_id, access, secret):
+        uuids = [row["uuid"] for row in self.db.all(
+            "SELECT uuid FROM upbit_order_history WHERE login_id=%s AND uuid IS NOT NULL ORDER BY id DESC LIMIT 100",
+            (login_id,)) if isinstance(row, dict) and row.get("uuid")]
+        if not uuids:
+            return
+        self.sync_order_uuids(login_id, access, secret, uuids)
 
     def order_fills(self, access, secret, uuid):
         # /v1/orders/uuids (used by sync_orders) never returns per-trade fills;

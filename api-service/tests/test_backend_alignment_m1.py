@@ -79,6 +79,39 @@ def test_first_user_registration_is_granted_master_role(monkeypatch):
     assert params[0] == "firstoperator"
 
 
+def test_subsequent_user_registration_is_granted_user_role(monkeypatch):
+    calls = []
+    existing_ids = {"master"}
+
+    class MockDb:
+        def one(self, query, params=()):
+            if "WHERE user_login_id=%s" in query:
+                return {"id": 1} if params[0] in existing_ids else None
+            if "WHERE deleted_at IS NULL LIMIT 1" in query:
+                return {"id": 1}
+            return None
+
+        def execute(self, query, params=()):
+            calls.append((query, params))
+            existing_ids.add(params[0])
+            return 1
+
+    monkeypatch.setattr(main, "db", MockDb())
+    monkeypatch.setattr(main, "SIGNUP_ENABLED", True)
+
+    payload = main.JoinRequest(login_id="seconduser", password="password123", name="일반사용자")
+    result = main.join(payload)
+    assert result == {"ok": True}
+    assert len(calls) == 1
+    query, params = calls[0]
+    assert "'USER'" in query
+    assert params[0] == "seconduser"
+
+    client = TestClient(main.app)
+    dup_res = client.post("/api/auth/join", json={"login_id": "seconduser", "password": "password123", "name": "중복"})
+    assert dup_res.status_code == 409
+
+
 def test_disparity_rate_ranking_in_recommendations(monkeypatch):
     main.app.dependency_overrides[main.current_user] = lambda: {"id": 1, "user_login_id": "master", "user_role": "MASTER"}
     executed_queries = []
@@ -404,5 +437,93 @@ def test_dashboard_sorts_by_bt_return_desc_and_excludes_negative_bt_from_rank(mo
     assert recs[1]["auto_trade_excluded_reason"] is None
     assert recs[2]["auto_trade_rank"] is None
     assert recs[2]["auto_trade_excluded_reason"] == "negative_bt"
+
+
+def test_dashboard_syncs_pending_wait_orders_before_returning_recent_orders(monkeypatch):
+    main.app.dependency_overrides[main.current_user] = lambda: {"id": 1, "user_login_id": "stxtory", "user_role": "MASTER"}
+    orders = [
+        {
+            "uuid": "wait-sell-1",
+            "side": "ask",
+            "ord_type": "market",
+            "price": None,
+            "state": "wait",
+            "market": "KRW-PIEVERSE",
+            "created_at": "2026-11-12T08:27:00+09:00",
+            "volume": "19.64106908",
+            "executed_volume": "0",
+        },
+        {
+            "uuid": "done-old-1",
+            "side": "ask",
+            "ord_type": "market",
+            "price": None,
+            "state": "done",
+            "market": "KRW-IMX",
+            "created_at": "2026-10-11T03:00:22+09:00",
+            "volume": "255.27",
+            "executed_volume": "255.27",
+        },
+    ]
+
+    class MockDb:
+        def one(self, query, params=()):
+            if "tb_upbit_key" in query:
+                return {"id": 1, "user_login_id": "stxtory", "access_key": "ak", "secret_key": "sk", "auto_on": False}
+            return None
+
+        def all(self, query, params=()):
+            if "SELECT uuid, state FROM upbit_order_history" in query:
+                return [o for o in orders if o["state"] not in ("done", "cancel")]
+            if "FROM upbit_order_history" in query and "LIMIT 5" in query:
+                return list(orders)
+            return []
+
+        def execute(self, query, params=()):
+            if "UPDATE upbit_order_history SET state=" in query:
+                state, price, volume, _rem, executed_vol, _fee, _cnt, _upd, _login, target_uuid = params
+                for o in orders:
+                    if o["uuid"] == target_uuid:
+                        o.update(state=state, price=price, volume=volume, executed_volume=executed_vol)
+                return 1
+            return 0
+
+    upbit_queries = []
+
+    def mock_private(method, path, access, secret, params=None):
+        upbit_queries.append((method, path, params))
+        return [{
+            "uuid": "wait-sell-1",
+            "state": "done",
+            "price": None,
+            "volume": "19.64106908",
+            "remaining_volume": "0",
+            "executed_volume": "19.64106908",
+            "paid_fee": "21.6",
+            "trades_count": 1,
+        }]
+
+    monkeypatch.setattr(main, "db", MockDb())
+    monkeypatch.setattr(main.engine, "key_credentials", lambda key, login_id: ("ak", "sk"))
+    monkeypatch.setattr(main.engine, "account_snapshot", lambda *args: {"total_valuation": 43188.76, "assets": []})
+    monkeypatch.setattr(main.engine, "private_upbit", mock_private)
+
+    try:
+        client = TestClient(main.app)
+        res = client.get("/api/dashboard")
+        assert res.status_code == 200
+        recent = res.json()["recent_orders"]
+        assert recent[0]["uuid"] == "wait-sell-1"
+        assert recent[0]["state"] == "done"
+        assert recent[0]["executed_volume"] == "19.64106908"
+        assert upbit_queries == [("GET", "/v1/orders/uuids", {"uuids[]": ["wait-sell-1"]})]
+
+        # Second dashboard poll: all orders terminal -> zero extra Upbit /v1/orders/uuids calls
+        res2 = client.get("/api/dashboard")
+        assert res2.status_code == 200
+        assert len(upbit_queries) == 1
+    finally:
+        main.app.dependency_overrides.clear()
+
 
 

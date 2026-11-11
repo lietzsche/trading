@@ -31,7 +31,7 @@ COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true
 SESSION_MAX_AGE = 60 * 60 * 12
 STARTED_AT = time.monotonic()
 TRADING_ENABLED = os.environ.get("TRADING_EXECUTION_ENABLED", "false").lower() == "true"
-SIGNUP_ENABLED = os.environ.get('SIGNUP_ENABLED','false').lower() == 'true'
+SIGNUP_ENABLED = os.environ.get('SIGNUP_ENABLED','true').lower() == 'true'
 DUMMY_PASSWORD_HASH = bcrypt.hashpw(b'not-a-real-account-password',bcrypt.gensalt()).decode()
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -811,14 +811,14 @@ class MailTarget(BaseModel):
 def join(payload: JoinRequest):
     if not SIGNUP_ENABLED:
         raise HTTPException(403,'회원가입이 비활성화되어 있습니다.')
-    if db.one("SELECT id FROM tb_user WHERE deleted_at IS NULL LIMIT 1"):
-        raise HTTPException(403, "최초 계정이 이미 생성되어 회원가입이 잠겼습니다.")
     if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (payload.login_id,)):
         raise HTTPException(409, "이미 사용 중인 아이디입니다.")
+    has_active_user = bool(db.one("SELECT id FROM tb_user WHERE deleted_at IS NULL LIMIT 1"))
+    role = "USER" if has_active_user else "MASTER"
     password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
     now = engine.now()
-    db.execute("""INSERT INTO tb_user(id,user_login_id,user_password,user_name,user_role,user_email,user_phone,
-        created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'MASTER',%s,%s,%s,NULL,NULL)""",
+    db.execute(f"""INSERT INTO tb_user(id,user_login_id,user_password,user_name,user_role,user_email,user_phone,
+        created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'{role}',%s,%s,%s,NULL,NULL)""",
         (payload.login_id, password, payload.name, payload.email, payload.phone, now))
     return {"ok": True}
 
@@ -896,10 +896,12 @@ def upbit_accounts(user: Annotated[dict, Depends(current_user)]):
 @app.get("/api/dashboard")
 def dashboard(user: Annotated[dict, Depends(current_user)]):
     key = db.one("SELECT * FROM tb_upbit_key WHERE user_login_id=%s", (user["user_login_id"],))
+    creds = None
     snapshot = {"total_valuation": 0, "valuation_complete": True, "unpriced_currencies": [], "assets": []}
     if key:
         try:
-            snapshot = engine.account_snapshot(*engine.key_credentials(key,user["user_login_id"]))
+            creds = engine.key_credentials(key,user["user_login_id"])
+            snapshot = engine.account_snapshot(*creds)
         except httpx.HTTPError as error:
             engine.record_error("UPBIT", "GET_DASHBOARD_ACCOUNT", error)
             raise HTTPException(502, "대시보드 계좌 조회에 실패했습니다.") from None
@@ -1023,6 +1025,28 @@ def dashboard(user: Annotated[dict, Depends(current_user)]):
                 "auto_trade": True,
                 "status": "SIGNAL_DROPPED",
             })
+
+    if creds:
+        try:
+            pending_rows = db.all(
+                """SELECT uuid, state FROM upbit_order_history
+                   WHERE login_id=%s AND deleted_at IS NULL AND uuid IS NOT NULL
+                     AND COALESCE(state, 'wait') NOT IN ('done', 'cancel')
+                   ORDER BY id DESC LIMIT 100""",
+                (user["user_login_id"],),
+            )
+            pending_uuids = [
+                row["uuid"]
+                for row in pending_rows
+                if isinstance(row, dict)
+                and row.get("uuid")
+                and (row.get("state") or "wait") not in ("done", "cancel")
+            ]
+            if pending_uuids:
+                engine.sync_order_uuids(user["user_login_id"], *creds, pending_uuids, target_db=db)
+        except Exception as error:
+            if isinstance(error, httpx.HTTPError):
+                engine.record_error("UPBIT", "SYNC_DASHBOARD_ORDERS", error)
 
     recent_orders = db.all("""SELECT uuid,side,ord_type,price,state,market,created_at,volume,executed_volume
         FROM upbit_order_history WHERE login_id=%s AND deleted_at IS NULL ORDER BY id DESC LIMIT 5""",
@@ -1169,6 +1193,18 @@ def market_sell(payload: MarketSellRequest, user: Annotated[dict, Depends(master
         except Exception:
             pass
         if isinstance(result, dict):
+            if result.get("uuid") and (result.get("state") or "wait") not in ("done", "cancel"):
+                try:
+                    synced = engine.sync_order_uuids(
+                        user["user_login_id"],
+                        *engine.key_credentials(key, user["user_login_id"]),
+                        [result["uuid"]],
+                        target_db=db,
+                    )
+                    if synced and synced[0].get("state"):
+                        result = {**result, "state": synced[0]["state"]}
+                except Exception:
+                    pass
             return {**result, "auto_trade_disabled": True}
         return result
     except ValueError as error:

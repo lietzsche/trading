@@ -445,6 +445,7 @@ describe('Login component & Brand / PWA Install Modal', () => {
     expect(html).toContain('아이디');
     expect(html).toContain('비밀번호');
     expect(html).toContain('로그인');
+    expect(html).toContain('계정이 없으신가요? 회원가입');
   });
 
   it('renders BrandLogo and AppInstallModal with native and platform install guides', () => {

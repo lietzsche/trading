@@ -286,20 +286,22 @@ export function Login({ onLogin }) {
   const [pw, setPw] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [joining, setJoining] = useState(false);
-  const [canJoin, setCanJoin] = useState(false);
+  const [canJoin, setCanJoin] = useState(true);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const pwa = usePwaInstall();
 
   useEffect(() => {
     api('/auth/config')
-      .then(x => setCanJoin(x.signup_enabled === true))
+      .then(x => setCanJoin(x.signup_enabled !== false))
       .catch(() => {});
   }, []);
 
   async function submit(e) {
     e.preventDefault();
     setError('');
+    setNotice('');
     try {
       if (joining) {
         await api('/auth/join', {
@@ -308,6 +310,7 @@ export function Login({ onLogin }) {
         });
         setJoining(false);
         setPw('');
+        setNotice('회원가입이 완료되었습니다. 생성한 계정으로 로그인해 주세요.');
         return;
       }
       await api('/auth/login', {
@@ -327,8 +330,8 @@ export function Login({ onLogin }) {
           <BrandLogo size={54} className="login-brand-logo" />
           <div>
             <small className="eyebrow">UPBIT MA40 AUTO TRADER</small>
-            <h1>{joining ? '첫 계정 만들기' : '40일 이동평균 자동매매'}</h1>
-            <p>{joining ? '로컬 운영 계정을 생성합니다.' : '하나의 전략만, 상태는 투명하게 확인합니다.'}</p>
+            <h1>{joining ? '회원가입' : '40일 이동평균 자동매매'}</h1>
+            <p>{joining ? '새 계정을 생성해 자동매매를 시작합니다.' : '하나의 전략만, 상태는 투명하게 확인합니다.'}</p>
           </div>
         </div>
         {joining && (
@@ -339,7 +342,14 @@ export function Login({ onLogin }) {
         )}
         <label>
           아이디
-          <input autoFocus value={id} onChange={e => setId(e.target.value)} required />
+          <input
+            autoFocus
+            value={id}
+            onChange={e => setId(e.target.value)}
+            minLength={joining ? 4 : 1}
+            placeholder={joining ? '4자 이상 입력' : undefined}
+            required
+          />
         </label>
         <label>
           비밀번호
@@ -348,11 +358,13 @@ export function Login({ onLogin }) {
             value={pw}
             onChange={e => setPw(e.target.value)}
             minLength={joining ? 8 : 1}
+            placeholder={joining ? '8자 이상 입력' : undefined}
             required
           />
         </label>
+        {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
-        <button className="primary">{joining ? '계정 생성' : '로그인'}</button>
+        <button className="primary">{joining ? '회원가입 완료' : '로그인'}</button>
         {canJoin && (
           <button
             type="button"
@@ -360,9 +372,10 @@ export function Login({ onLogin }) {
             onClick={() => {
               setJoining(!joining);
               setError('');
+              setNotice('');
             }}
           >
-            {joining ? '로그인으로 돌아가기' : '처음 실행인가요? 계정 만들기'}
+            {joining ? '로그인으로 돌아가기' : '계정이 없으신가요? 회원가입'}
           </button>
         )}
         {!pwa.isInstalled && (
