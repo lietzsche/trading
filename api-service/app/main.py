@@ -32,6 +32,7 @@ SESSION_MAX_AGE = 60 * 60 * 12
 STARTED_AT = time.monotonic()
 TRADING_ENABLED = os.environ.get("TRADING_EXECUTION_ENABLED", "false").lower() == "true"
 SIGNUP_ENABLED = os.environ.get('SIGNUP_ENABLED','true').lower() == 'true'
+SINGLE_USER_ONLY = os.environ.get('SINGLE_USER_ONLY','false').lower() == 'true'
 DUMMY_PASSWORD_HASH = bcrypt.hashpw(b'not-a-real-account-password',bcrypt.gensalt()).decode()
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -807,19 +808,54 @@ class MailTarget(BaseModel):
     email: str = Field(min_length=3, max_length=255)
 
 
+@app.get("/api/auth/check-id")
+def check_login_id(login_id: str = Query(..., min_length=1, max_length=50)):
+    if not SIGNUP_ENABLED:
+        raise HTTPException(403, "회원가입이 비활성화되어 있습니다.")
+    cleaned = login_id.strip()
+    if len(cleaned) < 4 or len(cleaned) > 50 or not re.match(r"^[a-zA-Z0-9_.-]{4,50}$", cleaned):
+        return {
+            "available": False,
+            "login_id": cleaned,
+            "reason": "아이디는 영문, 숫자, 밑줄(_), 하이픈(-), 마침표(.) 조합 4~50자로 입력해 주세요.",
+        }
+    exists = db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (cleaned,))
+    if exists:
+        return {
+            "available": False,
+            "login_id": cleaned,
+            "reason": "이미 사용 중인 아이디입니다.",
+        }
+    return {
+        "available": True,
+        "login_id": cleaned,
+        "reason": "사용 가능한 아이디입니다.",
+    }
+
+
 @app.post("/api/auth/join", status_code=201)
 def join(payload: JoinRequest):
     if not SIGNUP_ENABLED:
         raise HTTPException(403,'회원가입이 비활성화되어 있습니다.')
-    if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (payload.login_id,)):
+    if SINGLE_USER_ONLY and db.one("SELECT id FROM tb_user WHERE deleted_at IS NULL LIMIT 1"):
+        raise HTTPException(403, "최초 계정이 이미 생성되어 회원가입이 잠겼습니다.")
+    login_id = payload.login_id.strip()
+    name = payload.name.strip()
+    if len(login_id) < 4:
+        raise HTTPException(400, "아이디는 4자 이상이어야 합니다.")
+    if not name:
+        raise HTTPException(400, "이름을 입력해 주세요.")
+    if db.one("SELECT id FROM tb_user WHERE user_login_id=%s", (login_id,)):
         raise HTTPException(409, "이미 사용 중인 아이디입니다.")
     has_active_user = bool(db.one("SELECT id FROM tb_user WHERE deleted_at IS NULL LIMIT 1"))
     role = "USER" if has_active_user else "MASTER"
     password = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
     now = engine.now()
+    email = payload.email.strip() if payload.email and payload.email.strip() else None
+    phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
     db.execute(f"""INSERT INTO tb_user(id,user_login_id,user_password,user_name,user_role,user_email,user_phone,
         created_at,updated_at,deleted_at) VALUES(nextval('tb_user_seq'),%s,%s,%s,'{role}',%s,%s,%s,NULL,NULL)""",
-        (payload.login_id, password, payload.name, payload.email, payload.phone, now))
+        (login_id, password, name, email, phone, now))
     return {"ok": True}
 
 
@@ -1363,7 +1399,7 @@ def update_setting(name: Literal["stock", "upbit"], payload: SettingUpdate, _: A
 # tables.
 _MA40_API_PATHS = {
     "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-    "/api/auth/config", "/api/auth/join", "/api/profile",
+    "/api/auth/config", "/api/auth/join", "/api/auth/check-id", "/api/profile",
     "/api/dashboard", "/api/orders", "/api/admin/system", "/api/admin/errors",
     "/api/system/public-ip",
     "/api/backtest", "/api/backtest/batch",

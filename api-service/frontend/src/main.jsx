@@ -91,7 +91,7 @@ export function BrandLogo({ size = 40, className = '' }) {
 }
 
 export function usePwaInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [installPrompt, setInstallPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(() => {
     if (typeof window === 'undefined') return false;
     const standaloneMatch = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
@@ -106,11 +106,11 @@ export function usePwaInstall() {
     if (typeof window === 'undefined') return undefined;
     const onBeforeInstall = e => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setInstallPrompt(e);
     };
     const onAppInstalled = () => {
       setIsInstalled(true);
-      setDeferredPrompt(null);
+      setInstallPrompt(null);
     };
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
     window.addEventListener('appinstalled', onAppInstalled);
@@ -121,24 +121,24 @@ export function usePwaInstall() {
   }, []);
 
   const triggerInstall = useCallback(async () => {
-    if (!deferredPrompt || typeof deferredPrompt.prompt !== 'function') {
+    if (!installPrompt || typeof installPrompt.prompt !== 'function') {
       return { outcome: 'manual' };
     }
     try {
-      await deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
       if (choice && choice.outcome === 'accepted') {
         setIsInstalled(true);
-        setDeferredPrompt(null);
+        setInstallPrompt(null);
       }
       return choice || { outcome: 'dismissed' };
     } catch (_) {
       return { outcome: 'error' };
     }
-  }, [deferredPrompt]);
+  }, [installPrompt]);
 
   return {
-    canNativeInstall: Boolean(deferredPrompt),
+    canNativeInstall: Boolean(installPrompt),
     isInstalled,
     isIos,
     triggerInstall,
@@ -281,16 +281,161 @@ export function AppInstallModal({ open, onClose, pwa }) {
   );
 }
 
-export function Login({ onLogin }) {
+export function ButtonSpinner({ size = 12, className = '' }) {
+  return (
+    <span
+      className={`loader btn-loader ${className}`}
+      style={{ width: `${size}px`, height: `${size}px` }}
+      aria-hidden="true"
+    />
+  );
+}
+
+export function EmptyState({ icon = '📊', title, description, action = null }) {
+  return (
+    <div className="empty-state-card" role="status">
+      <span className="empty-state-icon" aria-hidden="true">{icon}</span>
+      <strong className="empty-state-title">{title}</strong>
+      {description && <p className="empty-state-desc">{description}</p>}
+      {action && <div className="empty-state-action">{action}</div>}
+    </div>
+  );
+}
+
+export function SkeletonMetricsGrid() {
+  return (
+    <section className="metric-grid" aria-hidden="true">
+      {Array.from({ length: 7 }, (_, i) => (
+        <div key={i} className="card metric-card skeleton-metric-card">
+          <div className="skeleton skeleton-text" style={{ width: '40%', height: '14px', marginBottom: '10px' }} />
+          <div className="skeleton skeleton-title" style={{ width: '70%', height: '28px', marginBottom: '6px' }} />
+          <div className="skeleton skeleton-text" style={{ width: '50%', height: '12px' }} />
+        </div>
+      ))}
+    </section>
+  );
+}
+
+export function SkeletonSignals({ count = 3 }) {
+  return (
+    <div className="recommendations" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <article key={i} className="card skeleton-signal-card">
+          <div className="rec-card-head" style={{ marginBottom: '12px' }}>
+            <div className="skeleton skeleton-text" style={{ width: '35%', height: '14px', margin: 0 }} />
+            <div className="skeleton" style={{ width: '75px', height: '26px' }} />
+          </div>
+          <div className="skeleton skeleton-title" style={{ width: '50%', height: '22px', marginBottom: '8px' }} />
+          <div className="skeleton skeleton-title" style={{ width: '65%', height: '26px', marginBottom: '8px' }} />
+          <div className="skeleton skeleton-text" style={{ width: '80%', height: '14px', marginBottom: '14px' }} />
+          <div className="skeleton" style={{ width: '100%', height: '28px' }} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonTable({ cols = 6, rows = 3 }) {
+  return (
+    <tbody>
+      {Array.from({ length: rows }, (_, i) => (
+        <tr key={i} className="skeleton-row">
+          {Array.from({ length: cols }, (_, j) => (
+            <td key={j}>
+              <div
+                className="skeleton skeleton-text"
+                style={{
+                  width: `${50 + ((i + j) % 4) * 15}%`,
+                  height: '14px',
+                  margin: '4px 0',
+                }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  );
+}
+
+export function AppLoadingSplash() {
+  return (
+    <main className="login app-splash" role="status" aria-label="보안 세션 확인 중">
+      <div className="login-form splash-content">
+        <BrandLogo size={64} className="login-brand-logo splash-logo" />
+        <small className="eyebrow" style={{ marginTop: '12px' }}>UPBIT MA40 AUTO TRADER</small>
+        <h2 style={{ fontSize: 'var(--text-lg)', color: 'var(--text-primary)', margin: '8px 0 16px' }}>
+          40일 이동평균 자동매매
+        </h2>
+        <div className="loading-row">
+          <span className="loader" style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+            보안 세션을 확인하고 있습니다…
+          </span>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export function useTheme() {
+  const [theme, setThemeState] = useState(() => {
+    if (typeof document === 'undefined') return 'dark';
+    try {
+      const saved = window.localStorage && window.localStorage.getItem('theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch (_) {}
+    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.theme = theme;
+    try {
+      if (window.localStorage) window.localStorage.setItem('theme', theme);
+    } catch (_) {}
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState(prev => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
+
+  return { theme, setTheme: setThemeState, toggleTheme };
+}
+
+export function ThemeToggle({ theme, onToggle }) {
+  const isDark = theme !== 'light';
+  return (
+    <button
+      type="button"
+      className="quiet compact"
+      onClick={onToggle}
+      aria-label={isDark ? '라이트 모드로 전환' : '다크 모드로 전환'}
+      title={isDark ? '현재: 다크 모드 (클릭 시 라이트 모드)' : '현재: 라이트 모드 (클릭 시 다크 모드)'}
+    >
+      {isDark ? '🌙 다크' : '☀️ 라이트'}
+    </button>
+  );
+}
+
+export function Login({ onLogin, initialJoining = false, theme: propTheme, onToggleTheme }) {
   const [id, setId] = useState('');
   const [pw, setPw] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [joining, setJoining] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [joining, setJoining] = useState(Boolean(initialJoining));
   const [canJoin, setCanJoin] = useState(true);
+  const [idCheck, setIdCheck] = useState({ state: 'idle', message: '' });
   const [showInstallModal, setShowInstallModal] = useState(false);
   const pwa = usePwaInstall();
+  const localTheme = useTheme();
+  const activeTheme = propTheme || localTheme.theme;
+  const handleToggleTheme = onToggleTheme || localTheme.toggleTheme;
 
   useEffect(() => {
     api('/auth/config')
@@ -298,59 +443,159 @@ export function Login({ onLogin }) {
       .catch(() => {});
   }, []);
 
+  async function handleCheckId() {
+    const trimmed = id.trim();
+    setError('');
+    if (trimmed.length < 4) {
+      setIdCheck({ state: 'unavailable', message: '아이디는 4자 이상 입력해 주세요.' });
+      return;
+    }
+    setIdCheck({ state: 'checking', message: '아이디 사용 가능 여부를 확인하고 있습니다…' });
+    try {
+      const res = await api(`/auth/check-id?login_id=${encodeURIComponent(trimmed)}`);
+      setIdCheck({
+        state: res.available ? 'available' : 'unavailable',
+        message: res.reason || (res.available ? '사용 가능한 아이디입니다.' : '이미 사용 중인 아이디입니다.'),
+      });
+    } catch (x) {
+      setIdCheck({ state: 'unavailable', message: x.message || '중복 확인에 실패했습니다.' });
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     setError('');
-    setNotice('');
+    setSuccessMsg('');
+    if (joining) {
+      const trimmedId = id.trim();
+      const trimmedName = name.trim();
+      if (trimmedId.length < 4) {
+        setError('아이디는 4자 이상이어야 합니다.');
+        return;
+      }
+      if (!trimmedName) {
+        setError('이름(또는 닉네임)을 입력해 주세요.');
+        return;
+      }
+      if (pw.length < 8) {
+        setError('비밀번호는 8자 이상이어야 합니다.');
+        return;
+      }
+      if (pwConfirm !== pw) {
+        setError('비밀번호와 비밀번호 확인이 일치하지 않습니다.');
+        return;
+      }
+    }
+    setBusy(true);
     try {
       if (joining) {
+        const trimmedId = id.trim();
         await api('/auth/join', {
           method: 'POST',
-          body: JSON.stringify({ login_id: id, password: pw, name }),
+          body: JSON.stringify({
+            login_id: trimmedId,
+            password: pw,
+            name: name.trim(),
+            email: email.trim() || null,
+            phone: phone.trim() || null,
+          }),
         });
         setJoining(false);
+        setId(trimmedId);
         setPw('');
-        setNotice('회원가입이 완료되었습니다. 생성한 계정으로 로그인해 주세요.');
+        setPwConfirm('');
+        setIdCheck({ state: 'idle', message: '' });
+        setSuccessMsg('회원가입이 완료되었습니다. 생성한 아이디와 비밀번호로 로그인해 주세요.');
         return;
       }
       await api('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ login_id: id, password: pw }),
+        body: JSON.stringify({ login_id: id.trim(), password: pw }),
       });
       onLogin();
     } catch (x) {
       setError(x.message);
+    } finally {
+      setBusy(false);
     }
   }
+
+  const pwMismatch = joining && pwConfirm.length > 0 && pw !== pwConfirm;
+  const pwMatched = joining && pw.length >= 8 && pwConfirm.length >= 8 && pw === pwConfirm;
 
   return (
     <main className="login">
       <form className="login-form" onSubmit={submit}>
         <div className="login-brand-hero">
           <BrandLogo size={54} className="login-brand-logo" />
-          <div>
+          <div style={{ flex: 1 }}>
             <small className="eyebrow">UPBIT MA40 AUTO TRADER</small>
-            <h1>{joining ? '회원가입' : '40일 이동평균 자동매매'}</h1>
-            <p>{joining ? '새 계정을 생성해 자동매매를 시작합니다.' : '하나의 전략만, 상태는 투명하게 확인합니다.'}</p>
+            <h1>{joining ? '새 계정 만들기' : '40일 이동평균 자동매매'}</h1>
+            <p>{joining ? '아이디와 비밀번호를 설정하여 자동매매 계정을 생성합니다.' : '하나의 전략만, 상태는 투명하게 확인합니다.'}</p>
           </div>
+          <ThemeToggle theme={activeTheme} onToggle={handleToggleTheme} />
         </div>
+        {successMsg && !joining && (
+          <p className="signup-success-banner" role="status">
+            ✓ {successMsg}
+          </p>
+        )}
         {joining && (
           <label>
-            이름
-            <input value={name} onChange={e => setName(e.target.value)} required />
+            이름 (닉네임)
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="예: 홍길동"
+              maxLength={100}
+              required
+            />
           </label>
         )}
-        <label>
-          아이디
-          <input
-            autoFocus
-            value={id}
-            onChange={e => setId(e.target.value)}
-            minLength={joining ? 4 : 1}
-            placeholder={joining ? '4자 이상 입력' : undefined}
-            required
-          />
-        </label>
+        <div className="signup-id-group">
+          <label>
+            아이디
+            <input
+              autoFocus
+              value={id}
+              onChange={e => {
+                setId(e.target.value);
+                if (idCheck.state !== 'idle') setIdCheck({ state: 'idle', message: '' });
+              }}
+              minLength={joining ? 4 : 1}
+              maxLength={50}
+              placeholder={joining ? '영문·숫자 4~50자' : ''}
+              required
+            />
+          </label>
+          {joining && (
+            <div className="signup-id-check-bar">
+              <button
+                type="button"
+                className="quiet compact signup-check-btn"
+                disabled={busy || idCheck.state === 'checking' || id.trim().length < 4}
+                onClick={handleCheckId}
+              >
+                {idCheck.state === 'checking' ? '확인 중…' : '아이디 중복 확인'}
+              </button>
+              {idCheck.message && (
+                <small
+                  className={`signup-field-hint ${
+                    idCheck.state === 'available'
+                      ? 'valid'
+                      : idCheck.state === 'unavailable'
+                        ? 'invalid'
+                        : ''
+                  }`}
+                >
+                  {idCheck.state === 'available' ? '✓ ' : idCheck.state === 'unavailable' ? '⚠ ' : ''}
+                  {idCheck.message}
+                </small>
+              )}
+            </div>
+          )}
+        </div>
         <label>
           비밀번호
           <input
@@ -358,13 +603,60 @@ export function Login({ onLogin }) {
             value={pw}
             onChange={e => setPw(e.target.value)}
             minLength={joining ? 8 : 1}
-            placeholder={joining ? '8자 이상 입력' : undefined}
+            maxLength={72}
+            placeholder={joining ? '8자 이상 입력' : ''}
             required
           />
         </label>
-        {notice && <p className="notice">{notice}</p>}
+        {joining && (
+          <>
+            <label>
+              비밀번호 확인
+              <input
+                type="password"
+                value={pwConfirm}
+                onChange={e => setPwConfirm(e.target.value)}
+                minLength={8}
+                maxLength={72}
+                placeholder="비밀번호 재입력"
+                required
+              />
+              {pwMismatch && (
+                <small className="signup-field-hint invalid">⚠ 비밀번호가 일치하지 않습니다.</small>
+              )}
+              {pwMatched && (
+                <small className="signup-field-hint valid">✓ 비밀번호가 일치합니다.</small>
+              )}
+            </label>
+            <div className="signup-optional-grid">
+              <label>
+                이메일 (선택)
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                연락처 (선택)
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="010-0000-0000"
+                  maxLength={25}
+                />
+              </label>
+            </div>
+          </>
+        )}
         {error && <p className="error">{error}</p>}
-        <button className="primary">{joining ? '회원가입 완료' : '로그인'}</button>
+        <button className="primary" disabled={busy}>
+          {busy && <ButtonSpinner />}
+          {busy ? (joining ? '계정 생성 중…' : '로그인 중…') : (joining ? '계정 생성' : '로그인')}
+        </button>
         {canJoin && (
           <button
             type="button"
@@ -372,7 +664,8 @@ export function Login({ onLogin }) {
             onClick={() => {
               setJoining(!joining);
               setError('');
-              setNotice('');
+              setSuccessMsg('');
+              setIdCheck({ state: 'idle', message: '' });
             }}
           >
             {joining ? '로그인으로 돌아가기' : '계정이 없으신가요? 회원가입'}
@@ -1035,6 +1328,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
             disabled={reconciling}
             onClick={handleReconcile}
           >
+            {reconciling && <ButtonSpinner />}
             {reconciling ? '동기화 중…' : '주문 상태 재확인(Reconcile)'}
           </button>
         </section>
@@ -1123,6 +1417,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                 disabled={btBatchBusy || Boolean(signalCollection.running)}
                 onClick={() => runBatchBacktest(true)}
               >
+                {btBatchBusy && <ButtonSpinner />}
                 {btBatchBusy ? '백테스트 분석 중…' : '전체 백테스트 분석'}
               </button>
             )}
@@ -1132,6 +1427,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
               disabled={recollecting || Boolean(signalCollection.running)}
               onClick={handleManualRecollect}
             >
+              {(signalCollection.running || recollecting) && <ButtonSpinner />}
               {signalCollection.running || recollecting ? '신호 계산 중…' : '지금 신호 재계산'}
             </button>
             {totalAutoEnabledCount > 0 && (
@@ -1141,6 +1437,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                 disabled={clearingBatch}
                 onClick={() => clearAutoTradeMarkets(allEnabledCodes)}
               >
+                {clearingBatch && <ButtonSpinner />}
                 {clearingBatch ? '해제 중…' : '전체 허용 해제'}
               </button>
             )}
@@ -1267,6 +1564,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                   disabled={clearingBatch || positiveFilteredCodes.length === 0}
                   onClick={() => enableAutoTradeMarkets(positiveFilteredCodes)}
                 >
+                  {clearingBatch && <ButtonSpinner />}
                   수익률 양수(+) 종목 일괄 허용 ({positiveFilteredCodes.length}개)
                 </button>
                 <button
@@ -1275,6 +1573,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                   disabled={clearingBatch || top5CandidateCodes.length === 0}
                   onClick={() => enableAutoTradeMarkets(top5CandidateCodes)}
                 >
+                  {clearingBatch && <ButtonSpinner />}
                   상위 TOP 5 일괄 허용
                 </button>
                 {negativeEnabledCodes.length > 0 && (
@@ -1284,6 +1583,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                     disabled={clearingBatch}
                     onClick={() => clearAutoTradeMarkets(negativeEnabledCodes)}
                   >
+                    {clearingBatch && <ButtonSpinner />}
                     마이너스 수익률 허용 종목 해제 ({negativeEnabledCodes.length}개)
                   </button>
                 )}
@@ -1329,13 +1629,18 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                         disabled={Boolean(togglingMarkets[code]) || clearingBatch}
                         onClick={() => toggleMarketAutoTrade(r)}
                       >
+                        {Boolean(togglingMarkets[code]) && <ButtonSpinner size={12} />}
                         {autoEnabled ? '자동매수 켜짐' : '자동매수 허용'}
                       </button>
                       <button
                         type="button"
                         className="quiet compact rec-backtest-btn"
+                        disabled={btBusy && btTarget && (btTarget.code === code || btTarget.market === code)}
                         onClick={() => runItemBacktest(r)}
                       >
+                        {btBusy && btTarget && (btTarget.code === code || btTarget.market === code) && (
+                          <ButtonSpinner size={12} />
+                        )}
                         백테스트
                       </button>
                     </div>
@@ -1384,11 +1689,19 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
               </button>
             </div>
           ) : (
-            <p className="empty">
-              {signalCollection.running
-                ? `${globalIntervalText} MA${globalMaPeriod} 기준으로 추천 신호를 계산하고 있습니다…`
-                : '현재 매수 신호가 없습니다.'}
-            </p>
+            <div className="empty-state-card" role="status" style={{ margin: '16px 0' }}>
+              <span className="empty-state-icon" aria-hidden="true">📈</span>
+              <strong className="empty-state-title">
+                {signalCollection.running
+                  ? `${globalIntervalText} MA${globalMaPeriod} 기준으로 추천 신호를 계산하고 있습니다…`
+                  : '현재 매수 신호가 없습니다.'}
+              </strong>
+              <p className="empty-state-desc">
+                {signalCollection.running
+                  ? '잠시 후 신호 수집 및 백테스트 계산이 완료되면 여기에 표시됩니다.'
+                  : '모든 종목이 현재 이동평균선 아래에 머물러 있습니다. 5분마다 자동으로 다시 탐색합니다.'}
+              </p>
+            </div>
           )}
         </div>
 
@@ -1476,7 +1789,18 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
               </tr>
             </thead>
             <tbody>
-              {assets.map(r => {
+              {assets.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: '32px 16px' }}>
+                    <EmptyState
+                      icon="🪙"
+                      title="보유 중인 자산이 없습니다"
+                      description="Upbit 계좌의 보유 자산이 없거나 API 키가 아직 연동되지 않았습니다."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                assets.map(r => {
                 const isKRW = r.currency === 'KRW';
                 const marketCode = `KRW-${r.currency}`;
                 const hasBuySignal = signals.some(s => (s.code || s.market) === marketCode);
@@ -1547,7 +1871,8 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
@@ -1572,8 +1897,12 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
             <tbody>
               {(data.recent_orders || []).length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                    최근 주문 내역이 없습니다.
+                  <td colSpan={7} style={{ padding: '32px 16px' }}>
+                    <EmptyState
+                      icon="📋"
+                      title="최근 거래 내역이 없습니다"
+                      description="자동매매가 활성화되면 이동평균선 신호에 따라 주문이 자동 체결됩니다."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -1677,6 +2006,7 @@ export function Monitor({ data, refresh, initialFilters = {} }) {
                 disabled={selling}
                 onClick={handleEmergencySell}
               >
+                {selling && <ButtonSpinner />}
                 {selling ? '매도 실행 중…' : '전량 시장가 매도 확인'}
               </button>
             </div>
@@ -2031,6 +2361,7 @@ export function StrategySettings({ dashboard, onChanged }) {
           />
         </label>
         <button className="primary" disabled={busy}>
+          {busy && <ButtonSpinner />}
           {busy ? '저장 및 재계산 시작 중…' : '전체 설정 저장'}
         </button>
       </form>
@@ -2039,7 +2370,179 @@ export function StrategySettings({ dashboard, onChanged }) {
   );
 }
 
-export function Settings({ dashboard, onChanged }) {
+export function AccountSettings({ user, onUserChanged }) {
+  const [name, setName] = useState((user && user.user_name) || '');
+  const [email, setEmail] = useState((user && user.user_email) || '');
+  const [phone, setPhone] = useState((user && user.user_phone) || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      setName(user.user_name || '');
+      setEmail(user.user_email || '');
+      setPhone(user.user_phone || '');
+    }
+  }, [user]);
+
+  async function saveProfile(e) {
+    e.preventDefault();
+    if (busy) return;
+    setStatusMsg('');
+    setErrorMsg('');
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setErrorMsg('이름(닉네임)을 입력해 주세요.');
+      return;
+    }
+
+    const wantsPasswordChange = Boolean(newPassword || newPasswordConfirm || currentPassword);
+    if (wantsPasswordChange) {
+      if (!currentPassword) {
+        setErrorMsg('비밀번호를 변경하려면 현재 비밀번호를 입력해 주세요.');
+        return;
+      }
+      if (newPassword.length < 8) {
+        setErrorMsg('새 비밀번호는 8자 이상이어야 합니다.');
+        return;
+      }
+      if (newPassword !== newPasswordConfirm) {
+        setErrorMsg('새 비밀번호와 비밀번호 확인이 일치하지 않습니다.');
+        return;
+      }
+    }
+
+    setBusy(true);
+    try {
+      const payload = {
+        name: trimmedName,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+      };
+      if (wantsPasswordChange) {
+        payload.current_password = currentPassword;
+        payload.password = newPassword;
+      }
+      await api('/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setNewPasswordConfirm('');
+      if (wantsPasswordChange) {
+        setStatusMsg('비밀번호가 변경되어 보안 세션이 갱신되었습니다. 새 비밀번호로 다시 로그인해 주세요.');
+        if (onUserChanged) await onUserChanged();
+      } else {
+        setStatusMsg('내 계정 정보를 저장했습니다.');
+        if (onUserChanged) await onUserChanged();
+      }
+    } catch (x) {
+      setErrorMsg(x.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>내 계정 · 비밀번호 관리</h2>
+      <p className="info-note">
+        로그인한 계정의 프로필 정보(이름·이메일·연락처)를 수정하거나 비밀번호를 변경할 수 있습니다. 비밀번호 변경 시 보안을 위해 기존 로그인 세션이 만료됩니다.
+      </p>
+      {user && (
+        <dl style={{ marginBottom: '14px' }}>
+          <dt>로그인 아이디</dt>
+          <dd>
+            <code>{user.user_login_id}</code>
+          </dd>
+          <dt>계정 권한</dt>
+          <dd>{user.user_role || 'MASTER'}</dd>
+        </dl>
+      )}
+      <form className="form" onSubmit={saveProfile}>
+        <label>
+          이름 (닉네임)
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            maxLength={100}
+            required
+          />
+        </label>
+        <div className="signup-optional-grid">
+          <label>
+            이메일 (선택)
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="user@example.com"
+              maxLength={255}
+            />
+          </label>
+          <label>
+            연락처 (선택)
+            <input
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="010-0000-0000"
+              maxLength={25}
+            />
+          </label>
+        </div>
+        <label>
+          현재 비밀번호 (비밀번호 변경 시 필수)
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+            placeholder="비밀번호 변경 시에만 입력"
+            maxLength={72}
+          />
+        </label>
+        <div className="signup-optional-grid">
+          <label>
+            새 비밀번호 (8자 이상)
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="변경하지 않으려면 비워두세요"
+              minLength={newPassword ? 8 : undefined}
+              maxLength={72}
+            />
+          </label>
+          <label>
+            새 비밀번호 확인
+            <input
+              type="password"
+              value={newPasswordConfirm}
+              onChange={e => setNewPasswordConfirm(e.target.value)}
+              placeholder="새 비밀번호 재입력"
+              minLength={newPasswordConfirm ? 8 : undefined}
+              maxLength={72}
+            />
+          </label>
+        </div>
+        {errorMsg && <p className="error">{errorMsg}</p>}
+        {statusMsg && <p role="status">{statusMsg}</p>}
+        <button className="primary" disabled={busy}>
+          {busy && <ButtonSpinner />}
+          {busy ? '계정 정보 저장 중…' : '계정 정보 저장'}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+export function Settings({ dashboard, onChanged, user, onUserChanged }) {
   const [a, setA] = useState('');
   const [s, setS] = useState('');
   const [msg, setMsg] = useState('');
@@ -2176,7 +2679,8 @@ export function Settings({ dashboard, onChanged }) {
             <input type="password" value={s} onChange={e => setS(e.target.value)} required />
           </label>
           <button className="primary" disabled={busy}>
-            키 저장
+            {busy && <ButtonSpinner />}
+            {busy ? '키 저장 중…' : '키 저장'}
           </button>
         </form>
       </section>
@@ -2192,10 +2696,13 @@ export function Settings({ dashboard, onChanged }) {
           disabled={busy || !dashboard.key_registered}
           onClick={handleToggleClick}
         >
-          {dashboard.auto_on ? '자동매매 끄기' : '자동매매 켜기'}
+          {busy && <ButtonSpinner />}
+          {dashboard.auto_on ? (busy ? '끄는 중…' : '자동매매 끄기') : '자동매매 켜기'}
         </button>
         {msg && <p>{msg}</p>}
       </section>
+
+      <AccountSettings user={user} onUserChanged={onUserChanged} />
 
       {/* Auto-Trade Activation Confirmation Modal */}
       {showAutoConfirm && (
@@ -2235,6 +2742,7 @@ export function Settings({ dashboard, onChanged }) {
                 disabled={busy}
                 onClick={() => executeToggle(true)}
               >
+                {busy && <ButtonSpinner />}
                 {busy ? '활성화 중…' : '활성화'}
               </button>
             </div>
@@ -2250,23 +2758,31 @@ export function App() {
   const [dash, setDash] = useState(null);
   const [tab, setTab] = useState('monitor');
   const [error, setError] = useState('');
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const pwa = usePwaInstall();
+  const { theme, toggleTheme } = useTheme();
 
   const loadUser = useCallback(
     () =>
       api('/auth/me')
         .then(setUser)
-        .catch(() => setUser(null)),
+        .catch(() => setUser(null))
+        .finally(() => setAuthChecking(false)),
     []
   );
 
   const load = useCallback(async () => {
     try {
+      setIsSyncing(true);
       setError('');
       setDash(await api('/dashboard'));
     } catch (e) {
       setError(e.message);
+    } finally {
+      setIsSyncing(false);
     }
   }, []);
 
@@ -2284,16 +2800,93 @@ export function App() {
     return () => clearInterval(t);
   }, [user, load]);
 
-  if (!user) return <Login onLogin={loadUser} />;
-  if (!dash)
+  if (authChecking) return <AppLoadingSplash />;
+  if (!user) return <Login onLogin={loadUser} theme={theme} onToggleTheme={toggleTheme} />;
+  if (!dash) {
+    if (error) {
+      return (
+        <div className="layout">
+          <header className="topbar">
+            <div className="topbar-brand">
+              <BrandLogo size={42} className="topbar-brand-logo" />
+              <div>
+                <small className="eyebrow">UPBIT ONLY</small>
+                <h1>MA40 Auto Trader</h1>
+              </div>
+            </div>
+          </header>
+          <main className="content">
+            <EmptyState
+              icon="⚠️"
+              title="대시보드 데이터를 불러오지 못했습니다"
+              description={error}
+              action={
+                <button type="button" className="primary" onClick={load}>
+                  다시 시도
+                </button>
+              }
+            />
+          </main>
+        </div>
+      );
+    }
+
     return (
-      <main className="content">
-        <p>{error || '데이터를 불러오는 중입니다.'}</p>
-        <button type="button" onClick={load}>
-          다시 시도
-        </button>
-      </main>
+      <div className="layout">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <BrandLogo size={42} className="topbar-brand-logo" />
+            <div>
+              <small className="eyebrow">UPBIT ONLY</small>
+              <h1>MA40 Auto Trader</h1>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <div className="sync-indicator syncing">
+              <span className="loader" style={{ width: '12px', height: '12px' }} />
+              <span className="sync-text">데이터 불러오는 중…</span>
+            </div>
+          </div>
+        </header>
+        <nav className="tabs">
+          <button type="button" className="active">모니터링</button>
+          <button type="button">설정</button>
+          <button type="button">가이드</button>
+        </nav>
+        <main className="content">
+          <div className="dashboard-skeleton" aria-busy="true" aria-label="데이터 로딩 중">
+            <section className="status-banner neutral skeleton-banner">
+              <div className="skeleton skeleton-title" style={{ width: '120px', height: '16px', marginBottom: '8px' }} />
+              <div className="skeleton skeleton-text" style={{ width: '260px', height: '24px' }} />
+            </section>
+            <SkeletonMetricsGrid />
+            <section style={{ marginTop: '24px' }}>
+              <div className="skeleton skeleton-title" style={{ width: '160px', height: '22px', marginBottom: '14px' }} />
+              <SkeletonSignals />
+            </section>
+            <section style={{ marginTop: '24px' }}>
+              <div className="skeleton skeleton-title" style={{ width: '120px', height: '22px', marginBottom: '14px' }} />
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>자산</th>
+                      <th>보유량</th>
+                      <th>평가액</th>
+                      <th>수익률</th>
+                      <th>전략 상태</th>
+                      <th>긴급 주문</th>
+                    </tr>
+                  </thead>
+                  <SkeletonTable cols={6} rows={3} />
+                </table>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
     );
+  }
 
   const nav = [
     ['monitor', '모니터링'],
@@ -2312,6 +2905,11 @@ export function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <div className={`sync-indicator ${isSyncing ? 'syncing' : 'idle'}`} title="30초 주기 자동 동기화">
+            <span className={`sync-dot ${isSyncing ? 'pulse' : ''}`} aria-hidden="true" />
+            <span className="sync-text">{isSyncing ? '동기화 중…' : '실시간 연결됨'}</span>
+          </div>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
           {!pwa.isInstalled && (
             <button
               type="button"
@@ -2324,12 +2922,21 @@ export function App() {
           <button
             type="button"
             className="quiet"
+            disabled={loggingOut}
             onClick={async () => {
-              await api('/auth/logout', { method: 'POST' });
-              setUser(null);
+              try {
+                setLoggingOut(true);
+                await api('/auth/logout', { method: 'POST' });
+                setUser(null);
+              } catch (e) {
+                setError(e.message);
+              } finally {
+                setLoggingOut(false);
+              }
             }}
           >
-            로그아웃
+            {loggingOut && <ButtonSpinner />}
+            {loggingOut ? '로그아웃 중…' : '로그아웃'}
           </button>
         </div>
       </header>
@@ -2346,9 +2953,26 @@ export function App() {
         ))}
       </nav>
       <main className="content">
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <div className="status-banner blocked error-feedback-banner" role="alert" style={{ marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: 'var(--text-lg)' }}>⚠️</span>
+              <div>
+                <strong style={{ color: 'var(--text-primary)', fontSize: 'var(--text-sm)' }}>
+                  데이터 동기화 오류
+                </strong>
+                <p className="error" style={{ margin: '2px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                  {error}
+                </p>
+              </div>
+            </div>
+            <button type="button" className="quiet compact" onClick={load} disabled={isSyncing}>
+              {isSyncing ? '재시도 중…' : '다시 시도'}
+            </button>
+          </div>
+        )}
         {tab === 'monitor' && <Monitor data={dash} refresh={load} />}
-        {tab === 'settings' && <Settings dashboard={dash} onChanged={load} />}
+        {tab === 'settings' && <Settings dashboard={dash} onChanged={load} user={user} onUserChanged={loadUser} />}
         {tab === 'guide' && <UsageGuide />}
       </main>
       <AppInstallModal open={showInstallModal} onClose={() => setShowInstallModal(false)} pwa={pwa} />

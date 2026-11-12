@@ -51,6 +51,26 @@ def test_signup_disabled_and_enabled(auth,monkeypatch):
     monkeypatch.setattr(main,'SIGNUP_ENABLED',True)
     assert client.post('/api/auth/join',json=payload).status_code==201
 
+
+def test_check_login_id_availability_and_validation(auth, monkeypatch):
+    db, client = auth
+    monkeypatch.setattr(main, 'SIGNUP_ENABLED', True)
+    # Invalid format (special chars not allowed)
+    bad = client.get('/api/auth/check-id?login_id=ab!@')
+    assert bad.status_code == 200
+    assert bad.json()['available'] is False
+    # Valid and available (AuthDB returns None for SELECT id FROM tb_user)
+    ok = client.get('/api/auth/check-id?login_id=trader_01')
+    assert ok.status_code == 200
+    assert ok.json()['available'] is True
+    # Existing ID returns available=False
+    monkeypatch.setattr(db, 'one', lambda sql, params=(): {'id': 1} if 'user_login_id=%s' in sql else None)
+    taken = client.get('/api/auth/check-id?login_id=master')
+    assert taken.status_code == 200
+    assert taken.json()['available'] is False
+    assert client.post('/api/auth/join', json={'login_id': 'master', 'name': 'Dup', 'password': 'password123'}).status_code == 409
+
+
 def test_fifth_failure_locks_sixth_and_valid_password_until_expiry(auth,monkeypatch):
     db,client=auth
     for _ in range(5):assert client.post('/api/auth/login',json={'login_id':'master','password':'wrong'}).status_code==401

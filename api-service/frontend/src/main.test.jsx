@@ -3,12 +3,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { displayOrderStatus, orderStatus } from './api';
 import {
+  AccountSettings,
   AppInstallModal,
+  AppLoadingSplash,
   BacktestEquityCurve,
   BrandLogo,
+  ButtonSpinner,
+  EmptyState,
   Login,
   Monitor,
   Settings,
+  SkeletonMetricsGrid,
+  SkeletonSignals,
+  SkeletonTable,
   batchUpdateAutoTradeMarkets,
   computeEnabledRanks,
   date,
@@ -448,6 +455,33 @@ describe('Login component & Brand / PWA Install Modal', () => {
     expect(html).toContain('계정이 없으신가요? 회원가입');
   });
 
+  it('renders signup form with ID duplicate check, password confirm, and optional contact fields', () => {
+    const html = renderToStaticMarkup(<Login onLogin={() => {}} initialJoining={true} />);
+    expect(html).toContain('새 계정 만들기');
+    expect(html).toContain('이름 (닉네임)');
+    expect(html).toContain('아이디 중복 확인');
+    expect(html).toContain('비밀번호 확인');
+    expect(html).toContain('이메일 (선택)');
+    expect(html).toContain('연락처 (선택)');
+    expect(html).toContain('계정 생성');
+    expect(html).toContain('로그인으로 돌아가기');
+  });
+
+  it('renders AccountSettings card with profile and password management fields', () => {
+    const html = renderToStaticMarkup(
+      <AccountSettings
+        user={{ user_login_id: 'trader01', user_name: '트레이더', user_role: 'MASTER', user_email: 't@example.com', user_phone: '010-1111-2222' }}
+        onUserChanged={() => {}}
+      />
+    );
+    expect(html).toContain('내 계정 · 비밀번호 관리');
+    expect(html).toContain('trader01');
+    expect(html).toContain('MASTER');
+    expect(html).toContain('현재 비밀번호 (비밀번호 변경 시 필수)');
+    expect(html).toContain('새 비밀번호 (8자 이상)');
+    expect(html).toContain('계정 정보 저장');
+  });
+
   it('renders BrandLogo and AppInstallModal with native and platform install guides', () => {
     const logoHtml = renderToStaticMarkup(<BrandLogo size={56} />);
     expect(logoHtml).toContain('MA40 Auto Trader 로고');
@@ -464,5 +498,84 @@ describe('Login component & Brand / PWA Install Modal', () => {
     expect(modalHtml).toContain('지금 바로 앱 다운로드 (원클릭 설치)');
     expect(modalHtml).toContain('Android · PC (Chrome / Edge / 삼성 인터넷)');
     expect(modalHtml).toContain('iPhone · iPad (Safari 브라우저)');
+  });
+});
+
+describe('Milestone 2 Async UX components', () => {
+  it('renders AppLoadingSplash with brand logo, title, and session check status', () => {
+    const html = renderToStaticMarkup(<AppLoadingSplash />);
+    expect(html).toContain('UPBIT MA40 AUTO TRADER');
+    expect(html).toContain('40일 이동평균 자동매매');
+    expect(html).toContain('보안 세션을 확인하고 있습니다…');
+    expect(html).toContain('splash-logo');
+    expect(html).toContain('app-splash');
+  });
+
+  it('renders SkeletonMetricsGrid with 7 skeleton cards', () => {
+    const html = renderToStaticMarkup(<SkeletonMetricsGrid />);
+    expect(html).toContain('metric-grid');
+    expect(html).toContain('skeleton-metric-card');
+    const cardCount = (html.match(/skeleton-metric-card/g) || []).length;
+    expect(cardCount).toBe(7);
+  });
+
+  it('renders SkeletonSignals with requested card count and skeleton bars', () => {
+    const html = renderToStaticMarkup(<SkeletonSignals count={4} />);
+    expect(html).toContain('recommendations');
+    expect(html).toContain('skeleton-signal-card');
+    const cardCount = (html.match(/skeleton-signal-card/g) || []).length;
+    expect(cardCount).toBe(4);
+  });
+
+  it('renders SkeletonTable with specified columns and rows', () => {
+    const html = renderToStaticMarkup(
+      <table>
+        <SkeletonTable cols={6} rows={5} />
+      </table>
+    );
+    expect(html).toContain('skeleton-row');
+    const rowCount = (html.match(/<tr/g) || []).length;
+    expect(rowCount).toBe(5);
+    const cellCount = (html.match(/<td/g) || []).length;
+    expect(cellCount).toBe(30);
+  });
+
+  it('renders EmptyState with icon, title, description, and action button', () => {
+    const html = renderToStaticMarkup(
+      <EmptyState
+        icon="🚀"
+        title="시작하기"
+        description="전략 설정을 확인하세요."
+        action={<button type="button">확인</button>}
+      />
+    );
+    expect(html).toContain('empty-state-card');
+    expect(html).toContain('🚀');
+    expect(html).toContain('시작하기');
+    expect(html).toContain('전략 설정을 확인하세요.');
+    expect(html).toContain('확인');
+  });
+
+  it('renders ButtonSpinner with specified size and btn-loader class', () => {
+    const html = renderToStaticMarkup(<ButtonSpinner size={14} className="test-spinner" />);
+    expect(html).toContain('loader btn-loader test-spinner');
+    expect(html).toContain('width:14px');
+    expect(html).toContain('height:14px');
+  });
+
+  it('renders empty states in Monitor when assets, orders, or signals are empty', () => {
+    const emptyData = {
+      total_valuation: 0,
+      today_executed_count: 0,
+      performance: { invested: 0, unrealized_profit: 0, unrealized_rate: 0, today_change: 0, today_change_rate: 0 },
+      safety: { level: 'healthy', summary: '정상', unresolved_orders: 0 },
+      recommendations: [],
+      assets: [],
+      recent_orders: [],
+    };
+    const html = renderToStaticMarkup(<Monitor data={emptyData} refresh={() => {}} />);
+    expect(html).toContain('보유 중인 자산이 없습니다');
+    expect(html).toContain('최근 거래 내역이 없습니다');
+    expect(html).toContain('현재 매수 신호가 없습니다.');
   });
 });
